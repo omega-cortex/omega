@@ -5,7 +5,11 @@ mod selfcheck;
 
 use clap::{Parser, Subcommand};
 use omega_channels::telegram::TelegramChannel;
-use omega_core::{config, context::Context, traits::Provider};
+use omega_core::{
+    config::{self, Prompts},
+    context::Context,
+    traits::Provider,
+};
 use omega_memory::Store;
 use omega_providers::claude_code::ClaudeCodeProvider;
 use std::collections::HashMap;
@@ -64,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Start => {
             let cfg = config::load(&cli.config)?;
+            let prompts = Prompts::load(&cfg.omega.data_dir);
 
             // Build provider.
             let provider: Arc<dyn omega_core::traits::Provider> = Arc::from(build_provider(&cfg)?);
@@ -111,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
                 cfg.channel.clone(),
                 cfg.heartbeat.clone(),
                 cfg.scheduler.clone(),
+                prompts,
             );
             gw.run().await?;
         }

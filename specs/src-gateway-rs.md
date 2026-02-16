@@ -31,6 +31,7 @@ pub struct Gateway {
     channel_config: ChannelConfig,             // Per-channel configuration
     heartbeat_config: HeartbeatConfig,         // Periodic AI check-in settings
     scheduler_config: SchedulerConfig,         // Scheduled task delivery settings
+    prompts: Prompts,                          // Externalized prompts & welcome messages
     uptime: Instant,                           // Server start time
 }
 ```
@@ -44,13 +45,14 @@ pub struct Gateway {
 - `channel_config`: Per-channel settings (Telegram allowed_users list).
 - `heartbeat_config`: Periodic heartbeat check-in configuration (interval, active hours, channel, reply target).
 - `scheduler_config`: Scheduled task delivery configuration (enabled flag, poll interval).
+- `prompts`: Externalized prompts and welcome messages, loaded from `~/.omega/SYSTEM_PROMPT.md` and `~/.omega/WELCOME.toml` at startup. Falls back to hardcoded defaults if files are missing.
 - `uptime`: Tracks server start time for uptime calculations in commands.
 
 ## Functions
 
 ### Public Methods
 
-#### `new(provider, channels, memory, auth_config, channel_config, heartbeat_config, scheduler_config) -> Self`
+#### `new(provider, channels, memory, auth_config, channel_config, heartbeat_config, scheduler_config, prompts) -> Self`
 **Purpose:** Construct a new gateway instance.
 
 **Parameters:**
@@ -61,6 +63,7 @@ pub struct Gateway {
 - `channel_config: ChannelConfig` - Per-channel configuration.
 - `heartbeat_config: HeartbeatConfig` - Heartbeat check-in configuration.
 - `scheduler_config: SchedulerConfig` - Scheduled task delivery configuration.
+- `prompts: Prompts` - Externalized prompts and welcome messages (loaded from `~/.omega/` files or defaults).
 
 **Returns:** New `Gateway` instance.
 
@@ -69,7 +72,7 @@ pub struct Gateway {
 - Captures current time as `uptime`.
 - Stores all parameters as instance fields.
 
-**Error Handling:** None (infallible).
+**Error Handling:** None (infallible). Has `#[allow(clippy::too_many_arguments)]` attribute.
 
 #### `async fn run(&mut self) -> anyhow::Result<()>`
 **Purpose:** Start the gateway event loop and run until shutdown signal.
@@ -106,12 +109,14 @@ pub struct Gateway {
 - If `channel.start()` fails, wraps error in anyhow and returns immediately.
 - Channel listener tasks suppress errors silently (logs info if gateway receiver drops).
 
-#### `async fn background_summarizer(store: Store, provider: Arc<dyn Provider>)`
+#### `async fn background_summarizer(store: Store, provider: Arc<dyn Provider>, summarize_prompt: String, facts_prompt: String)`
 **Purpose:** Periodically find and summarize idle conversations (infinite background task).
 
 **Parameters:**
 - `store: Store` - Shared memory store.
 - `provider: Arc<dyn Provider>` - Shared provider reference.
+- `summarize_prompt: String` - Prompt template for conversation summarization (from `Prompts.summarize`).
+- `facts_prompt: String` - Prompt template for facts extraction (from `Prompts.facts`).
 
 **Returns:** Never returns (infinite loop).
 
@@ -163,13 +168,15 @@ pub struct Gateway {
 - Task completion errors are logged but do not stop the loop.
 - `get_due_tasks()` errors are logged but do not stop the loop.
 
-#### `async fn heartbeat_loop(provider: Arc<dyn Provider>, channels: HashMap<String, Arc<dyn Channel>>, config: HeartbeatConfig)`
+#### `async fn heartbeat_loop(provider: Arc<dyn Provider>, channels: HashMap<String, Arc<dyn Channel>>, config: HeartbeatConfig, heartbeat_prompt: String, heartbeat_checklist_prompt: String)`
 **Purpose:** Background task that periodically invokes the AI provider for a health check-in. If the provider reports an issue, the alert is delivered via a configured channel. If everything is fine (response contains `HEARTBEAT_OK`), the response is suppressed.
 
 **Parameters:**
 - `provider: Arc<dyn Provider>` - Shared provider reference for the check-in call.
 - `channels: HashMap<String, Arc<dyn Channel>>` - Map of channel implementations for alert delivery.
 - `config: HeartbeatConfig` - Heartbeat configuration (interval, active hours, channel, reply target).
+- `heartbeat_prompt: String` - Prompt for heartbeat check-in without checklist (from `Prompts.heartbeat`).
+- `heartbeat_checklist_prompt: String` - Prompt template with `{checklist}` placeholder (from `Prompts.heartbeat_checklist`).
 
 **Returns:** Never returns (infinite loop).
 
@@ -180,8 +187,8 @@ pub struct Gateway {
    - If outside active hours, log info and skip this iteration.
 3. Read optional checklist from `~/.omega/HEARTBEAT.md` via `read_heartbeat_file()`.
 4. Build prompt:
-   - If checklist is empty: generic heartbeat prompt asking provider to respond with `HEARTBEAT_OK` if fine.
-   - If checklist has content: prompt includes the checklist for review.
+   - If checklist is empty: use `heartbeat_prompt` (cloned).
+   - If checklist has content: use `heartbeat_checklist_prompt` with `{checklist}` replaced by the file content.
 5. Call `provider.complete()` with the prompt context.
 6. On success:
    - If response contains `HEARTBEAT_OK`, log info and suppress (no message sent).
@@ -198,13 +205,15 @@ pub struct Gateway {
 - Channel send errors are logged but do not stop the loop.
 - Missing channel is logged as warning.
 
-#### `async fn summarize_conversation(store: &Store, provider: &Arc<dyn Provider>, conversation_id: &str) -> Result<(), anyhow::Error>`
+#### `async fn summarize_conversation(store: &Store, provider: &Arc<dyn Provider>, conversation_id: &str, summarize_prompt: &str, facts_prompt_template: &str) -> Result<(), anyhow::Error>`
 **Purpose:** Summarize a conversation, extract user facts, and close it.
 
 **Parameters:**
 - `store: &Store` - Reference to the memory store.
 - `provider: &Arc<dyn Provider>` - Reference to the AI provider.
 - `conversation_id: &str` - ID of the conversation to summarize.
+- `summarize_prompt: &str` - Prompt for conversation summarization (from `Prompts.summarize`).
+- `facts_prompt_template: &str` - Prompt for facts extraction (from `Prompts.facts`).
 
 **Returns:** `Result<(), anyhow::Error>`.
 
@@ -213,12 +222,12 @@ pub struct Gateway {
 2. If empty, close the conversation with "(empty conversation)" summary and return Ok.
 3. Build a plain-text transcript by iterating messages and formatting as "User: ..." or "Assistant: ...".
 4. **Summarization step:**
-   - Create prompt: "Summarize this conversation in 1-2 sentences. Be factual and concise. Do not add commentary.\n\n{transcript}"
+   - Create prompt by concatenating `summarize_prompt` + "\n\n" + transcript.
    - Call `provider.complete(Context::new(prompt))`.
    - On success, use the response text as summary.
    - On failure, use fallback: "({count} messages, summary unavailable)".
 5. **Facts extraction step:**
-   - Create prompt: "Extract key facts about the user from this conversation. Return each fact as 'key: value' on its own line. Only include concrete, personal facts (name, preferences, location, etc.). If no facts are apparent, respond with 'none'.\n\n{transcript}"
+   - Create prompt by concatenating `facts_prompt_template` + "\n\n" + transcript.
    - Call `provider.complete(Context::new(prompt))`.
    - Parse response line by line as "key: value" pairs.
    - For each valid pair (non-empty key and value), call `store.store_fact(sender_id, key, value)`.
@@ -304,7 +313,7 @@ pub struct Gateway {
 - Store handle for later abort.
 
 **Stage 5: Build Context from Memory (Lines 344-356)**
-- Call `self.memory.build_context(&clean_incoming)` to build enriched context.
+- Call `self.memory.build_context(&clean_incoming, &self.prompts.system)` to build enriched context.
 - This includes recent conversation history, relevant facts, and system prompt.
 - If error, abort typing task, send error message, and return.
 
@@ -617,7 +626,7 @@ The response includes:
 ## Memory Integration
 
 ### Store Operations Used
-- **`build_context(&IncomingMessage) -> Result<Context>`:** Builds enriched context with history and facts.
+- **`build_context(&IncomingMessage, &str) -> Result<Context>`:** Builds enriched context with history and facts, using the provided base system prompt.
 - **`store_exchange(&IncomingMessage, &OutgoingMessage) -> Result<()>`:** Saves the message pair to conversation history.
 - **`store_fact(&sender_id, &key, &value) -> Result<()>`:** Stores an extracted fact about a user.
 - **`get_conversation_messages(&conversation_id) -> Result<Vec<(String, String)>>`:** Fetches all messages in a conversation.
@@ -692,7 +701,7 @@ All interactions are logged to SQLite with:
 - `chrono` - Local time formatting for active hours check.
 
 ### Internal Dependencies
-- `omega_core` - Core types, traits, config, sanitization.
+- `omega_core` - Core types, traits, config (including `Prompts`), sanitization.
 - `omega_memory` - Store, AuditLogger, AuditEntry, AuditStatus.
 - `crate::commands` - Command parsing and handling.
 

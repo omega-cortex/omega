@@ -66,7 +66,7 @@ Simple contexts are lightweight and disposable. They are used when there is no c
 When a message arrives through Telegram or another channel, the gateway builds a much richer context using the memory store:
 
 ```rust
-let context = self.memory.build_context(&incoming).await?;
+let context = self.memory.build_context(&incoming, &self.prompts.system).await?;
 ```
 
 This does significantly more work behind the scenes:

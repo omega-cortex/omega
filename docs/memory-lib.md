@@ -65,7 +65,7 @@ The most important method. Given an incoming message, it assembles a full `Conte
 ```rust
 use omega_core::message::IncomingMessage;
 
-let context = store.build_context(&incoming_message).await?;
+let context = store.build_context(&incoming_message, &prompts.system).await?;
 // context.system_prompt  -- enriched with user facts and conversation summaries
 // context.history        -- recent messages from the current conversation
 // context.current_message -- the user's new message
@@ -242,7 +242,7 @@ Incoming message arrives from a channel
 Auth check (allowed_users)
     |
     v
-store.build_context(&incoming)  <-- Loads history, facts, summaries
+store.build_context(&incoming, &prompts.system)  <-- Loads history, facts, summaries
     |                                Builds enriched system prompt
     v
 provider.complete(&context)     <-- AI generates response
@@ -331,7 +331,7 @@ If you need a new subsystem (e.g. a scheduler store), add it as a sibling module
 | You want to... | Use this |
 |----------------|----------|
 | Initialize memory | `Store::new(&config.memory).await?` |
-| Build context for a provider | `store.build_context(&incoming).await?` |
+| Build context for a provider | `store.build_context(&incoming, &prompts.system).await?` |
 | Store a message exchange | `store.store_exchange(&incoming, &response).await?` |
 | Store a user fact | `store.store_fact("sender", "key", "value").await?` |
 | Get user facts | `store.get_facts("sender").await?` |

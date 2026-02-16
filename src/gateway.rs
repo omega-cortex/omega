@@ -5,7 +5,7 @@
 
 use crate::commands;
 use omega_core::{
-    config::{AuthConfig, ChannelConfig, HeartbeatConfig, SchedulerConfig},
+    config::{AuthConfig, ChannelConfig, HeartbeatConfig, Prompts, SchedulerConfig},
     context::Context,
     message::{IncomingMessage, MessageMetadata, OutgoingMessage},
     sanitize,
@@ -31,11 +31,13 @@ pub struct Gateway {
     channel_config: ChannelConfig,
     heartbeat_config: HeartbeatConfig,
     scheduler_config: SchedulerConfig,
+    prompts: Prompts,
     uptime: Instant,
 }
 
 impl Gateway {
     /// Create a new gateway.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider: Arc<dyn Provider>,
         channels: HashMap<String, Arc<dyn Channel>>,
@@ -44,6 +46,7 @@ impl Gateway {
         channel_config: ChannelConfig,
         heartbeat_config: HeartbeatConfig,
         scheduler_config: SchedulerConfig,
+        prompts: Prompts,
     ) -> Self {
         let audit = AuditLogger::new(memory.pool().clone());
         Self {
@@ -55,6 +58,7 @@ impl Gateway {
             channel_config,
             heartbeat_config,
             scheduler_config,
+            prompts,
             uptime: Instant::now(),
         }
     }
@@ -99,8 +103,10 @@ impl Gateway {
         // Spawn background summarization task.
         let bg_store = self.memory.clone();
         let bg_provider = self.provider.clone();
+        let bg_summarize = self.prompts.summarize.clone();
+        let bg_facts = self.prompts.facts.clone();
         let bg_handle = tokio::spawn(async move {
-            Self::background_summarizer(bg_store, bg_provider).await;
+            Self::background_summarizer(bg_store, bg_provider, bg_summarize, bg_facts).await;
         });
 
         // Spawn scheduler loop.
@@ -120,8 +126,17 @@ impl Gateway {
             let hb_provider = self.provider.clone();
             let hb_channels = self.channels.clone();
             let hb_config = self.heartbeat_config.clone();
+            let hb_prompt = self.prompts.heartbeat.clone();
+            let hb_prompt_checklist = self.prompts.heartbeat_checklist.clone();
             Some(tokio::spawn(async move {
-                Self::heartbeat_loop(hb_provider, hb_channels, hb_config).await;
+                Self::heartbeat_loop(
+                    hb_provider,
+                    hb_channels,
+                    hb_config,
+                    hb_prompt,
+                    hb_prompt_checklist,
+                )
+                .await;
             }))
         } else {
             None
@@ -146,15 +161,26 @@ impl Gateway {
     }
 
     /// Background task: periodically find and summarize idle conversations.
-    async fn background_summarizer(store: Store, provider: Arc<dyn Provider>) {
+    async fn background_summarizer(
+        store: Store,
+        provider: Arc<dyn Provider>,
+        summarize_prompt: String,
+        facts_prompt: String,
+    ) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
 
             match store.find_idle_conversations().await {
                 Ok(convos) => {
                     for (conv_id, _channel, _sender_id) in &convos {
-                        if let Err(e) =
-                            Self::summarize_conversation(&store, &provider, conv_id).await
+                        if let Err(e) = Self::summarize_conversation(
+                            &store,
+                            &provider,
+                            conv_id,
+                            &summarize_prompt,
+                            &facts_prompt,
+                        )
+                        .await
                         {
                             error!("failed to summarize conversation {conv_id}: {e}");
                         }
@@ -214,6 +240,8 @@ impl Gateway {
         provider: Arc<dyn Provider>,
         channels: HashMap<String, Arc<dyn Channel>>,
         config: HeartbeatConfig,
+        heartbeat_prompt: String,
+        heartbeat_checklist_prompt: String,
     ) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(config.interval_minutes * 60)).await;
@@ -231,17 +259,9 @@ impl Gateway {
             let checklist = read_heartbeat_file().unwrap_or_default();
 
             let prompt = if checklist.is_empty() {
-                "You are Omega performing a periodic heartbeat check. \
-                 If everything is fine, respond with exactly HEARTBEAT_OK. \
-                 Otherwise, respond with a brief alert."
-                    .to_string()
+                heartbeat_prompt.clone()
             } else {
-                format!(
-                    "You are Omega performing a periodic heartbeat check.\n\
-                     Review this checklist and report anything that needs attention.\n\
-                     If everything is fine, respond with exactly HEARTBEAT_OK.\n\n\
-                     {checklist}"
-                )
+                heartbeat_checklist_prompt.replace("{checklist}", &checklist)
             };
 
             let ctx = Context::new(&prompt);
@@ -277,6 +297,8 @@ impl Gateway {
         store: &Store,
         provider: &Arc<dyn Provider>,
         conversation_id: &str,
+        summarize_prompt: &str,
+        facts_prompt_template: &str,
     ) -> Result<(), anyhow::Error> {
         let messages = store.get_conversation_messages(conversation_id).await?;
         if messages.is_empty() {
@@ -294,11 +316,8 @@ impl Gateway {
         }
 
         // Ask provider to summarize.
-        let summary_prompt = format!(
-            "Summarize this conversation in 1-2 sentences. Be factual and concise. \
-             Do not add commentary.\n\n{transcript}"
-        );
-        let summary_ctx = Context::new(&summary_prompt);
+        let full_summary_prompt = format!("{summarize_prompt}\n\n{transcript}");
+        let summary_ctx = Context::new(&full_summary_prompt);
         let summary = match provider.complete(&summary_ctx).await {
             Ok(resp) => resp.text,
             Err(e) => {
@@ -308,12 +327,7 @@ impl Gateway {
         };
 
         // Ask provider to extract facts.
-        let facts_prompt = format!(
-            "Extract key facts about the user from this conversation. \
-             Return each fact as 'key: value' on its own line. \
-             Only include concrete, personal facts (name, preferences, location, etc.). \
-             If no facts are apparent, respond with 'none'.\n\n{transcript}"
-        );
+        let facts_prompt = format!("{facts_prompt_template}\n\n{transcript}");
         let facts_ctx = Context::new(&facts_prompt);
         if let Ok(facts_resp) = provider.complete(&facts_ctx).await {
             let text = facts_resp.text.trim().to_string();
@@ -369,8 +383,14 @@ impl Gateway {
         match self.memory.find_all_active_conversations().await {
             Ok(convos) => {
                 for (conv_id, _channel, _sender_id) in &convos {
-                    if let Err(e) =
-                        Self::summarize_conversation(&self.memory, &self.provider, conv_id).await
+                    if let Err(e) = Self::summarize_conversation(
+                        &self.memory,
+                        &self.provider,
+                        conv_id,
+                        &self.prompts.summarize,
+                        &self.prompts.facts,
+                    )
+                    .await
                     {
                         warn!("shutdown summarization failed for {conv_id}: {e}");
                     }
@@ -453,7 +473,14 @@ impl Gateway {
         // --- 2b. WELCOME CHECK (first-time users) ---
         if let Ok(true) = self.memory.is_new_user(&incoming.sender_id).await {
             let lang = detect_language(&clean_incoming.text);
-            self.send_text(&incoming, welcome_message(lang)).await;
+            let default_welcome = self
+                .prompts
+                .welcome
+                .get("English")
+                .cloned()
+                .unwrap_or_default();
+            let welcome_msg = self.prompts.welcome.get(lang).unwrap_or(&default_welcome);
+            self.send_text(&incoming, welcome_msg).await;
             // Store welcomed fact and detected language preference.
             let _ = self
                 .memory
@@ -506,7 +533,11 @@ impl Gateway {
         };
 
         // --- 4. BUILD CONTEXT FROM MEMORY ---
-        let context = match self.memory.build_context(&clean_incoming).await {
+        let context = match self
+            .memory
+            .build_context(&clean_incoming, &self.prompts.system)
+            .await
+        {
             Ok(ctx) => ctx,
             Err(e) => {
                 error!("failed to build context: {e}");
@@ -689,20 +720,6 @@ impl Gateway {
     }
 }
 
-/// Return a hardcoded welcome message for the given language.
-fn welcome_message(language: &str) -> &'static str {
-    match language {
-        "Spanish" => "Soy Omega, tu agente personal de inteligencia artificial. Corro sobre tu propia infraestructura, construido en Rust \u{01f4aa}, conectado a Telegram y con Claude como cerebro.\n\nEs un honor estar a tu servicio \u{01fae1} \u{00bf}Qu\u{00e9} necesitas de m\u{00ed}?",
-        "Portuguese" => "Sou o Omega, seu agente pessoal de intelig\u{00ea}ncia artificial. Rodo na sua pr\u{00f3}pria infraestrutura, constru\u{00ed}do em Rust \u{01f4aa}, conectado ao Telegram e com Claude como c\u{00e9}rebro.\n\n\u{00c9} uma honra estar ao seu servi\u{00e7}o \u{01fae1} Do que voc\u{00ea} precisa?",
-        "French" => "Je suis Omega, votre agent personnel d'intelligence artificielle. Je tourne sur votre propre infrastructure, construit en Rust \u{01f4aa}, connect\u{00e9} \u{00e0} Telegram et avec Claude comme cerveau.\n\nC'est un honneur d'\u{00ea}tre \u{00e0} votre service \u{01fae1} De quoi avez-vous besoin\u{00a0}?",
-        "German" => "Ich bin Omega, dein pers\u{00f6}nlicher KI-Agent. Ich laufe auf deiner eigenen Infrastruktur, gebaut in Rust \u{01f4aa}, verbunden mit Telegram und mit Claude als Gehirn.\n\nEs ist mir eine Ehre, dir zu dienen \u{01fae1} Was brauchst du von mir?",
-        "Italian" => "Sono Omega, il tuo agente personale di intelligenza artificiale. Giro sulla tua infrastruttura, costruito in Rust \u{01f4aa}, connesso a Telegram e con Claude come cervello.\n\n\u{00c8} un onore essere al tuo servizio \u{01fae1} Di cosa hai bisogno?",
-        "Dutch" => "Ik ben Omega, je persoonlijke AI-agent. Ik draai op je eigen infrastructuur, gebouwd in Rust \u{01f4aa}, verbonden met Telegram en met Claude als brein.\n\nHet is een eer om je van dienst te zijn \u{01fae1} Wat heb je nodig?",
-        "Russian" => "\u{042f} Omega, \u{0432}\u{0430}\u{0448} \u{043f}\u{0435}\u{0440}\u{0441}\u{043e}\u{043d}\u{0430}\u{043b}\u{044c}\u{043d}\u{044b}\u{0439} \u{0430}\u{0433}\u{0435}\u{043d}\u{0442} \u{0438}\u{0441}\u{043a}\u{0443}\u{0441}\u{0441}\u{0442}\u{0432}\u{0435}\u{043d}\u{043d}\u{043e}\u{0433}\u{043e} \u{0438}\u{043d}\u{0442}\u{0435}\u{043b}\u{043b}\u{0435}\u{043a}\u{0442}\u{0430}. \u{042f} \u{0440}\u{0430}\u{0431}\u{043e}\u{0442}\u{0430}\u{044e} \u{043d}\u{0430} \u{0432}\u{0430}\u{0448}\u{0435}\u{0439} \u{0441}\u{043e}\u{0431}\u{0441}\u{0442}\u{0432}\u{0435}\u{043d}\u{043d}\u{043e}\u{0439} \u{0438}\u{043d}\u{0444}\u{0440}\u{0430}\u{0441}\u{0442}\u{0440}\u{0443}\u{043a}\u{0442}\u{0443}\u{0440}\u{0435}, \u{043d}\u{0430}\u{043f}\u{0438}\u{0441}\u{0430}\u{043d} \u{043d}\u{0430} Rust \u{01f4aa}, \u{043f}\u{043e}\u{0434}\u{043a}\u{043b}\u{044e}\u{0447}\u{0451}\u{043d} \u{043a} Telegram \u{0438} \u{0438}\u{0441}\u{043f}\u{043e}\u{043b}\u{044c}\u{0437}\u{0443}\u{044e} Claude \u{043a}\u{0430}\u{043a} \u{043c}\u{043e}\u{0437}\u{0433}.\n\n\u{0414}\u{043b}\u{044f} \u{043c}\u{0435}\u{043d}\u{044f} \u{0447}\u{0435}\u{0441}\u{0442}\u{044c} \u{0441}\u{043b}\u{0443}\u{0436}\u{0438}\u{0442}\u{044c} \u{0432}\u{0430}\u{043c} \u{01fae1} \u{0427}\u{0442}\u{043e} \u{0432}\u{0430}\u{043c} \u{043d}\u{0443}\u{0436}\u{043d}\u{043e}?",
-        _ => "I'm Omega, your personal artificial intelligence agent. I run on your own infrastructure, built in Rust \u{01f4aa}, connected to Telegram and with Claude as my brain.\n\nIt's an honor to be at your service \u{01fae1} What do you need from me?",
-    }
-}
-
 /// Extract the first `SCHEDULE:` line from response text.
 fn extract_schedule_marker(text: &str) -> Option<String> {
     text.lines()
@@ -873,23 +890,33 @@ mod tests {
     }
 
     #[test]
-    fn test_welcome_message_all_languages() {
+    fn test_prompts_default_welcome_all_languages() {
+        let prompts = Prompts::default();
         let languages = [
-            "English", "Spanish", "Portuguese", "French", "German", "Italian", "Dutch", "Russian",
+            "English",
+            "Spanish",
+            "Portuguese",
+            "French",
+            "German",
+            "Italian",
+            "Dutch",
+            "Russian",
         ];
         for lang in &languages {
-            let msg = welcome_message(lang);
-            assert!(!msg.is_empty(), "welcome for {lang} should not be empty");
+            let msg = prompts.welcome.get(*lang);
+            assert!(msg.is_some(), "welcome for {lang} should exist");
             assert!(
-                msg.contains("Omega"),
+                msg.unwrap().contains("Omega"),
                 "welcome for {lang} should mention Omega"
             );
         }
     }
 
     #[test]
-    fn test_welcome_message_unknown_falls_back_to_english() {
-        let msg = welcome_message("Klingon");
+    fn test_prompts_default_welcome_fallback() {
+        let prompts = Prompts::default();
+        let default = prompts.welcome.get("English").cloned().unwrap_or_default();
+        let msg = prompts.welcome.get("Klingon").unwrap_or(&default);
         assert!(msg.contains("Omega"));
         assert!(msg.contains("Rust"));
     }

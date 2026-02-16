@@ -8,3 +8,5 @@ pub mod error;
 pub mod message;
 pub mod sanitize;
 pub mod traits;
+
+pub use config::shellexpand;

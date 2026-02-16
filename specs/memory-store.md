@@ -626,7 +626,7 @@ LIMIT ?
 
 ---
 
-#### `async fn build_context(&self, incoming: &IncomingMessage) -> Result<Context, OmegaError>`
+#### `async fn build_context(&self, incoming: &IncomingMessage, base_system_prompt: &str) -> Result<Context, OmegaError>`
 
 **Purpose:** Build a complete conversation context for the AI provider from the current conversation state, user facts, recent summaries, and recalled past messages.
 
@@ -635,6 +635,7 @@ LIMIT ?
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `incoming` | `&IncomingMessage` | The incoming message (provides `channel`, `sender_id`, `text`). |
+| `base_system_prompt` | `&str` | The base system prompt (personality/rules) from `Prompts.system`. |
 
 **Returns:** `Result<Context, OmegaError>`.
 
@@ -647,7 +648,7 @@ LIMIT ?
 6. Resolve language preference:
    - If a `preferred_language` fact exists in the fetched facts, use it.
    - Otherwise, call `detect_language(&incoming.text)` and store the result as a `preferred_language` fact.
-7. Build a dynamic system prompt via `build_system_prompt()`, passing the resolved language.
+7. Build a dynamic system prompt via `build_system_prompt()`, passing the `base_system_prompt` and the resolved language.
 8. Return a `Context` with the system prompt, history, and current message.
 
 **SQL (step 2):**
@@ -680,7 +681,7 @@ SELECT messages                          get_facts(sender_id)
     |                                     else → detect_language(text) + store fact
     |                                         |
     v                                         v
-history: Vec<ContextEntry>     build_system_prompt(facts, summaries, recall, language)
+history: Vec<ContextEntry>     build_system_prompt(base_system_prompt, facts, summaries, recall, tasks, language)
     |                                         |
     v                                         v
     └──────────────┬─────────────────────────┘
@@ -972,25 +973,13 @@ same ID  new ID
 
 ## Private Free Functions
 
-### `fn shellexpand(path: &str) -> String`
+### `shellexpand` (imported from `omega_core::shellexpand`)
 
-**Purpose:** Expand `~` prefix to the user's home directory.
-
-**Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `path` | `&str` | File path that may start with `~/`. |
-
-**Returns:** `String` with `~` expanded to `$HOME`.
-
-**Logic:**
-1. If path starts with `~/`, replace `~` with the value of the `HOME` environment variable.
-2. If `HOME` is not set or path does not start with `~/`, return the path unchanged.
+The `shellexpand()` utility is now a public function in `omega_core::config`, re-exported as `omega_core::shellexpand`. It expands `~/` prefix to `$HOME/`. This store imports it rather than defining its own copy.
 
 ---
 
-### `fn build_system_prompt(facts: &[(String, String)], summaries: &[(String, String)], recall: &[(String, String, String)], language: &str) -> String`
+### `fn build_system_prompt(base_rules: &str, facts: &[(String, String)], summaries: &[(String, String)], recall: &[(String, String, String)], pending_tasks: &[(String, String, String, Option<String>)], language: &str) -> String`
 
 **Purpose:** Build a dynamic system prompt enriched with user facts, conversation summaries, recalled past messages, and explicit language instruction.
 
@@ -998,24 +987,18 @@ same ID  new ID
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `base_rules` | `&str` | Base personality/rules text (from `Prompts.system`). |
 | `facts` | `&[(String, String)]` | User facts as `(key, value)` pairs. |
 | `summaries` | `&[(String, String)]` | Recent conversation summaries as `(summary, timestamp)` pairs. |
 | `recall` | `&[(String, String, String)]` | Recalled past messages as `(role, content, timestamp)` tuples. |
+| `pending_tasks` | `&[(String, String, String, Option<String>)]` | Pending scheduled tasks as `(id, description, due_at, repeat)`. |
 | `language` | `&str` | The user's preferred language (e.g., `"English"`, `"Spanish"`). |
 
 **Returns:** `String` -- the complete system prompt.
 
 **Output structure:**
 ```
-You are Omega, a personal AI agent running on the owner's infrastructure.
-You are NOT a chatbot. You are an agent that DOES things.
-
-Rules:
-- When asked to DO something, DO IT. Don't explain how.
-- Answer concisely. No preamble.
-- Speak the same language the user uses.
-- Reference past conversations naturally when relevant.
-- Never apologize unnecessarily.
+<base_rules content from Prompts.system>
 
 Known facts about this user:          ← (only if facts is non-empty)
 - name: Alice
@@ -1231,6 +1214,7 @@ Facts, summaries, and recalled messages are fetched with `unwrap_or_default()`. 
 - `omega_core::context::{Context, ContextEntry}` -- Context types returned by `build_context()`.
 - `omega_core::error::OmegaError` -- Error type used for all results.
 - `omega_core::message::{IncomingMessage, OutgoingMessage}` -- Message types used by `build_context()` and `store_exchange()`.
+- `omega_core::shellexpand` -- Home directory expansion utility (replaces local copy).
 
 ## Tests
 

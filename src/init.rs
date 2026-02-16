@@ -1,5 +1,6 @@
 //! Init wizard — interactive 2-minute setup for new users.
 
+use omega_core::shellexpand;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
@@ -136,14 +137,4 @@ fn prompt(msg: &str) -> anyhow::Result<String> {
     let mut line = String::new();
     stdin.lock().read_line(&mut line)?;
     Ok(line.trim().to_string())
-}
-
-/// Expand `~` to home directory.
-fn shellexpand(path: &str) -> String {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return format!("{}/{rest}", home.to_string_lossy());
-        }
-    }
-    path.to_string()
 }

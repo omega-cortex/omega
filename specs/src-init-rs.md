@@ -10,7 +10,7 @@ Interactive setup wizard for new Omega users. Provides a 2-minute guided onboard
 The `init.rs` module contains:
 - `run()` — Main wizard orchestration function
 - `prompt()` — Interactive stdin reader for user input
-- `shellexpand()` — Home directory expansion helper for path handling
+- Uses `omega_core::shellexpand()` for home directory expansion (imported, not local)
 
 ## Init Wizard Flow
 
@@ -278,32 +278,9 @@ fn prompt(msg: &str) -> anyhow::Result<String>
 
 ---
 
-### `shellexpand()` Function Specification
+### `shellexpand()` (imported from `omega_core`)
 
-**Signature:**
-```rust
-fn shellexpand(path: &str) -> String
-```
-
-**Purpose:** Expand `~` prefix to user's home directory, mimicking shell behavior.
-
-**Logic:**
-1. Check if path starts with `~/`
-2. If yes:
-   - Strip `~/` prefix to get remainder
-   - Read `HOME` environment variable
-   - Return: `{HOME}/{remainder}`
-3. If no: Return path unchanged
-
-**Examples:**
-- `"~/.omega"` → `"/Users/isudoajl/.omega"` (example user)
-- `"/absolute/path"` → `"/absolute/path"` (unchanged)
-- `"relative/path"` → `"relative/path"` (unchanged)
-- `"~"` → `"~"` (unchanged; only `~/` pattern is handled)
-
-**Error Handling:** If `HOME` not set, returns original path unchanged. No error thrown.
-
-**Portability:** Works on macOS, Linux, and other Unix-like systems where `HOME` is set. Would fail on Windows (outside project scope; Omega is Unix-focused).
+The `shellexpand()` utility is imported from `omega_core::shellexpand` (defined in `omega_core::config`). It expands `~/` prefix to `$HOME/`. This module no longer defines its own copy.
 
 ---
 

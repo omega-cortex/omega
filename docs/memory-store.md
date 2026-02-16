@@ -164,7 +164,7 @@ A context has three parts:
 ### How Context Is Built
 
 ```rust
-let context = store.build_context(&incoming).await?;
+let context = store.build_context(&incoming, &prompts.system).await?;
 ```
 
 Behind the scenes, this does:
@@ -362,7 +362,7 @@ The most common usage pattern in the gateway:
 
 ```rust
 // Before provider call: build rich context from memory
-let context = store.build_context(&incoming).await?;
+let context = store.build_context(&incoming, &prompts.system).await?;
 
 // Call the AI provider
 let response = provider.complete(&context).await?;

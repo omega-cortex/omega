@@ -96,7 +96,7 @@ use omega_memory::audit::AuditLogger;
 | `delete_facts` | `pub async fn delete_facts(&self, sender_id: &str, key: Option<&str>) -> Result<u64, OmegaError>` | Delete facts: all facts for a sender if `key` is `None`, or a specific fact if `key` is `Some`; returns rows deleted |
 | `close_current_conversation` | `pub async fn close_current_conversation(&self, channel: &str, sender_id: &str) -> Result<bool, OmegaError>` | Close the active conversation for a sender on a channel (for `/forget` command); returns whether a conversation was closed |
 | `db_size` | `pub async fn db_size(&self) -> Result<u64, OmegaError>` | Get database file size in bytes via `PRAGMA page_count * page_size` |
-| `build_context` | `pub async fn build_context(&self, incoming: &IncomingMessage) -> Result<Context, OmegaError>` | Build a full `Context` for the AI provider: get/create conversation, load history, fetch facts and summaries, generate enriched system prompt |
+| `build_context` | `pub async fn build_context(&self, incoming: &IncomingMessage, base_system_prompt: &str) -> Result<Context, OmegaError>` | Build a full `Context` for the AI provider: get/create conversation, load history, fetch facts and summaries, generate enriched system prompt using the provided base prompt |
 | `store_exchange` | `pub async fn store_exchange(&self, incoming: &IncomingMessage, response: &OutgoingMessage) -> Result<(), OmegaError>` | Store both the user message and assistant response in the conversation |
 
 **Private Methods on `Store`:**
@@ -110,9 +110,7 @@ use omega_memory::audit::AuditLogger;
 
 | Function | Signature | Purpose |
 |----------|-----------|---------|
-| `shellexpand` | `fn shellexpand(path: &str) -> String` | Expand `~/` prefix to `$HOME/`; passthrough if no prefix |
-| `build_system_prompt` | `fn build_system_prompt(facts: &[(String, String)], summaries: &[(String, String)], current_message: &str) -> String` | Generate a dynamic system prompt enriched with user facts, conversation summaries, and language detection |
-| `likely_spanish` | `fn likely_spanish(text: &str) -> bool` | Heuristic: returns `true` if text contains 3+ Spanish language markers |
+| `build_system_prompt` | `fn build_system_prompt(base_rules: &str, facts: &[(String, String)], summaries: &[(String, String)], recall: &[(String, String, String)], pending_tasks: &[(String, String, String, Option<String>)], language: &str) -> String` | Generate a dynamic system prompt by combining an externalized base prompt with user facts, conversation summaries, recall, pending tasks, and language directive |
 
 **Migration System:**
 
@@ -237,7 +235,7 @@ The `audit` module depends on `store` at runtime: `AuditLogger::new()` takes a `
 
 | Dependency | Usage |
 |------------|-------|
-| `omega-core` | `MemoryConfig`, `Context`, `ContextEntry`, `OmegaError`, `IncomingMessage`, `OutgoingMessage` |
+| `omega-core` | `MemoryConfig`, `Context`, `ContextEntry`, `OmegaError`, `IncomingMessage`, `OutgoingMessage`, `shellexpand` |
 | `tokio` | Async runtime (required by sqlx and async methods) |
 | `serde` / `serde_json` | Serialization of `MessageMetadata` to `metadata_json` column |
 | `tracing` | `info!` in store initialization, `debug!` in audit logging |

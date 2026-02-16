@@ -5,6 +5,7 @@ use omega_core::{
     context::{Context, ContextEntry},
     error::OmegaError,
     message::{IncomingMessage, OutgoingMessage},
+    shellexpand,
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
@@ -440,7 +441,11 @@ impl Store {
     }
 
     /// Build a conversation context from memory for the provider.
-    pub async fn build_context(&self, incoming: &IncomingMessage) -> Result<Context, OmegaError> {
+    pub async fn build_context(
+        &self,
+        incoming: &IncomingMessage,
+        base_system_prompt: &str,
+    ) -> Result<Context, OmegaError> {
         let conv_id = self
             .get_or_create_conversation(&incoming.channel, &incoming.sender_id)
             .await?;
@@ -492,8 +497,14 @@ impl Store {
                 detected
             };
 
-        let system_prompt =
-            build_system_prompt(&facts, &summaries, &recall, &pending_tasks, &language);
+        let system_prompt = build_system_prompt(
+            base_system_prompt,
+            &facts,
+            &summaries,
+            &recall,
+            &pending_tasks,
+            &language,
+        );
 
         Ok(Context {
             system_prompt,
@@ -730,35 +741,16 @@ impl Store {
     }
 }
 
-/// Expand `~` to home directory.
-fn shellexpand(path: &str) -> String {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return format!("{}/{rest}", home.to_string_lossy());
-        }
-    }
-    path.to_string()
-}
-
 /// Build a dynamic system prompt enriched with facts, conversation history, and recalled messages.
 fn build_system_prompt(
+    base_rules: &str,
     facts: &[(String, String)],
     summaries: &[(String, String)],
     recall: &[(String, String, String)],
     pending_tasks: &[(String, String, String, Option<String>)],
     language: &str,
 ) -> String {
-    let mut prompt = String::from(
-        "You are Omega, a personal AI agent running on the owner's infrastructure.\n\
-         You are NOT a chatbot. You are an agent that DOES things.\n\n\
-         Rules:\n\
-         - When asked to DO something, DO IT. Don't explain how.\n\
-         - Answer concisely. No preamble.\n\
-         - Speak the same language the user uses.\n\
-         - Reference past conversations naturally when relevant.\n\
-         - Never apologize unnecessarily.\n\
-         - NEVER introduce yourself or describe what you can do. The user already received a welcome message. Just answer what they ask.",
-    );
+    let mut prompt = String::from(base_rules);
 
     if !facts.is_empty() {
         prompt.push_str("\n\nKnown facts about this user:");
@@ -790,7 +782,10 @@ fn build_system_prompt(
         prompt.push_str("\n\nUser's scheduled tasks:");
         for (id, desc, due_at, repeat) in pending_tasks {
             let r = repeat.as_deref().unwrap_or("once");
-            prompt.push_str(&format!("\n- [{id_short}] {desc} (due: {due_at}, {r})", id_short = &id[..8.min(id.len())]));
+            prompt.push_str(&format!(
+                "\n- [{id_short}] {desc} (due: {due_at}, {r})",
+                id_short = &id[..8.min(id.len())]
+            ));
         }
     }
 

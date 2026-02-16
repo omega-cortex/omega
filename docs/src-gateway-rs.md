@@ -130,7 +130,7 @@ Users expect to see "typing" indicators on messaging platforms. Without them, it
 **What happens:** The gateway builds a rich context for the AI provider, including conversation history and user facts.
 
 **Implementation:**
-- Calls `memory.build_context(&incoming)`.
+- Calls `memory.build_context(&incoming, &self.prompts.system)`.
 - The context includes:
   - The user's current message.
   - Recent conversation history (previous exchanges in the same thread).
