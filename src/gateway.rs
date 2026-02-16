@@ -464,6 +464,7 @@ impl Gateway {
                 .store_fact(&incoming.sender_id, "preferred_language", lang)
                 .await;
             info!("welcomed new user {} ({})", incoming.sender_id, lang);
+            return;
         }
 
         // --- 3. COMMAND DISPATCH ---
