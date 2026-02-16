@@ -119,8 +119,8 @@ Cargo workspace with 6 crates:
 Run as a persistent LaunchAgent:
 
 ```bash
-cp com.ilozada.omega.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.ilozada.omega.plist
+cp com.omega-cortex.omega.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.omega-cortex.omega.plist
 ```
 
 ## Development

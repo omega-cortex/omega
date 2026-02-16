@@ -59,7 +59,7 @@ cargo build --release        # Optimized binary
 - Config: `config.toml` (gitignored), `config.example.toml` (committed)
 - Database: `~/.omega/memory.db`
 - Logs: `~/.omega/omega.log`
-- Service: `~/Library/LaunchAgents/com.ilozada.omega.plist`
+- Service: `~/Library/LaunchAgents/com.omega-cortex.omega.plist`
 
 ## Provider Priority
 

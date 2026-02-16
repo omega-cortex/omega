@@ -60,17 +60,88 @@ impl Store {
         &self.pool
     }
 
-    /// Run SQL migrations.
+    /// Run SQL migrations, tracking which have already been applied.
     async fn run_migrations(pool: &SqlitePool) -> Result<(), OmegaError> {
-        for migration in &[
-            include_str!("../migrations/001_init.sql"),
-            include_str!("../migrations/002_audit_log.sql"),
-            include_str!("../migrations/003_memory_enhancement.sql"),
-        ] {
-            sqlx::raw_sql(migration)
+        // Create migration tracking table.
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS _migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| OmegaError::Memory(format!("failed to create migrations table: {e}")))?;
+
+        // Bootstrap: if _migrations is empty but tables already exist from
+        // a pre-tracking era, mark all existing migrations as applied.
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM _migrations")
+            .fetch_one(pool)
+            .await
+            .map_err(|e| OmegaError::Memory(format!("failed to count migrations: {e}")))?;
+
+        if count.0 == 0 {
+            // Check if the schema already has the Phase 3 columns (summary on conversations).
+            let has_summary: bool =
+                sqlx::query_scalar::<_, String>("SELECT sql FROM sqlite_master WHERE type='table' AND name='conversations'")
+                    .fetch_optional(pool)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|sql| sql.contains("summary"))
+                    .unwrap_or(false);
+
+            if has_summary {
+                // All 3 migrations were already applied before tracking existed.
+                for name in &["001_init", "002_audit_log", "003_memory_enhancement"] {
+                    sqlx::query("INSERT OR IGNORE INTO _migrations (name) VALUES (?)")
+                        .bind(name)
+                        .execute(pool)
+                        .await
+                        .map_err(|e| {
+                            OmegaError::Memory(format!("failed to bootstrap migration {name}: {e}"))
+                        })?;
+                }
+            }
+        }
+
+        let migrations: &[(&str, &str)] = &[
+            ("001_init", include_str!("../migrations/001_init.sql")),
+            (
+                "002_audit_log",
+                include_str!("../migrations/002_audit_log.sql"),
+            ),
+            (
+                "003_memory_enhancement",
+                include_str!("../migrations/003_memory_enhancement.sql"),
+            ),
+        ];
+
+        for (name, sql) in migrations {
+            let applied: Option<(String,)> =
+                sqlx::query_as("SELECT name FROM _migrations WHERE name = ?")
+                    .bind(name)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| {
+                        OmegaError::Memory(format!("failed to check migration {name}: {e}"))
+                    })?;
+
+            if applied.is_some() {
+                continue;
+            }
+
+            sqlx::raw_sql(sql).execute(pool).await.map_err(|e| {
+                OmegaError::Memory(format!("migration {name} failed: {e}"))
+            })?;
+
+            sqlx::query("INSERT INTO _migrations (name) VALUES (?)")
+                .bind(name)
                 .execute(pool)
                 .await
-                .map_err(|e| OmegaError::Memory(format!("migration failed: {e}")))?;
+                .map_err(|e| {
+                    OmegaError::Memory(format!("failed to record migration {name}: {e}"))
+                })?;
         }
         Ok(())
     }
