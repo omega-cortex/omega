@@ -1,0 +1,506 @@
+# Specification: src/gateway.rs
+
+## File Path
+`/Users/isudoajl/ownCloud/Projects/omega/src/gateway.rs`
+
+## Purpose
+Gateway is the central event loop orchestrator that connects messaging channels, memory persistence, and AI providers. It implements the complete message processing pipeline with authentication, sanitization, context building, provider delegation, audit logging, and graceful shutdown.
+
+## Architecture Overview
+
+### Core Responsibility
+The gateway manages the asynchronous event loop that processes incoming messages through a deterministic pipeline:
+
+```
+Message → Auth → Sanitize → Command Check → Typing → Context → Provider →
+Memory Store → Audit Log → Send
+```
+
+The gateway runs continuously, listening for messages from registered channels via an mpsc channel, and spawns a background task for periodic conversation summarization.
+
+## Data Structures
+
+### Gateway Struct
+```rust
+pub struct Gateway {
+    provider: Arc<dyn Provider>,              // AI backend (Claude Code, Anthropic, etc.)
+    channels: HashMap<String, Arc<dyn Channel>>,  // Messaging platforms (Telegram, WhatsApp)
+    memory: Store,                             // SQLite conversation/fact storage
+    audit: AuditLogger,                        // Event audit trail
+    auth_config: AuthConfig,                   // Authentication rules
+    channel_config: ChannelConfig,             // Per-channel configuration
+    uptime: Instant,                           // Server start time
+}
+```
+
+**Fields:**
+- `provider`: Shared reference to the configured AI provider. Must implement the `Provider` trait.
+- `channels`: Map of channel names to channel implementations. Each channel independently listens for messages.
+- `memory`: Shared SQLite-backed store for conversation history, facts, and metadata.
+- `audit`: Logger that records all interactions for security and debugging.
+- `auth_config`: Global authentication policy (enabled flag, deny message).
+- `channel_config`: Per-channel settings (Telegram allowed_users list).
+- `uptime`: Tracks server start time for uptime calculations in commands.
+
+## Functions
+
+### Public Methods
+
+#### `new(provider, channels, memory, auth_config, channel_config) -> Self`
+**Purpose:** Construct a new gateway instance.
+
+**Parameters:**
+- `provider: Arc<dyn Provider>` - The AI backend (typically Claude Code CLI provider).
+- `channels: HashMap<String, Arc<dyn Channel>>` - Map of initialized channel implementations.
+- `memory: Store` - SQLite store initialized with database pool.
+- `auth_config: AuthConfig` - Authentication configuration.
+- `channel_config: ChannelConfig` - Per-channel configuration.
+
+**Returns:** New `Gateway` instance.
+
+**Logic:**
+- Creates an `AuditLogger` from the memory pool.
+- Captures current time as `uptime`.
+- Stores all parameters as instance fields.
+
+**Error Handling:** None (infallible).
+
+#### `async fn run(&mut self) -> anyhow::Result<()>`
+**Purpose:** Start the gateway event loop and run until shutdown signal.
+
+**Parameters:** None.
+
+**Returns:** `anyhow::Result<()>` (Ok on graceful shutdown, Err on critical failure).
+
+**Logic:**
+1. Log gateway initialization with provider name, channel names, and auth status.
+2. Create an mpsc channel with capacity 256 for incoming messages.
+3. For each registered channel:
+   - Call `channel.start()` to get a receiver for that channel's messages.
+   - Spawn a background task that forwards all messages from the channel receiver to the gateway's main mpsc channel.
+   - Log successful channel start.
+4. Drop the sender to signal EOF when all channels close.
+5. Spawn a background summarization task via `tokio::spawn(background_summarizer())`.
+6. Enter the main event loop using `tokio::select!`:
+   - Wait for incoming messages via `rx.recv()` and call `handle_message()`.
+   - Wait for Ctrl+C signal via `tokio::signal::ctrl_c()`.
+   - On shutdown signal, break from loop.
+7. Call `shutdown()` for graceful cleanup.
+8. Return Ok(()).
+
+**Async Patterns:**
+- Uses `tokio::spawn` to run channel listeners concurrently.
+- Uses `tokio::select!` for the main event loop to handle both messages and shutdown signals.
+- All channel and provider operations are awaited.
+
+**Error Handling:**
+- If `channel.start()` fails, wraps error in anyhow and returns immediately.
+- Channel listener tasks suppress errors silently (logs info if gateway receiver drops).
+
+#### `async fn background_summarizer(store: Store, provider: Arc<dyn Provider>)`
+**Purpose:** Periodically find and summarize idle conversations (infinite background task).
+
+**Parameters:**
+- `store: Store` - Shared memory store.
+- `provider: Arc<dyn Provider>` - Shared provider reference.
+
+**Returns:** Never returns (infinite loop).
+
+**Logic:**
+1. Loop forever with 60-second sleep between iterations.
+2. Call `store.find_idle_conversations()` to find conversations inactive for a threshold period.
+3. For each idle conversation:
+   - Call `summarize_conversation()` to summarize and close it.
+   - Log errors but continue processing other conversations.
+4. Log errors from `find_idle_conversations()` but continue the loop.
+
+**Async Patterns:**
+- Uses `tokio::time::sleep()` for periodic ticking.
+- All storage and provider operations are awaited.
+
+**Error Handling:**
+- Errors are logged with `error!()` but do not stop the task.
+- Task runs indefinitely regardless of errors.
+
+#### `async fn summarize_conversation(store: &Store, provider: &Arc<dyn Provider>, conversation_id: &str) -> Result<(), anyhow::Error>`
+**Purpose:** Summarize a conversation, extract user facts, and close it.
+
+**Parameters:**
+- `store: &Store` - Reference to the memory store.
+- `provider: &Arc<dyn Provider>` - Reference to the AI provider.
+- `conversation_id: &str` - ID of the conversation to summarize.
+
+**Returns:** `Result<(), anyhow::Error>`.
+
+**Logic:**
+1. Fetch all messages from the conversation via `store.get_conversation_messages()`.
+2. If empty, close the conversation with "(empty conversation)" summary and return Ok.
+3. Build a plain-text transcript by iterating messages and formatting as "User: ..." or "Assistant: ...".
+4. **Summarization step:**
+   - Create prompt: "Summarize this conversation in 1-2 sentences. Be factual and concise. Do not add commentary.\n\n{transcript}"
+   - Call `provider.complete(Context::new(prompt))`.
+   - On success, use the response text as summary.
+   - On failure, use fallback: "({count} messages, summary unavailable)".
+5. **Facts extraction step:**
+   - Create prompt: "Extract key facts about the user from this conversation. Return each fact as 'key: value' on its own line. Only include concrete, personal facts (name, preferences, location, etc.). If no facts are apparent, respond with 'none'.\n\n{transcript}"
+   - Call `provider.complete(Context::new(prompt))`.
+   - Parse response line by line as "key: value" pairs.
+   - For each valid pair (non-empty key and value), call `store.store_fact(sender_id, key, value)`.
+   - If response is "none", skip fact storage.
+6. Query the database directly via `sqlx::query_as()` to get the `sender_id` from the conversations table.
+7. Call `store.close_conversation(conversation_id, summary)` to mark conversation as closed and store summary.
+8. Log success.
+9. Return Ok(()).
+
+**Async Patterns:**
+- Uses `provider.complete()` twice in sequence (summarization, then facts).
+- Uses `sqlx::query_as()` directly for database queries.
+- All operations are awaited.
+
+**Error Handling:**
+- Early return on `get_conversation_messages()` failure.
+- Summarization failure falls back to message count.
+- Facts extraction errors are caught with `if let Ok()` and skipped.
+- Database query errors are suppressed via `.ok().flatten()`.
+- Returns top-level error on `close_conversation()` failure.
+
+#### `async fn shutdown(&self, bg_handle: &tokio::task::JoinHandle<()>)`
+**Purpose:** Gracefully shut down the gateway.
+
+**Parameters:**
+- `bg_handle: &tokio::task::JoinHandle<()>` - Handle to the background summarizer task.
+
+**Returns:** None (void).
+
+**Logic:**
+1. Log "Shutting down...".
+2. Abort the background summarizer task via `bg_handle.abort()`.
+3. Find all active conversations via `store.find_all_active_conversations()`.
+4. For each active conversation, call `summarize_conversation()` to summarize before closing.
+5. Log warnings for summarization errors but continue.
+6. For each channel, call `channel.stop()` to cleanly shut down the channel.
+7. Log warnings for channel stop errors but continue.
+8. Log "Shutdown complete.".
+
+**Error Handling:**
+- Errors are logged with `warn!()` but do not stop the shutdown process.
+- All channels are stopped regardless of individual failures.
+
+#### `async fn handle_message(&self, incoming: IncomingMessage)`
+**Purpose:** Process a single incoming message through the complete pipeline.
+
+**Parameters:**
+- `incoming: IncomingMessage` - The message to process.
+
+**Returns:** None (void, logging errors).
+
+**Pipeline Stages:**
+
+**Stage 1: Auth Check (Lines 262-292)**
+- If auth is enabled, call `check_auth()`.
+- If denied, log warning, audit the denial, send deny message, and return.
+- Audit status: `AuditStatus::Denied`.
+- Does not process message further.
+
+**Stage 2: Input Sanitization (Lines 294-305)**
+- Call `sanitize::sanitize(&incoming.text)`.
+- If modified, log warning with sanitization warnings.
+- Clone the incoming message and replace its text with sanitized version.
+
+**Stage 3: Command Dispatch (Lines 307-320)**
+- Call `commands::Command::parse()` to check if input is a bot command.
+- If command detected:
+  - Call `commands::handle()` to process the command.
+  - Send response text.
+  - Return (skip provider call).
+- Examples: `/uptime`, `/help`, `/status`.
+
+**Stage 4: Typing Indicator (Lines 322-342)**
+- Get the channel for the incoming message.
+- If channel exists and incoming has a `reply_target`, spawn a repeating task:
+  - Send initial typing action immediately.
+  - Every 5 seconds, resend typing action.
+  - Abort if channel send fails.
+- Store handle for later abort.
+
+**Stage 5: Build Context from Memory (Lines 344-356)**
+- Call `self.memory.build_context(&clean_incoming)` to build enriched context.
+- This includes recent conversation history, relevant facts, and system prompt.
+- If error, abort typing task, send error message, and return.
+
+**Stage 6: Get Response from Provider (Lines 358-391)**
+- Call `self.provider.complete(&context)` to invoke the AI backend.
+- On success, set `reply_target` from incoming message.
+- On error:
+  - Abort typing task.
+  - Audit the error with status `AuditStatus::Error`.
+  - Send error message.
+  - Return.
+
+**Stage 7: Store Exchange in Memory (Lines 398-401)**
+- Call `self.memory.store_exchange(&incoming, &response)` to save the exchange.
+- Log error if storage fails but continue.
+
+**Stage 8: Audit Log (Lines 403-418)**
+- Log the successful exchange via `self.audit.log()`.
+- Include all metadata: provider, model, processing time.
+- Status: `AuditStatus::Ok`.
+
+**Stage 9: Send Response (Lines 420-427)**
+- Get the channel for the incoming message.
+- Call `channel.send(response)` to deliver the response.
+- Log error if channel send fails.
+
+**Async Patterns:**
+- All stages are awaited sequentially.
+- Typing task runs concurrently via `tokio::spawn()`.
+- Task is aborted early if error occurs before response.
+
+**Error Handling:**
+- Auth failure: deny message sent, audit logged, early return.
+- Sanitization warnings: logged but processing continues.
+- Context build failure: error message sent, early return.
+- Provider error: error message sent, audit logged, early return.
+- Memory storage failure: logged but does not stop response delivery.
+- Channel send failure: logged but pipeline completes.
+
+#### `fn check_auth(&self, incoming: &IncomingMessage) -> Option<String>`
+**Purpose:** Verify if a message sender is authorized.
+
+**Parameters:**
+- `incoming: &IncomingMessage` - The incoming message to check.
+
+**Returns:** `Option<String>` where `None` = allowed, `Some(reason)` = denied.
+
+**Logic:**
+1. Match on `incoming.channel`:
+   - **"telegram"**:
+     - Get `allowed_users` list from `channel_config.telegram`.
+     - If list is empty, allow all (returns `None`). Used for testing.
+     - If list exists:
+       - Parse `incoming.sender_id` as i64 (default to -1 on parse error).
+       - If sender_id is in allowed_users, return `None`.
+       - Otherwise, return `Some("telegram user X not in allowed_users")`.
+     - If telegram config not set, return `Some("telegram channel not configured")`.
+   - **Other channels**:
+     - Return `Some("unknown channel: {name}")`.
+
+**Error Handling:**
+- Parsing sender_id as i64 uses `unwrap_or(-1)` (will never match valid user, causing denial).
+- No panics.
+
+#### `async fn send_text(&self, incoming: &IncomingMessage, text: &str)`
+**Purpose:** Send a plain text response message.
+
+**Parameters:**
+- `incoming: &IncomingMessage` - The original incoming message (used for channel and reply target).
+- `text: &str` - The text to send.
+
+**Returns:** None (void).
+
+**Logic:**
+1. Create an `OutgoingMessage` with:
+   - `text: text.to_string()`.
+   - `metadata: MessageMetadata::default()`.
+   - `reply_target: incoming.reply_target.clone()`.
+2. Get the channel for `incoming.channel`.
+3. Call `channel.send(msg)`.
+4. Log error if send fails.
+
+**Error Handling:**
+- Send errors are logged but do not return an error code.
+
+## Message Flow Diagram
+
+```
+[Telegram/WhatsApp] → [Channel Receiver] → [MPSC Channel]
+                                               ↓
+                                        [Gateway Event Loop]
+                                               ↓
+                                          [handle_message()]
+                                               ↓
+                    ┌──────────────────────────┼──────────────────────────┐
+                    ↓                          ↓                          ↓
+            [1. Auth Check]         [2. Sanitize]            [3. Command?]
+                    ↓                          ↓                          ↓
+              [ALLOWED?]              [Clean Text]          [Yes] → [Handle Cmd]
+              /        \                      ↓                      [Send Response]
+          [No]        [Yes]          [4. Typing Indicator]          [Return]
+            ↓            ↓                      ↓
+        [Deny]      [Continue]         [Spawn Repeat Task]
+         [Audit]         ↓                     ↓
+        [Send Msg]   [5. Build Context]     [Continue]
+        [Return]          ↓                     ↓
+                    [With History + Facts] [6. Provider.complete()]
+                           ↓                   ↓
+                      [Enriched CTX]    [Get Response/Error]
+                           ↓                   ↓
+                           └───────────────────┤
+                                               ↓
+                                          [Error?]
+                                          /      \
+                                      [Yes]     [No]
+                                        ↓         ↓
+                                    [Send Err] [7. Store Exchange]
+                                    [Audit Err]    ↓
+                                    [Abort Type]  [8. Audit Log (Success)]
+                                    [Return]       ↓
+                                            [Abort Typing Task]
+                                                   ↓
+                                            [9. Send Response]
+                                                   ↓
+                                                [Done]
+```
+
+## Error Handling Strategy
+
+### Error Propagation Levels
+
+1. **Critical Errors (Early Return):**
+   - Channel startup failure → breaks gateway initialization.
+   - Auth denial → deny message sent, audit logged, message dropped.
+   - Context build failure → error message sent, message dropped.
+   - Provider error → error message sent, audit logged, message dropped.
+
+2. **Non-Critical Errors (Log and Continue):**
+   - Memory store errors → logged, response still sent if provider succeeded.
+   - Audit logging errors → logged, processing continues.
+   - Channel send errors → logged, does not block completion.
+   - Background summarization errors → logged, loop continues.
+   - Idle conversation query errors → logged, loop continues.
+
+3. **Error Auditing:**
+   - All auth denials are logged with `AuditStatus::Denied`.
+   - All provider errors are logged with `AuditStatus::Error`.
+   - All successful exchanges are logged with `AuditStatus::Ok`.
+
+### Error Types Used
+- `anyhow::anyhow!()` for wrapping errors in run().
+- `anyhow::Error` for Result types.
+- `sqlx` errors from database operations (caught with `.ok().flatten()`).
+- Tracing logs: `error!()`, `warn!()`, `info!()`.
+
+## Async Runtime Patterns
+
+### Concurrency Model
+- **Single main thread:** The gateway runs on a single tokio runtime thread.
+- **Multiple channels:** Each channel listener runs in its own `tokio::spawn()` task.
+- **Background summarizer:** Runs in a dedicated `tokio::spawn()` task.
+- **Typing repeater:** For each message, a separate `tokio::spawn()` task repeats typing every 5 seconds.
+
+### Synchronization
+- **MPSC Channel:** All incoming messages from channels are collected on a single 256-capacity mpsc queue.
+- **Arc Sharing:** Provider and channels are shared via `Arc` for thread-safe access.
+- **No Locks:** The gateway does not use Mutex or RwLock; all access is single-threaded except for shared Arc references.
+
+### Shutdown Coordination
+- **Signal handling:** `tokio::signal::ctrl_c()` breaks the main loop.
+- **Task abortion:** Background summarizer is aborted via `bg_handle.abort()`.
+- **Channel stopping:** Each channel's `stop()` method is called.
+- **Graceful conversation closure:** All active conversations are summarized before shutdown completes.
+
+## Channel Integration
+
+### Channel Trait Requirements
+- **`start() -> Result<mpsc::Receiver<IncomingMessage>>`:** Returns a receiver for messages from that channel. Must be called once at gateway startup.
+- **`send(OutgoingMessage) -> Result<()>`:** Sends a message back to the user.
+- **`send_typing(target) -> Result<()>`:** Sends a typing indicator. Called repeatedly every 5 seconds.
+- **`stop() -> Result<()>`:** Cleanly shuts down the channel.
+
+### Telegram Integration Details
+- Auth is enforced via `channel_config.telegram.allowed_users` list.
+- Empty list allows all users (for testing).
+- Non-empty list restricts to specified user IDs.
+- `sender_id` is parsed as i64.
+
+## Provider Integration
+
+### Provider Trait Requirements
+- **`name() -> &'static str`:** Returns the provider name (e.g., "Claude Code CLI").
+- **`complete(Context) -> Result<Response>`:** Takes a context with full prompt and returns a response.
+
+### Response Metadata
+The response includes:
+- `text: String` - The assistant's reply.
+- `metadata.provider_used: String` - Name of the provider (e.g., "Claude Code CLI").
+- `metadata.model: Option<String>` - Model name (e.g., "claude-opus-4-6").
+- `metadata.processing_time_ms: u32` - Time taken by the provider.
+- `reply_target: Option<String>` - Set to incoming message's reply_target for threading.
+
+## Memory Integration
+
+### Store Operations Used
+- **`build_context(&IncomingMessage) -> Result<Context>`:** Builds enriched context with history and facts.
+- **`store_exchange(&IncomingMessage, &OutgoingMessage) -> Result<()>`:** Saves the message pair to conversation history.
+- **`store_fact(&sender_id, &key, &value) -> Result<()>`:** Stores an extracted fact about a user.
+- **`get_conversation_messages(&conversation_id) -> Result<Vec<(String, String)>>`:** Fetches all messages in a conversation.
+- **`close_conversation(&conversation_id, &summary) -> Result<()>`:** Marks a conversation as closed with a summary.
+- **`find_idle_conversations() -> Result<Vec<(String, String, String)>>`:** Finds conversations inactive for a threshold.
+- **`find_all_active_conversations() -> Result<Vec<(String, String, String)>>`:** Finds all currently active conversations.
+- **`pool() -> &SqlitePool`:** Provides direct database access for queries.
+
+## Configuration Parameters
+
+### AuthConfig
+- `enabled: bool` - Whether authentication is enforced.
+- `deny_message: String` - Message to send when auth fails.
+
+### ChannelConfig
+- `telegram: Option<TelegramConfig>` - Telegram-specific settings.
+  - `allowed_users: Vec<i64>` - Whitelist of user IDs. Empty = allow all.
+
+## Logging and Observability
+
+### Log Levels Used
+- **INFO:** Gateway startup, channel starts, message previews, conversation summaries, shutdown.
+- **WARN:** Auth denials, sanitization warnings, shutdown summarization errors, channel stop errors, conversation summarization errors.
+- **ERROR:** Context build failures, provider errors, memory storage errors, channel send errors, idle conversation query errors.
+
+### Audit Logging
+All interactions are logged to SQLite with:
+- Channel name, sender_id, sender_name.
+- Input text and output text.
+- Provider name and model.
+- Processing time in milliseconds.
+- Status (Ok, Denied, Error).
+- Denial reason (if denied).
+
+## Security Considerations
+
+1. **Input Sanitization:** All user input is sanitized before reaching the provider to neutralize injection patterns.
+2. **Auth Enforcement:** Access control is enforced before any processing begins.
+3. **Audit Trail:** All interactions are logged for security review.
+4. **No Secrets in Logs:** User text is logged but no API keys or credentials are logged.
+5. **Error Suppression:** Detailed errors are logged but user-facing messages are generic to avoid info leaks.
+
+## Performance Characteristics
+
+- **Single-threaded Gateway:** All message processing happens sequentially on the main thread.
+- **Concurrent Channels:** Multiple channels can deliver messages concurrently via tokio tasks.
+- **Background Summarization:** Idle conversation summarization happens every 60 seconds without blocking the main loop.
+- **MPSC Buffering:** Up to 256 incoming messages can be buffered while waiting for processing.
+
+## Dependencies
+
+### External Crates
+- `anyhow` - Error handling.
+- `tokio` - Async runtime, synchronization primitives.
+- `tracing` - Structured logging.
+- `sqlx` - Database queries (via Store).
+
+### Internal Dependencies
+- `omega_core` - Core types, traits, config, sanitization.
+- `omega_memory` - Store, AuditLogger, AuditEntry, AuditStatus.
+- `crate::commands` - Command parsing and handling.
+
+## Invariants
+
+1. Only one task in the main event loop at a time (tokio::select!).
+2. All channels are started before the main loop.
+3. The background summarizer is spawned and never joined (infinite loop).
+4. Auth is checked before any message processing.
+5. Sanitization happens before command dispatch and provider call.
+6. Response is sent to the channel that received the message.
+7. All exchanges are stored in memory before audit logging.
+8. Typing indicator is aborted when response is sent or on error.
+9. On shutdown, all active conversations are summarized and all channels are stopped.

@@ -1,0 +1,252 @@
+# User Documentation: Omega Commands
+
+## What Are Commands?
+
+Commands are special messages that start with a forward slash (`/`) and provide instant responses from Omega. Unlike regular messages that are sent to Claude for reasoning, commands are handled immediately by Omega itself—no AI processing needed.
+
+**Key Difference:**
+- **Regular Message:** "What's the capital of France?" → Sent to Claude → Response: "The capital of France is Paris."
+- **Command:** `/status` → Handled locally → Response: "Omega Status, Uptime: 2h 15m 30s, ..."
+
+---
+
+## Available Commands
+
+### `/status` — System Status
+
+**What It Does:** Shows Omega's current operational status, including how long it has been running, which AI provider is active, and database size.
+
+**Response Example:**
+```
+Omega Status
+Uptime: 2h 15m 30s
+Provider: Claude Code CLI
+Database: 1.4 MB
+```
+
+**Use Cases:**
+- Check if Omega is responsive and healthy
+- Monitor database growth over time
+- Verify which AI provider is configured
+
+---
+
+### `/memory` — Your Memory Stats
+
+**What It Does:** Displays statistics about your personal memory stored in Omega, including the number of conversations, messages exchanged, and facts known about you.
+
+**Response Example:**
+```
+Your Memory
+Conversations: 7
+Messages: 52
+Facts: 4
+```
+
+**Understanding the Numbers:**
+- **Conversations:** How many distinct conversation threads you've had
+- **Messages:** Total number of messages you've sent to Omega across all conversations
+- **Facts:** Pieces of information Omega has learned and remembered about you (e.g., your name, preferences, location)
+
+**Use Cases:**
+- Check how much interaction history Omega has
+- See how many facts have been extracted about you
+- Understand memory storage accumulation
+
+---
+
+### `/history` — Conversation History
+
+**What It Does:** Shows summaries of your last 5 conversations with timestamps, allowing you to recall previous topics without viewing full message logs.
+
+**Response Example:**
+```
+Recent Conversations
+
+[2025-02-16 14:30:15]
+Discussed project architecture and design patterns for Rust microservices
+
+[2025-02-16 13:15:22]
+Reviewed async/await best practices and error handling strategies
+
+[2025-02-16 11:45:00]
+Troubleshooted database schema migration issues
+```
+
+**Use Cases:**
+- Quickly recall what you discussed previously
+- Return to a previous conversation topic
+- Verify that conversations were properly closed
+
+---
+
+### `/facts` — Known Facts About You
+
+**What It Does:** Lists all the facts Omega has learned and stored about you during conversations. Facts are extracted automatically when you share personal information.
+
+**Response Example:**
+```
+Known Facts
+
+- favorite_language: Rust
+- location: San Francisco Bay Area
+- timezone: Pacific Standard Time
+- job_title: Senior Software Engineer
+```
+
+**Understanding Facts:**
+- Facts are automatically extracted from your messages
+- They help Omega provide personalized responses
+- You can ask Omega to forget facts or update them
+
+**Use Cases:**
+- Verify what information Omega has about you
+- Ensure privacy by checking stored facts
+- Confirm accurate information is being used for context
+
+---
+
+### `/forget` — Clear Current Conversation
+
+**What It Does:** Clears the current active conversation, allowing you to start fresh without the previous context. This is useful when you want to begin a completely new topic or restart Omega's memory for the conversation.
+
+**Response Example (Success):**
+```
+Conversation cleared. Starting fresh.
+```
+
+**Response Example (No Active Conversation):**
+```
+No active conversation to clear.
+```
+
+**Important Notes:**
+- `/forget` only affects the current conversation, not your entire memory
+- Previous conversations remain in your history
+- Facts learned about you are preserved
+- The next message you send will start a new conversation
+
+**Use Cases:**
+- Start a completely different topic
+- Reset context when conversations become off-track
+- Reduce token usage by avoiding large context windows
+- Begin a focused discussion without previous distractions
+
+---
+
+### `/help` — Command Help
+
+**What It Does:** Displays a quick reference guide of all available commands with brief descriptions.
+
+**Response Example:**
+```
+Omega Commands
+
+/status  — Uptime, provider, database info
+/memory  — Your conversation and facts stats
+/history — Last 5 conversation summaries
+/facts   — List known facts about you
+/forget  — Clear current conversation
+/help    — This message
+```
+
+**Use Cases:**
+- Quick reference when you forget a command
+- Onboarding new users to Omega
+- Learn available commands at any time
+
+---
+
+## How Commands Differ from Regular Messages
+
+### Regular Messages
+- Start with any character except `/`
+- Sent to Claude (or configured AI provider)
+- Process through full reasoning pipeline
+- May take 5-30+ seconds
+- Consume API credits (if using paid providers)
+- Context includes conversation history and facts
+- Example: "What's the weather today?"
+
+### Commands
+- Must start with `/` followed by command name
+- Handled instantly by Omega itself
+- No AI provider involved
+- Response in milliseconds
+- Zero API cost
+- No context dependencies
+- Example: `/status`
+
+---
+
+## Command Behavior
+
+### Per-User & Per-Channel Isolation
+
+Each command operates within your user account and messaging channel context:
+- `/memory` shows only *your* stats, not other users'
+- `/forget` only clears *your* current conversation in that channel
+- `/facts` displays only facts about *you*
+- `/history` shows only *your* conversations
+
+If you use Omega across multiple channels (e.g., Telegram and WhatsApp), your memory is shared but conversation states are per-channel.
+
+---
+
+## Error Messages
+
+If a command encounters an error (e.g., database issue), you'll see:
+```
+Error: [description]
+```
+
+Common error scenarios:
+- Database connection issues (rare, usually temporary)
+- Corrupted memory data (very rare, auto-recovers)
+
+If errors persist, check with the Omega administrator or review logs.
+
+---
+
+## Tips and Best Practices
+
+### Use `/forget` Strategically
+- Use when switching between unrelated topics
+- Reduces context window size for faster responses
+- Keeps conversations focused and organized
+
+### Monitor `/memory` Growth
+- Periodically check `/memory` to understand your usage
+- Large message counts don't hurt performance, but be aware of privacy implications
+- Facts are meant to improve personalization—verify they're accurate with `/facts`
+
+### Refer to `/history` for Context
+- Before asking follow-up questions, check `/history` to understand past conversations
+- Helps write better prompts that reference previous work
+
+### Quick System Checks
+- Use `/status` to verify Omega is responsive
+- Monitor database size to ensure storage isn't growing unexpectedly
+
+---
+
+## Troubleshooting
+
+### "No active conversation to clear"
+This appears when you run `/forget` but haven't sent any messages yet in the current conversation. Simply start a conversation first by sending a message.
+
+### "/unknown" or unknown command treated as regular message
+Commands are case-sensitive. Use lowercase: `/status`, not `/Status`. Unknown commands (e.g., `/xyz`) are passed to Claude as regular messages.
+
+### Response shows "Error: ..."
+A temporary issue with memory storage. Usually resolves on retry. Contact support if persistent.
+
+---
+
+## What's Next?
+
+Want to learn more?
+- **Omega Overview:** See main documentation for architecture and setup
+- **Memory System:** Details on how facts and conversation history work
+- **Conversation Flow:** Understanding how messages are processed through Omega
+
