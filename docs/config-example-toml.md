@@ -306,7 +306,69 @@ max_output_bytes = 1048576
 
 For now, keep defaults.
 
-## Step 8: Set Environment Variables
+## Step 8: Configure the Scheduler (Task Queue)
+
+The `[scheduler]` section controls the background task queue that delivers reminders and recurring tasks.
+
+```toml
+[scheduler]
+enabled = true
+poll_interval_secs = 60
+```
+
+**What this means:**
+- **`enabled = true`:** The scheduler loop runs in the background, polling for due tasks. This is enabled by default and has zero overhead when no tasks exist.
+- **`poll_interval_secs = 60`:** How often (in seconds) the scheduler checks for tasks that are due. 60 seconds is a good balance between responsiveness and database load.
+
+**When to change:**
+- If you want faster delivery for time-sensitive reminders, lower `poll_interval_secs` to `30` or `15`.
+- If you want to disable scheduling entirely, set `enabled = false`.
+
+**How tasks get created:**
+You don't configure tasks here. Instead, you ask Omega in natural language:
+- "Remind me to call John at 3pm"
+- "Set a daily standup reminder at 9am"
+- "Remind me every Monday to submit the report"
+
+The AI provider translates these into structured tasks automatically.
+
+## Step 9: Configure the Heartbeat (Optional)
+
+The `[heartbeat]` section controls periodic AI check-ins. This is an advanced feature for proactive monitoring.
+
+```toml
+[heartbeat]
+enabled = false
+interval_minutes = 30
+active_start = "08:00"
+active_end = "22:00"
+channel = "telegram"
+reply_target = ""
+```
+
+**What this means:**
+- **`enabled = false`:** Disabled by default. Enable it when you want proactive check-ins.
+- **`interval_minutes = 30`:** How often the heartbeat fires (in minutes).
+- **`active_start` / `active_end`:** Time window for heartbeats. Outside this window, heartbeats are skipped. Leave both empty for 24/7 operation.
+- **`channel`:** Which messaging channel to send alerts on (e.g., `"telegram"`).
+- **`reply_target`:** The platform-specific delivery target. For Telegram, this is the chat ID where alerts should be sent.
+
+**To enable heartbeats:**
+1. Set `enabled = true`.
+2. Set `channel` to your active channel (e.g., `"telegram"`).
+3. Set `reply_target` to your chat ID (the same ID you use for messaging Omega).
+4. Optionally create `~/.omega/HEARTBEAT.md` with a checklist for the AI to evaluate.
+
+**Example HEARTBEAT.md:**
+```markdown
+- Is disk usage below 90%?
+- Are there any error logs in the last hour?
+- Is the system load reasonable?
+```
+
+When everything is fine, the AI responds with `HEARTBEAT_OK` and no message is sent. When something needs attention, the AI sends an alert to your channel.
+
+## Step 10: Set Environment Variables
 
 For any API keys or bot tokens, use environment variables instead of hardcoding them.
 
@@ -335,7 +397,7 @@ Then reload your shell:
 source ~/.zshrc  # or ~/.bashrc
 ```
 
-## Step 9: Validate and Start
+## Step 11: Validate and Start
 
 **Check your config:**
 ```bash

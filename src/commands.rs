@@ -10,6 +10,8 @@ pub enum Command {
     History,
     Facts,
     Forget,
+    Tasks,
+    Cancel,
     Help,
 }
 
@@ -24,6 +26,8 @@ impl Command {
             "/history" => Some(Self::History),
             "/facts" => Some(Self::Facts),
             "/forget" => Some(Self::Forget),
+            "/tasks" => Some(Self::Tasks),
+            "/cancel" => Some(Self::Cancel),
             "/help" => Some(Self::Help),
             _ => None,
         }
@@ -36,6 +40,7 @@ pub async fn handle(
     store: &Store,
     channel: &str,
     sender_id: &str,
+    text: &str,
     uptime: &Instant,
     provider_name: &str,
 ) -> String {
@@ -45,6 +50,8 @@ pub async fn handle(
         Command::History => handle_history(store, channel, sender_id).await,
         Command::Facts => handle_facts(store, sender_id).await,
         Command::Forget => handle_forget(store, channel, sender_id).await,
+        Command::Tasks => handle_tasks(store, sender_id).await,
+        Command::Cancel => handle_cancel(store, sender_id, text).await,
         Command::Help => handle_help(),
     }
 }
@@ -119,6 +126,36 @@ async fn handle_forget(store: &Store, channel: &str, sender_id: &str) -> String 
     }
 }
 
+async fn handle_tasks(store: &Store, sender_id: &str) -> String {
+    match store.get_tasks_for_sender(sender_id).await {
+        Ok(tasks) if tasks.is_empty() => "No pending tasks.".to_string(),
+        Ok(tasks) => {
+            let mut out = String::from("Scheduled Tasks\n");
+            for (id, description, due_at, repeat) in &tasks {
+                let short_id = &id[..8.min(id.len())];
+                let repeat_label = repeat.as_deref().unwrap_or("once");
+                out.push_str(&format!(
+                    "\n[{short_id}] {description}\n  Due: {due_at} ({repeat_label})"
+                ));
+            }
+            out
+        }
+        Err(e) => format!("Error: {e}"),
+    }
+}
+
+async fn handle_cancel(store: &Store, sender_id: &str, text: &str) -> String {
+    let id_prefix = text.split_whitespace().nth(1).unwrap_or("").trim();
+    if id_prefix.is_empty() {
+        return "Usage: /cancel <task-id>".to_string();
+    }
+    match store.cancel_task(id_prefix, sender_id).await {
+        Ok(true) => "Task cancelled.".to_string(),
+        Ok(false) => "No matching task found.".to_string(),
+        Err(e) => format!("Error: {e}"),
+    }
+}
+
 fn handle_help() -> String {
     "\
 Omega Commands\n\n\
@@ -127,6 +164,8 @@ Omega Commands\n\n\
 /history — Last 5 conversation summaries\n\
 /facts   — List known facts about you\n\
 /forget  — Clear current conversation\n\
+/tasks   — List your scheduled tasks\n\
+/cancel  — Cancel a task by ID\n\
 /help    — This message"
         .to_string()
 }

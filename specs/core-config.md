@@ -37,6 +37,8 @@ Config
   |     +-- whatsapp: Option<WhatsAppConfig>
   +-- memory: MemoryConfig
   +-- sandbox: SandboxConfig
+  +-- heartbeat: HeartbeatConfig
+  +-- scheduler: SchedulerConfig
 ```
 
 ---
@@ -53,6 +55,8 @@ Config
 | `channel` | `ChannelConfig` | `#[serde(default)]` | `ChannelConfig::default()` |
 | `memory` | `MemoryConfig` | `#[serde(default)]` | `MemoryConfig::default()` |
 | `sandbox` | `SandboxConfig` | `#[serde(default)]` | `SandboxConfig::default()` |
+| `heartbeat` | `HeartbeatConfig` | `#[serde(default)]` | `HeartbeatConfig::default()` |
+| `scheduler` | `SchedulerConfig` | `#[serde(default)]` | `SchedulerConfig::default()` |
 
 Derives: `Debug, Clone, Serialize, Deserialize`
 
@@ -204,6 +208,38 @@ Implements: `Default` (manual).
 Derives: `Debug, Clone, Serialize, Deserialize`
 Implements: `Default` (manual).
 
+### `HeartbeatConfig`
+
+Periodic AI check-in configuration.
+
+| Field | Type | Default Function | Default Value |
+|-------|------|-----------------|---------------|
+| `enabled` | `bool` | serde default | `false` |
+| `interval_minutes` | `u64` | `default_heartbeat_interval()` | `30` |
+| `active_start` | `String` | serde default | `""` |
+| `active_end` | `String` | serde default | `""` |
+| `channel` | `String` | serde default | `""` |
+| `reply_target` | `String` | serde default | `""` |
+
+Derives: `Debug, Clone, Serialize, Deserialize`
+Implements: `Default` (manual -- sets `enabled` to `false`, `interval_minutes` to `default_heartbeat_interval()`, all strings to empty).
+
+Note: `active_start` and `active_end` are `"HH:MM"` formatted strings (e.g., `"08:00"`, `"22:00"`). When both are empty, the heartbeat is always active. `channel` specifies which messaging channel to deliver alerts on (e.g., `"telegram"`). `reply_target` is the platform-specific delivery target (e.g., a Telegram chat ID).
+
+### `SchedulerConfig`
+
+User-scheduled reminders and recurring task configuration.
+
+| Field | Type | Default Function | Default Value |
+|-------|------|-----------------|---------------|
+| `enabled` | `bool` | `default_true()` | `true` |
+| `poll_interval_secs` | `u64` | `default_poll_interval()` | `60` |
+
+Derives: `Debug, Clone, Serialize, Deserialize`
+Implements: `Default` (manual -- sets `enabled` to `true`, `poll_interval_secs` to `default_poll_interval()`).
+
+Note: The scheduler is enabled by default because it has zero cost when no tasks exist. The poll interval controls how often the scheduler checks for due tasks.
+
 ---
 
 ## Default Value Functions
@@ -230,6 +266,8 @@ All private functions in the module that supply serde defaults:
 | `default_max_context()` | `usize` | `50` |
 | `default_execution_time()` | `u64` | `30` |
 | `default_output_bytes()` | `usize` | `1_048_576` |
+| `default_heartbeat_interval()` | `u64` | `30` |
+| `default_poll_interval()` | `u64` | `60` |
 
 ---
 
@@ -244,7 +282,7 @@ pub fn load(path: &str) -> Result<Config, OmegaError>
 1. Converts `path` to a `std::path::Path`.
 2. If the file does not exist:
    - Logs an info-level message via `tracing`.
-   - Returns a fully-defaulted `Config` with `claude_code` explicitly set to `Some(ClaudeCodeConfig::default())`.
+   - Returns a fully-defaulted `Config` with `claude_code` explicitly set to `Some(ClaudeCodeConfig::default())`, and `heartbeat` and `scheduler` set to their defaults.
 3. If the file exists:
    - Reads the entire file into a `String` (`std::fs::read_to_string`).
    - On read failure: returns `OmegaError::Config` with the I/O error message.
@@ -338,3 +376,5 @@ Channel and provider sub-configs use `Option<T>` rather than `#[serde(default)]`
 | `[channel.whatsapp]` | `Config.channel.whatsapp` |
 | `[memory]` | `Config.memory` |
 | `[sandbox]` | `Config.sandbox` |
+| `[heartbeat]` | `Config.heartbeat` |
+| `[scheduler]` | `Config.scheduler` |

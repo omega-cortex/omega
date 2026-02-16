@@ -120,6 +120,10 @@ impl Store {
                 "004_fts5_recall",
                 include_str!("../migrations/004_fts5_recall.sql"),
             ),
+            (
+                "005_scheduled_tasks",
+                include_str!("../migrations/005_scheduled_tasks.sql"),
+            ),
         ];
 
         for (name, sql) in migrations {
@@ -556,6 +560,145 @@ impl Store {
 
         Ok(())
     }
+
+    // --- Scheduled tasks ---
+
+    /// Create a scheduled task.
+    pub async fn create_task(
+        &self,
+        channel: &str,
+        sender_id: &str,
+        reply_target: &str,
+        description: &str,
+        due_at: &str,
+        repeat: Option<&str>,
+    ) -> Result<String, OmegaError> {
+        let id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO scheduled_tasks (id, channel, sender_id, reply_target, description, due_at, repeat) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(channel)
+        .bind(sender_id)
+        .bind(reply_target)
+        .bind(description)
+        .bind(due_at)
+        .bind(repeat)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| OmegaError::Memory(format!("create task failed: {e}")))?;
+
+        Ok(id)
+    }
+
+    /// Get tasks that are due for delivery.
+    pub async fn get_due_tasks(
+        &self,
+    ) -> Result<Vec<(String, String, String, String, Option<String>)>, OmegaError> {
+        // Returns: (id, channel, reply_target, description, repeat)
+        let rows: Vec<(String, String, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT id, channel, reply_target, description, repeat \
+             FROM scheduled_tasks \
+             WHERE status = 'pending' AND datetime(due_at) <= datetime('now')",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| OmegaError::Memory(format!("get due tasks failed: {e}")))?;
+
+        Ok(rows)
+    }
+
+    /// Complete a task: one-shot tasks become 'delivered', recurring tasks advance due_at.
+    pub async fn complete_task(&self, id: &str, repeat: Option<&str>) -> Result<(), OmegaError> {
+        match repeat {
+            None | Some("once") => {
+                sqlx::query(
+                    "UPDATE scheduled_tasks SET status = 'delivered', delivered_at = datetime('now') WHERE id = ?",
+                )
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| OmegaError::Memory(format!("complete task failed: {e}")))?;
+            }
+            Some(interval) => {
+                let offset = match interval {
+                    "daily" | "weekdays" => "+1 day",
+                    "weekly" => "+7 days",
+                    "monthly" => "+1 month",
+                    _ => "+1 day",
+                };
+
+                // Advance due_at by interval.
+                sqlx::query(&format!(
+                    "UPDATE scheduled_tasks SET due_at = datetime(due_at, '{offset}') WHERE id = ?"
+                ))
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| OmegaError::Memory(format!("advance task failed: {e}")))?;
+
+                // For weekdays: skip Saturday (6) and Sunday (0).
+                if interval == "weekdays" {
+                    // If landed on Saturday (6), skip to Monday (+2 days).
+                    sqlx::query(
+                        "UPDATE scheduled_tasks SET due_at = datetime(due_at, '+2 days') \
+                         WHERE id = ? AND CAST(strftime('%w', due_at) AS INTEGER) = 6",
+                    )
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| OmegaError::Memory(format!("weekday skip sat failed: {e}")))?;
+
+                    // If landed on Sunday (0), skip to Monday (+1 day).
+                    sqlx::query(
+                        "UPDATE scheduled_tasks SET due_at = datetime(due_at, '+1 day') \
+                         WHERE id = ? AND CAST(strftime('%w', due_at) AS INTEGER) = 0",
+                    )
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| OmegaError::Memory(format!("weekday skip sun failed: {e}")))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Get pending tasks for a sender (for /tasks command).
+    pub async fn get_tasks_for_sender(
+        &self,
+        sender_id: &str,
+    ) -> Result<Vec<(String, String, String, Option<String>)>, OmegaError> {
+        // Returns: (id, description, due_at, repeat)
+        let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT id, description, due_at, repeat \
+             FROM scheduled_tasks \
+             WHERE sender_id = ? AND status = 'pending' \
+             ORDER BY due_at ASC",
+        )
+        .bind(sender_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| OmegaError::Memory(format!("get tasks failed: {e}")))?;
+
+        Ok(rows)
+    }
+
+    /// Cancel a task by ID prefix (must match sender).
+    pub async fn cancel_task(&self, id_prefix: &str, sender_id: &str) -> Result<bool, OmegaError> {
+        let result = sqlx::query(
+            "UPDATE scheduled_tasks SET status = 'cancelled' \
+             WHERE id LIKE ? AND sender_id = ? AND status = 'pending'",
+        )
+        .bind(format!("{id_prefix}%"))
+        .bind(sender_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| OmegaError::Memory(format!("cancel task failed: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
 }
 
 /// Expand `~` to home directory.
@@ -616,6 +759,14 @@ fn build_system_prompt(
         prompt.push_str("\n\nRespond in Spanish.");
     }
 
+    prompt.push_str(
+        "\n\nWhen the user asks to schedule, remind, or set a recurring task, \
+         include this marker on its own line at the END of your response:\n\
+         SCHEDULE: <description> | <ISO 8601 datetime> | <once|daily|weekly|monthly|weekdays>\n\
+         Example: SCHEDULE: Call John | 2026-02-17T15:00:00 | once\n\
+         Only include the marker if the user explicitly asks for a reminder or scheduled task.",
+    );
+
     prompt
 }
 
@@ -629,4 +780,184 @@ fn likely_spanish(text: &str) -> bool {
     ];
     let count = markers.iter().filter(|m| lower.contains(**m)).count();
     count >= 3
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Create an in-memory store for testing.
+    async fn test_store() -> Store {
+        let config = MemoryConfig {
+            backend: "sqlite".to_string(),
+            db_path: ":memory:".to_string(),
+            max_context_messages: 10,
+        };
+        // For in-memory, we need to bypass shellexpand.
+        let opts = SqliteConnectOptions::from_str("sqlite::memory:")
+            .unwrap()
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        Store::run_migrations(&pool).await.unwrap();
+        Store {
+            pool,
+            max_context_messages: config.max_context_messages,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_and_get_tasks() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "Call John",
+                "2026-12-31T15:00:00",
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(!id.is_empty());
+
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].1, "Call John");
+        assert_eq!(tasks[0].2, "2026-12-31T15:00:00");
+        assert!(tasks[0].3.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_due_tasks() {
+        let store = test_store().await;
+        // Create a task in the past (due now).
+        store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "Past task",
+                "2020-01-01T00:00:00",
+                None,
+            )
+            .await
+            .unwrap();
+        // Create a task in the future.
+        store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "Future task",
+                "2099-12-31T23:59:59",
+                None,
+            )
+            .await
+            .unwrap();
+
+        let due = store.get_due_tasks().await.unwrap();
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].3, "Past task");
+    }
+
+    #[tokio::test]
+    async fn test_complete_one_shot() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "One shot",
+                "2020-01-01T00:00:00",
+                None,
+            )
+            .await
+            .unwrap();
+
+        store.complete_task(&id, None).await.unwrap();
+
+        // Should no longer appear in pending.
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert!(tasks.is_empty());
+
+        // Should not appear in due tasks either.
+        let due = store.get_due_tasks().await.unwrap();
+        assert!(due.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_complete_recurring() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "Daily standup",
+                "2020-01-01T09:00:00",
+                Some("daily"),
+            )
+            .await
+            .unwrap();
+
+        store.complete_task(&id, Some("daily")).await.unwrap();
+
+        // Task should still be pending but with advanced due_at.
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].2, "2020-01-02 09:00:00"); // Advanced by 1 day
+    }
+
+    #[tokio::test]
+    async fn test_cancel_task() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "Cancel me",
+                "2099-12-31T00:00:00",
+                None,
+            )
+            .await
+            .unwrap();
+
+        let prefix = &id[..8];
+        let cancelled = store.cancel_task(prefix, "user1").await.unwrap();
+        assert!(cancelled);
+
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert!(tasks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_cancel_task_wrong_sender() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "My task",
+                "2099-12-31T00:00:00",
+                None,
+            )
+            .await
+            .unwrap();
+
+        let prefix = &id[..8];
+        let cancelled = store.cancel_task(prefix, "user2").await.unwrap();
+        assert!(!cancelled);
+
+        // Task still exists.
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert_eq!(tasks.len(), 1);
+    }
 }

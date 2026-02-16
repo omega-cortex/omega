@@ -33,6 +33,8 @@ The gateway's job is simple: listen for messages, process them through a determi
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │ Background Tasks (concurrent, non-blocking)                   │  │
 │  │ • Conversation Summarizer (every 60s)                         │  │
+│  │ • Scheduler Loop (polls every 60s for due tasks)              │  │
+│  │ • Heartbeat Loop (check-in every N minutes)                   │  │
 │  │ • Typing Indicators (every 5s per message)                    │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                                                                       │
@@ -183,6 +185,30 @@ If the provider fails, an error message is sent to the user and the message is d
 **Performance:**
 Provider calls are the slowest part of the pipeline (typically 2-30 seconds). Everything else is near-instant.
 
+### Stage 6b: Schedule Marker Extraction
+
+**What happens:** After the provider responds, the gateway scans the response text for a `SCHEDULE:` marker. If found, a scheduled task is created and the marker line is stripped from the response before the user sees it.
+
+**Implementation:**
+- Calls `extract_schedule_marker(&response.text)` to find the first line starting with `SCHEDULE:`.
+- If found, calls `parse_schedule_line()` to extract three pipe-separated fields: description, ISO 8601 datetime, and repeat type.
+- Calls `store.create_task()` to persist the task in the `scheduled_tasks` table.
+- Calls `strip_schedule_marker()` to remove all `SCHEDULE:` lines from the response text.
+
+**Marker Format:**
+```
+SCHEDULE: Call John | 2026-02-17T15:00:00 | once
+SCHEDULE: Stand-up meeting | 2026-02-18T09:00:00 | daily
+```
+
+**Repeat Types:** `once`, `daily`, `weekly`, `monthly`, `weekdays`
+
+**Why This Exists:**
+The provider is responsible for understanding the user's natural language ("remind me to call John at 3pm") and producing the structured marker. The gateway simply extracts it. This keeps scheduling logic in the AI and parsing logic in the gateway -- each does what it does best.
+
+**Error Handling:**
+If the marker is malformed (wrong number of fields, empty description), it is silently ignored. If the database insert fails, the error is logged but the response is still sent. The user always sees their response, even if scheduling fails.
+
 ### Stage 7: Memory Storage
 
 **What happens:** The exchange (user input + AI response) is saved to the SQLite database.
@@ -278,6 +304,11 @@ User sends message on Telegram
 │  ✓ Success? → Continue                  │
 │  ✗ Error? → Send error, audit, return   │
 │                                          │
+│ Stage 6b: extract_schedule_marker()     │
+│  • Scan response for SCHEDULE: line     │
+│  ✓ Found? → Create task, strip marker   │
+│  ✗ Not found? → Continue                │
+│                                          │
 │ Stage 7: memory.store_exchange()        │
 │  • Save to SQLite (best-effort)         │
 │                                          │
@@ -340,6 +371,104 @@ User: Any good book recommendations?
 Assistant: [builds context with previous facts about philosophical interests]
 ```
 
+## Scheduler Loop
+
+The scheduler is a background task that delivers due tasks to users. It is spawned at gateway startup when `[scheduler].enabled` is `true` (the default).
+
+### Poll-Deliver-Complete Cycle
+
+Every `poll_interval_secs` seconds (default: 60), the scheduler:
+
+1. **Poll** -- Calls `store.get_due_tasks()` to find all tasks where `status = 'pending'` and `due_at <= now`.
+2. **Deliver** -- For each due task, sends a message via the task's channel: `"Reminder: {description}"`.
+3. **Complete** -- Calls `store.complete_task()` which either:
+   - Marks the task as `'delivered'` if it is a one-shot task (`repeat` is `NULL` or `"once"`).
+   - Advances `due_at` to the next occurrence if the task is recurring (daily, weekly, monthly, weekdays).
+
+```
+┌──────────┐    ┌──────────┐    ┌───────────────┐
+│  Sleep   │───>│  Query   │───>│  For each     │
+│  60s     │    │  due     │    │  due task:     │
+│          │    │  tasks   │    │  send + mark   │
+└──────────┘    └──────────┘    └───────────────┘
+     ^                                 │
+     └─────────────────────────────────┘
+```
+
+### Recurring Tasks
+
+When a recurring task is delivered, `complete_task()` does not mark it as `'delivered'`. Instead, it advances the `due_at` timestamp:
+
+| Repeat | Advance |
+|--------|---------|
+| `daily` | +1 day |
+| `weekly` | +7 days |
+| `monthly` | +1 month |
+| `weekdays` | +1 day, skipping Saturday and Sunday |
+
+The task remains in `'pending'` status with the new `due_at`, so the next poll cycle will pick it up again at the right time.
+
+### Error Handling
+
+- If a channel is not found for a task, the task is skipped (not marked delivered) and a warning is logged.
+- If delivery fails (channel send error), the task is skipped and will be retried on the next poll.
+- If `complete_task()` fails, the error is logged. The task may be re-delivered on the next poll (at-least-once delivery).
+
+## Heartbeat Loop
+
+The heartbeat is a background task that performs periodic AI check-ins. It is spawned at gateway startup when `[heartbeat].enabled` is `true` (disabled by default).
+
+### Check-In Cycle
+
+Every `interval_minutes` minutes (default: 30), the heartbeat:
+
+1. **Active Hours Check** -- If `active_start` and `active_end` are configured, checks the current local time. Skips the check if outside the window.
+2. **Read Checklist** -- Reads `~/.omega/HEARTBEAT.md` if it exists. This file contains a custom checklist for the AI to evaluate.
+3. **Provider Call** -- Sends a prompt to the AI provider asking it to perform a health check. If a checklist is present, the AI evaluates it.
+4. **Suppress or Alert**:
+   - If the response contains `HEARTBEAT_OK`, the result is logged at INFO level and no message is sent to the user.
+   - If the response contains anything else, it is treated as an alert and delivered to the configured channel and reply target.
+
+```
+┌──────────┐    ┌─────────┐    ┌───────────┐    ┌──────────────┐
+│  Sleep   │───>│ Active  │───>│ Read      │───>│ Provider     │
+│  N min   │    │ hours?  │    │ HEARTBEAT │    │ call         │
+│          │    │ Yes ──> │    │ .md       │    │              │
+└──────────┘    │ No: skip│    └───────────┘    └──────────────┘
+     ^          └─────────┘                           │
+     │                                    ┌───────────┴───────────┐
+     │                                    │ HEARTBEAT_OK?         │
+     │                                    │ Yes: log only         │
+     │                                    │ No: send alert        │
+     │                                    └───────────────────────┘
+     └────────────────────────────────────────────────┘
+```
+
+### The HEARTBEAT.md File
+
+This is an optional markdown file at `~/.omega/HEARTBEAT.md`. When present, its contents are included in the prompt sent to the provider. This allows you to define a custom checklist that the AI evaluates on each heartbeat.
+
+**Example:**
+```markdown
+- Is the system load below 80%?
+- Are all Docker containers running?
+- Is disk usage below 90%?
+- Any errors in /var/log/syslog in the last hour?
+```
+
+If the file does not exist or is empty, the heartbeat sends a generic health check prompt instead.
+
+### Active Hours
+
+The `active_start` and `active_end` fields define a time window (in 24-hour `HH:MM` format) during which heartbeats are allowed. Outside this window, the heartbeat sleeps without calling the provider.
+
+- If both fields are empty, heartbeats run around the clock.
+- Midnight wrapping is supported: `active_start = "22:00"`, `active_end = "06:00"` means heartbeats run from 10 PM to 6 AM.
+
+### HEARTBEAT_OK Suppression
+
+The suppression mechanism prevents notification fatigue. When everything is fine, you do not want a message every 30 minutes telling you so. The `HEARTBEAT_OK` keyword acts as a sentinel: the provider responds with it when there are no issues, and the gateway silently logs the result instead of forwarding it.
+
 ## Error Recovery & Resilience
 
 The gateway is designed to be resilient:
@@ -357,7 +486,7 @@ The gateway is designed to be resilient:
 ### Graceful Shutdown
 When Omega receives Ctrl+C:
 1. Main event loop breaks.
-2. Background summarizer is aborted.
+2. Background tasks are aborted (summarizer, scheduler loop, heartbeat loop).
 3. All active conversations are summarized (preserving memory).
 4. All channels are stopped cleanly.
 5. Omega exits.
@@ -488,7 +617,6 @@ On Ctrl+C, Omega summarizes all active conversations to:
 - Alternative providers — Direct integration with OpenAI, Anthropic APIs.
 - Skills system — Plugins for custom functions (weather, calendar, etc.).
 - Sandbox environment — Safe execution of user code.
-- Cron scheduler — Scheduled tasks and reminders.
 - WhatsApp support — Full WhatsApp channel implementation.
 
 ### Possible Improvements

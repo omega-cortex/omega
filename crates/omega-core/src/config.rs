@@ -17,6 +17,10 @@ pub struct Config {
     pub memory: MemoryConfig,
     #[serde(default)]
     pub sandbox: SandboxConfig,
+    #[serde(default)]
+    pub heartbeat: HeartbeatConfig,
+    #[serde(default)]
+    pub scheduler: SchedulerConfig,
 }
 
 /// Authentication configuration.
@@ -209,6 +213,58 @@ impl Default for SandboxConfig {
     }
 }
 
+/// Heartbeat configuration — periodic AI check-ins.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeartbeatConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_heartbeat_interval")]
+    pub interval_minutes: u64,
+    /// Active hours start (e.g. "08:00"). Empty = always active.
+    #[serde(default)]
+    pub active_start: String,
+    /// Active hours end (e.g. "22:00"). Empty = always active.
+    #[serde(default)]
+    pub active_end: String,
+    /// Channel to deliver heartbeat alerts (e.g. "telegram").
+    #[serde(default)]
+    pub channel: String,
+    /// Platform-specific target for delivery (e.g. chat_id).
+    #[serde(default)]
+    pub reply_target: String,
+}
+
+impl Default for HeartbeatConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_minutes: default_heartbeat_interval(),
+            active_start: String::new(),
+            active_end: String::new(),
+            channel: String::new(),
+            reply_target: String::new(),
+        }
+    }
+}
+
+/// Scheduler configuration — user-scheduled reminders and tasks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchedulerConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_poll_interval")]
+    pub poll_interval_secs: u64,
+}
+
+impl Default for SchedulerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            poll_interval_secs: default_poll_interval(),
+        }
+    }
+}
+
 // --- Default value functions ---
 
 fn default_name() -> String {
@@ -265,6 +321,12 @@ fn default_execution_time() -> u64 {
 fn default_output_bytes() -> usize {
     1_048_576
 }
+fn default_heartbeat_interval() -> u64 {
+    30
+}
+fn default_poll_interval() -> u64 {
+    60
+}
 
 /// Load configuration from a TOML file.
 ///
@@ -287,6 +349,8 @@ pub fn load(path: &str) -> Result<Config, OmegaError> {
             channel: ChannelConfig::default(),
             memory: MemoryConfig::default(),
             sandbox: SandboxConfig::default(),
+            heartbeat: HeartbeatConfig::default(),
+            scheduler: SchedulerConfig::default(),
         });
     }
 

@@ -43,7 +43,7 @@ The store uses a single SQLite file located at `~/.omega/memory.db` by default (
 
 ### Tables
 
-There are four tables managed by the store:
+There are five tables managed by the store:
 
 **conversations** -- Tracks conversation threads between users and Omega.
 ```
@@ -75,6 +75,21 @@ key       TEXT               -- Fact name (e.g., "name", "timezone")
 value     TEXT               -- Fact value (e.g., "Alice", "America/New_York")
 ```
 Facts are unique per `(sender_id, key)` -- storing a fact with the same key overwrites the previous value.
+
+**scheduled_tasks** -- Tasks and reminders created by users through natural language.
+```
+id           TEXT PRIMARY KEY   -- UUID v4
+channel      TEXT               -- Channel that created the task
+sender_id    TEXT               -- User who created the task
+reply_target TEXT               -- Platform-specific delivery target (e.g., chat_id)
+description  TEXT               -- What to remind the user about
+due_at       TEXT               -- When the task is due (ISO 8601)
+repeat       TEXT (nullable)    -- Repeat type: NULL/once, daily, weekly, monthly, weekdays
+status       TEXT               -- 'pending', 'delivered', or 'cancelled'
+created_at   TEXT               -- When the task was created
+delivered_at TEXT (nullable)    -- When the task was last delivered
+```
+Tasks are indexed on `(status, due_at)` for efficient polling and on `(sender_id, status)` for the `/tasks` command.
 
 **_migrations** -- Tracks which database migrations have been applied.
 
@@ -255,6 +270,48 @@ Both messages are linked to the same conversation via `conversation_id`.
 
 The assistant message includes JSON metadata recording which provider and model generated the response, and how long it took. This is useful for debugging, performance analysis, and auditing which AI models are being used.
 
+## Scheduled Tasks
+
+The store manages the lifecycle of scheduled tasks -- reminders and recurring items created by users through natural language. The gateway's scheduler loop uses these methods to poll and deliver tasks.
+
+### Task Lifecycle
+
+```
+User says "remind me to call John at 3pm"
+       |
+       v
+  [Provider includes SCHEDULE: marker in response]
+       |
+       v
+  [Gateway extracts marker]
+       |
+       v
+  store.create_task() ─── status='pending', due_at set
+       |
+       |    Scheduler polls every 60s
+       v
+  store.get_due_tasks() ─── finds tasks where due_at <= now
+       |
+       v
+  [Channel delivers reminder message]
+       |
+       v
+  store.complete_task()
+       |
+       ├── One-shot: status → 'delivered', delivered_at set
+       └── Recurring: due_at advanced, status stays 'pending'
+```
+
+### Store Methods
+
+The five scheduler-related methods on the store:
+
+- **`create_task()`** -- Inserts a new task with a UUID, setting `status = 'pending'`.
+- **`get_due_tasks()`** -- Queries for all pending tasks where `due_at <= datetime('now')`.
+- **`complete_task()`** -- For one-shot tasks, marks as `'delivered'`. For recurring tasks, advances `due_at` to the next occurrence.
+- **`get_tasks_for_sender()`** -- Returns all pending tasks for a given user (used by the `/tasks` command).
+- **`cancel_task()`** -- Matches a task by ID prefix and sender, setting `status = 'cancelled'` (used by the `/cancel` command).
+
 ## Memory Statistics and Introspection
 
 The store provides several methods for system introspection, used primarily by bot commands:
@@ -291,6 +348,7 @@ The store uses a simple, custom migration system. SQL migration files are embedd
 2. **002_audit_log** -- Creates the `audit_log` table.
 3. **003_memory_enhancement** -- Adds conversation boundaries (status, last_activity, summary) and re-creates facts with sender-scoped uniqueness.
 4. **004_fts5_recall** -- Creates FTS5 full-text search index on user messages for cross-conversation recall.
+5. **005_scheduled_tasks** -- Creates the `scheduled_tasks` table with indexes for the task queue.
 
 ### Handling Pre-Existing Databases
 

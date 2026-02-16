@@ -5,7 +5,7 @@
 
 use crate::commands;
 use omega_core::{
-    config::{AuthConfig, ChannelConfig},
+    config::{AuthConfig, ChannelConfig, HeartbeatConfig, SchedulerConfig},
     context::Context,
     message::{IncomingMessage, MessageMetadata, OutgoingMessage},
     sanitize,
@@ -29,6 +29,8 @@ pub struct Gateway {
     audit: AuditLogger,
     auth_config: AuthConfig,
     channel_config: ChannelConfig,
+    heartbeat_config: HeartbeatConfig,
+    scheduler_config: SchedulerConfig,
     uptime: Instant,
 }
 
@@ -40,6 +42,8 @@ impl Gateway {
         memory: Store,
         auth_config: AuthConfig,
         channel_config: ChannelConfig,
+        heartbeat_config: HeartbeatConfig,
+        scheduler_config: SchedulerConfig,
     ) -> Self {
         let audit = AuditLogger::new(memory.pool().clone());
         Self {
@@ -49,6 +53,8 @@ impl Gateway {
             audit,
             auth_config,
             channel_config,
+            heartbeat_config,
+            scheduler_config,
             uptime: Instant::now(),
         }
     }
@@ -97,6 +103,30 @@ impl Gateway {
             Self::background_summarizer(bg_store, bg_provider).await;
         });
 
+        // Spawn scheduler loop.
+        let sched_handle = if self.scheduler_config.enabled {
+            let sched_store = self.memory.clone();
+            let sched_channels = self.channels.clone();
+            let poll_secs = self.scheduler_config.poll_interval_secs;
+            Some(tokio::spawn(async move {
+                Self::scheduler_loop(sched_store, sched_channels, poll_secs).await;
+            }))
+        } else {
+            None
+        };
+
+        // Spawn heartbeat loop.
+        let hb_handle = if self.heartbeat_config.enabled {
+            let hb_provider = self.provider.clone();
+            let hb_channels = self.channels.clone();
+            let hb_config = self.heartbeat_config.clone();
+            Some(tokio::spawn(async move {
+                Self::heartbeat_loop(hb_provider, hb_channels, hb_config).await;
+            }))
+        } else {
+            None
+        };
+
         // Main event loop with graceful shutdown.
         loop {
             tokio::select! {
@@ -111,7 +141,7 @@ impl Gateway {
         }
 
         // Graceful shutdown.
-        self.shutdown(&bg_handle).await;
+        self.shutdown(&bg_handle, &sched_handle, &hb_handle).await;
         Ok(())
     }
 
@@ -132,6 +162,111 @@ impl Gateway {
                 }
                 Err(e) => {
                     error!("failed to find idle conversations: {e}");
+                }
+            }
+        }
+    }
+
+    /// Background task: deliver due scheduled tasks.
+    async fn scheduler_loop(
+        store: Store,
+        channels: HashMap<String, Arc<dyn Channel>>,
+        poll_secs: u64,
+    ) {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(poll_secs)).await;
+
+            match store.get_due_tasks().await {
+                Ok(tasks) => {
+                    for (id, channel_name, reply_target, description, repeat) in &tasks {
+                        let msg = OutgoingMessage {
+                            text: format!("Reminder: {description}"),
+                            metadata: MessageMetadata::default(),
+                            reply_target: Some(reply_target.clone()),
+                        };
+
+                        if let Some(ch) = channels.get(channel_name) {
+                            if let Err(e) = ch.send(msg).await {
+                                error!("failed to deliver task {id}: {e}");
+                                continue;
+                            }
+                        } else {
+                            warn!("scheduler: no channel '{channel_name}' for task {id}");
+                            continue;
+                        }
+
+                        if let Err(e) = store.complete_task(id, repeat.as_deref()).await {
+                            error!("failed to complete task {id}: {e}");
+                        } else {
+                            info!("delivered scheduled task {id}: {description}");
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("scheduler: failed to get due tasks: {e}");
+                }
+            }
+        }
+    }
+
+    /// Background task: periodic heartbeat check-in.
+    async fn heartbeat_loop(
+        provider: Arc<dyn Provider>,
+        channels: HashMap<String, Arc<dyn Channel>>,
+        config: HeartbeatConfig,
+    ) {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(config.interval_minutes * 60)).await;
+
+            // Check active hours.
+            if !config.active_start.is_empty()
+                && !config.active_end.is_empty()
+                && !is_within_active_hours(&config.active_start, &config.active_end)
+            {
+                info!("heartbeat: outside active hours, skipping");
+                continue;
+            }
+
+            // Read optional checklist.
+            let checklist = read_heartbeat_file().unwrap_or_default();
+
+            let prompt = if checklist.is_empty() {
+                "You are Omega performing a periodic heartbeat check. \
+                 If everything is fine, respond with exactly HEARTBEAT_OK. \
+                 Otherwise, respond with a brief alert."
+                    .to_string()
+            } else {
+                format!(
+                    "You are Omega performing a periodic heartbeat check.\n\
+                     Review this checklist and report anything that needs attention.\n\
+                     If everything is fine, respond with exactly HEARTBEAT_OK.\n\n\
+                     {checklist}"
+                )
+            };
+
+            let ctx = Context::new(&prompt);
+            match provider.complete(&ctx).await {
+                Ok(resp) => {
+                    if resp.text.trim().contains("HEARTBEAT_OK") {
+                        info!("heartbeat: OK");
+                    } else if let Some(ch) = channels.get(&config.channel) {
+                        let msg = OutgoingMessage {
+                            text: resp.text,
+                            metadata: MessageMetadata::default(),
+                            reply_target: Some(config.reply_target.clone()),
+                        };
+                        if let Err(e) = ch.send(msg).await {
+                            error!("heartbeat: failed to send alert: {e}");
+                        }
+                    } else {
+                        warn!(
+                            "heartbeat: channel '{}' not found, alert dropped",
+                            config.channel
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!("heartbeat: provider error: {e}");
                 }
             }
         }
@@ -213,11 +348,22 @@ impl Gateway {
     }
 
     /// Graceful shutdown: summarize active conversations, stop channels.
-    async fn shutdown(&self, bg_handle: &tokio::task::JoinHandle<()>) {
+    async fn shutdown(
+        &self,
+        bg_handle: &tokio::task::JoinHandle<()>,
+        sched_handle: &Option<tokio::task::JoinHandle<()>>,
+        hb_handle: &Option<tokio::task::JoinHandle<()>>,
+    ) {
         info!("Shutting down...");
 
-        // Abort background summarizer.
+        // Abort background tasks.
         bg_handle.abort();
+        if let Some(h) = sched_handle {
+            h.abort();
+        }
+        if let Some(h) = hb_handle {
+            h.abort();
+        }
 
         // Summarize all active conversations.
         match self.memory.find_all_active_conversations().await {
@@ -311,6 +457,7 @@ impl Gateway {
                 &self.memory,
                 &incoming.channel,
                 &incoming.sender_id,
+                &clean_incoming.text,
                 &self.uptime,
                 self.provider.name(),
             )
@@ -395,6 +542,40 @@ impl Gateway {
             h.abort();
         }
 
+        // --- 5b. EXTRACT SCHEDULE MARKER ---
+        let mut response = response;
+        if let Some(schedule_line) = extract_schedule_marker(&response.text) {
+            if let Some((desc, due_at, repeat)) = parse_schedule_line(&schedule_line) {
+                let reply_target = incoming.reply_target.as_deref().unwrap_or("");
+                let repeat_opt = if repeat == "once" {
+                    None
+                } else {
+                    Some(repeat.as_str())
+                };
+                match self
+                    .memory
+                    .create_task(
+                        &incoming.channel,
+                        &incoming.sender_id,
+                        reply_target,
+                        &desc,
+                        &due_at,
+                        repeat_opt,
+                    )
+                    .await
+                {
+                    Ok(id) => {
+                        info!("scheduled task {id}: {desc} at {due_at}");
+                    }
+                    Err(e) => {
+                        error!("failed to create scheduled task: {e}");
+                    }
+                }
+            }
+            // Strip the SCHEDULE: line from the response.
+            response.text = strip_schedule_marker(&response.text);
+        }
+
         // --- 6. STORE IN MEMORY ---
         if let Err(e) = self.memory.store_exchange(&incoming, &response).await {
             error!("failed to store exchange: {e}");
@@ -474,5 +655,134 @@ impl Gateway {
                 error!("failed to send message: {e}");
             }
         }
+    }
+}
+
+/// Extract the first `SCHEDULE:` line from response text.
+fn extract_schedule_marker(text: &str) -> Option<String> {
+    text.lines()
+        .find(|line| line.trim().starts_with("SCHEDULE:"))
+        .map(|line| line.trim().to_string())
+}
+
+/// Parse a schedule line: `SCHEDULE: desc | ISO datetime | repeat`
+fn parse_schedule_line(line: &str) -> Option<(String, String, String)> {
+    let content = line.strip_prefix("SCHEDULE:")?.trim();
+    let parts: Vec<&str> = content.splitn(3, '|').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let desc = parts[0].trim().to_string();
+    let due_at = parts[1].trim().to_string();
+    let repeat = parts[2].trim().to_lowercase();
+    if desc.is_empty() || due_at.is_empty() {
+        return None;
+    }
+    Some((desc, due_at, repeat))
+}
+
+/// Strip all `SCHEDULE:` lines from response text.
+fn strip_schedule_marker(text: &str) -> String {
+    text.lines()
+        .filter(|line| !line.trim().starts_with("SCHEDULE:"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+/// Read `~/.omega/HEARTBEAT.md` if it exists.
+fn read_heartbeat_file() -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let path = format!("{home}/.omega/HEARTBEAT.md");
+    let content = std::fs::read_to_string(path).ok()?;
+    if content.trim().is_empty() {
+        None
+    } else {
+        Some(content)
+    }
+}
+
+/// Check if the current local time is within the active hours window.
+fn is_within_active_hours(start: &str, end: &str) -> bool {
+    let now = chrono::Local::now().format("%H:%M").to_string();
+    if start <= end {
+        // Normal range: e.g. 08:00 to 22:00
+        now.as_str() >= start && now.as_str() < end
+    } else {
+        // Midnight wrap: e.g. 22:00 to 06:00
+        now.as_str() >= start || now.as_str() < end
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_schedule_marker() {
+        let text = "Sure, I'll remind you.\nSCHEDULE: Call John | 2026-02-17T15:00:00 | once";
+        let result = extract_schedule_marker(text);
+        assert_eq!(
+            result,
+            Some("SCHEDULE: Call John | 2026-02-17T15:00:00 | once".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_schedule_marker_none() {
+        let text = "No schedule here, just a normal response.";
+        assert!(extract_schedule_marker(text).is_none());
+    }
+
+    #[test]
+    fn test_parse_schedule_line() {
+        let line = "SCHEDULE: Call John | 2026-02-17T15:00:00 | once";
+        let result = parse_schedule_line(line).unwrap();
+        assert_eq!(result.0, "Call John");
+        assert_eq!(result.1, "2026-02-17T15:00:00");
+        assert_eq!(result.2, "once");
+    }
+
+    #[test]
+    fn test_parse_schedule_line_daily() {
+        let line = "SCHEDULE: Stand-up meeting | 2026-02-18T09:00:00 | daily";
+        let result = parse_schedule_line(line).unwrap();
+        assert_eq!(result.0, "Stand-up meeting");
+        assert_eq!(result.2, "daily");
+    }
+
+    #[test]
+    fn test_parse_schedule_line_invalid() {
+        assert!(parse_schedule_line("SCHEDULE: missing parts").is_none());
+        assert!(parse_schedule_line("not a schedule line").is_none());
+    }
+
+    #[test]
+    fn test_strip_schedule_marker() {
+        let text = "Sure, I'll remind you.\nSCHEDULE: Call John | 2026-02-17T15:00:00 | once";
+        let result = strip_schedule_marker(text);
+        assert_eq!(result, "Sure, I'll remind you.");
+    }
+
+    #[test]
+    fn test_strip_schedule_marker_preserves_other_lines() {
+        let text = "Line 1\nLine 2\nSCHEDULE: test | 2026-01-01T00:00:00 | once\nLine 3";
+        let result = strip_schedule_marker(text);
+        assert_eq!(result, "Line 1\nLine 2\nLine 3");
+    }
+
+    #[test]
+    fn test_is_within_active_hours_normal_range() {
+        // This test checks the logic, not the current time.
+        // Normal range: 00:00 to 23:59 should always be true.
+        assert!(is_within_active_hours("00:00", "23:59"));
+    }
+
+    #[test]
+    fn test_is_within_active_hours_narrow_miss() {
+        // Range 00:00 to 00:00 is empty (start == end, so start <= end is true,
+        // and now >= "00:00" && now < "00:00" is always false).
+        assert!(!is_within_active_hours("00:00", "00:00"));
     }
 }

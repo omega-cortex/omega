@@ -62,6 +62,22 @@ backend = "sqlite"
 db_path = "~/.omega/memory.db"
 max_context_messages = 50
 
+# --- Scheduler ---
+
+[scheduler]
+enabled = true                  # Zero cost when no tasks exist
+poll_interval_secs = 60
+
+# --- Heartbeat ---
+
+[heartbeat]
+enabled = false
+interval_minutes = 30
+active_start = "08:00"          # Empty = always active
+active_end = "22:00"
+channel = "telegram"
+reply_target = ""               # Chat ID for delivery
+
 # --- Security ---
 
 [sandbox]

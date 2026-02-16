@@ -134,6 +134,74 @@ No active conversation to clear.
 
 ---
 
+### `/tasks` — Scheduled Tasks
+
+**What It Does:** Lists all your pending scheduled tasks, showing a short ID, description, due date, and repeat type for each.
+
+**Response Example:**
+```
+Scheduled Tasks
+
+[a1b2c3d4] Call John
+  Due: 2026-02-17T15:00:00 (once)
+
+[e5f6g7h8] Stand-up meeting
+  Due: 2026-02-18T09:00:00 (daily)
+```
+
+**Response Example (No Tasks):**
+```
+No pending tasks.
+```
+
+**Understanding the Output:**
+- The 8-character string in brackets (e.g., `[a1b2c3d4]`) is the short ID prefix of the task's UUID. Use it with `/cancel` to remove the task.
+- **Due** shows when the task will next fire.
+- The parenthesized label shows the repeat type: `once`, `daily`, `weekly`, `monthly`, or `weekdays`.
+
+**Use Cases:**
+- Review what reminders you have pending
+- Get the short ID needed to cancel a task
+- Check the next delivery time for recurring tasks
+
+---
+
+### `/cancel` — Cancel a Scheduled Task
+
+**What It Does:** Cancels a pending scheduled task by its short ID prefix. The task must belong to you and must still be in `pending` status.
+
+**Response Example (Success):**
+```
+Task cancelled.
+```
+
+**Response Example (No Match):**
+```
+No matching task found.
+```
+
+**Response Example (No ID Provided):**
+```
+Usage: /cancel <task-id>
+```
+
+**How to Use:**
+1. Run `/tasks` to see your pending tasks and their short IDs.
+2. Copy the 8-character ID (e.g., `a1b2c3d4`).
+3. Send `/cancel a1b2c3d4`.
+
+**Important Notes:**
+- You can only cancel your own tasks.
+- Cancelled tasks are not deleted -- they remain in the database with `status = 'cancelled'` for audit purposes.
+- If a task has already been delivered, it cannot be cancelled.
+
+**Use Cases:**
+- Remove a reminder you no longer need
+- Stop a recurring task (e.g., a daily standup reminder you set up temporarily)
+- Correct a scheduling mistake before the task fires
+
+---
+
 ### `/help` — Command Help
 
 **What It Does:** Displays a quick reference guide of all available commands with brief descriptions.
@@ -147,6 +215,8 @@ Omega Commands
 /history — Last 5 conversation summaries
 /facts   — List known facts about you
 /forget  — Clear current conversation
+/tasks   — List your scheduled tasks
+/cancel  — Cancel a task by ID
 /help    — This message
 ```
 

@@ -1,8 +1,10 @@
 # DOCS.md — Omega Documentation
 
+
 > Master index of all user-facing and developer documentation for the Omega project.
 
 ## Overview
+
 
 Omega is a personal AI agent infrastructure written in Rust. This `docs/` directory contains guides, references, and explanations organized by topic.
 
@@ -29,12 +31,17 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 ### Memory
 - [memory.md](memory.md) — Conversation storage, facts, summaries, context building
 - [memory-migration-004.md](memory-migration-004.md) — FTS5 cross-conversation recall
+- [memory-migration-005.md](memory-migration-005.md) — Scheduled tasks table and indexes
 
 ### Operations
 - [operations.md](operations.md) — LaunchAgent setup, logging, self-check, graceful shutdown
 
+### Proactive Features
+- [scheduler.md](scheduler.md) — Task queue: reminders, recurring tasks, natural language scheduling
+- [heartbeat.md](heartbeat.md) — Periodic AI check-ins, health monitoring, alert suppression
+
 ### Commands
-- [commands.md](commands.md) — Bot command reference (/status, /memory, /history, /facts, /forget, /help)
+- [commands.md](commands.md) — Bot command reference (/status, /memory, /history, /facts, /forget, /tasks, /cancel, /help)
 
 ### Development
 - [development.md](development.md) — Build, test, lint, code conventions, contribution guidelines

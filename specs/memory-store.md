@@ -43,7 +43,7 @@ pub struct Store {
 
 ## Database Schema
 
-The store manages three tables and one virtual table created across four migrations. A fifth table (`_migrations`) tracks migration state.
+The store manages four tables and one virtual table created across five migrations. A sixth table (`_migrations`) tracks migration state.
 
 ### Table: `_migrations`
 
@@ -185,6 +185,42 @@ Only user messages are indexed. Assistant messages are excluded.
 
 Created by `002_audit_log.sql`. Not accessed by `Store` directly (managed by `AuditLogger`), but shares the same database pool.
 
+### Table: `scheduled_tasks`
+
+Created by `005_scheduled_tasks.sql`.
+
+```sql
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id           TEXT PRIMARY KEY,
+    channel      TEXT NOT NULL,
+    sender_id    TEXT NOT NULL,
+    reply_target TEXT NOT NULL,
+    description  TEXT NOT NULL,
+    due_at       TEXT NOT NULL,
+    repeat       TEXT,
+    status       TEXT NOT NULL DEFAULT 'pending',
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    delivered_at TEXT
+);
+```
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `TEXT` | `PRIMARY KEY` | UUID v4 string. |
+| `channel` | `TEXT` | `NOT NULL` | Channel name for delivery (e.g., `"telegram"`). |
+| `sender_id` | `TEXT` | `NOT NULL` | User who created the task. |
+| `reply_target` | `TEXT` | `NOT NULL` | Platform-specific delivery target (e.g., chat ID). |
+| `description` | `TEXT` | `NOT NULL` | Human-readable task description (e.g., `"Call John"`). |
+| `due_at` | `TEXT` | `NOT NULL` | ISO 8601 datetime when the task is due (e.g., `"2026-02-17T15:00:00"`). |
+| `repeat` | `TEXT` | nullable | Recurrence pattern: `NULL` (one-shot), `"daily"`, `"weekly"`, `"monthly"`, `"weekdays"`. |
+| `status` | `TEXT` | `NOT NULL`, default `'pending'` | Task state: `'pending'`, `'delivered'`, or `'cancelled'`. |
+| `created_at` | `TEXT` | `NOT NULL`, default `datetime('now')` | When the task was created. |
+| `delivered_at` | `TEXT` | nullable | When the task was delivered (set on completion for one-shot tasks). |
+
+**Indexes:**
+- `idx_scheduled_tasks_due` on `(status, due_at)` -- for efficient due-task queries.
+- `idx_scheduled_tasks_sender` on `(sender_id, status)` -- for per-user task listing.
+
 ## Migrations
 
 ### Migration Tracking
@@ -203,6 +239,7 @@ Migrations are tracked via the `_migrations` table. The system handles three sce
 | `002_audit_log` | `migrations/002_audit_log.sql` | Creates `audit_log` table with indexes. |
 | `003_memory_enhancement` | `migrations/003_memory_enhancement.sql` | Adds `summary`, `last_activity`, `status` to `conversations`. Recreates `facts` with `sender_id` scoping. |
 | `004_fts5_recall` | `migrations/004_fts5_recall.sql` | Creates `messages_fts` FTS5 virtual table, backfills existing user messages, adds auto-sync triggers. |
+| `005_scheduled_tasks` | `migrations/005_scheduled_tasks.sql` | Creates `scheduled_tasks` table with indexes for user-scheduled reminders and recurring tasks. |
 
 ### Bootstrap Detection Logic
 
@@ -686,6 +723,153 @@ INSERT INTO messages (id, conversation_id, role, content, metadata_json) VALUES 
 
 **Called by:** `gateway.rs::handle_message()` after a successful provider call.
 
+---
+
+#### `async fn create_task(&self, channel: &str, sender_id: &str, reply_target: &str, description: &str, due_at: &str, repeat: Option<&str>) -> Result<String, OmegaError>`
+
+**Purpose:** Create a new scheduled task.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `channel` | `&str` | Channel name for delivery (e.g., `"telegram"`). |
+| `sender_id` | `&str` | User who created the task. |
+| `reply_target` | `&str` | Platform-specific delivery target (e.g., chat ID). |
+| `description` | `&str` | Human-readable task description. |
+| `due_at` | `&str` | ISO 8601 datetime when the task is due. |
+| `repeat` | `Option<&str>` | Recurrence pattern (`None` for one-shot, `Some("daily")`, etc.). |
+
+**Returns:** `Result<String, OmegaError>` -- the UUID of the created task.
+
+**SQL:**
+```sql
+INSERT INTO scheduled_tasks (id, channel, sender_id, reply_target, description, due_at, repeat)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+```
+
+**Called by:** `gateway.rs::handle_message()` Stage 5b (SCHEDULE marker extraction).
+
+---
+
+#### `async fn get_due_tasks(&self) -> Result<Vec<(String, String, String, String, Option<String>)>, OmegaError>`
+
+**Purpose:** Get tasks that are due for delivery (status is pending and due_at is in the past or now).
+
+**Parameters:** None.
+
+**Returns:** `Result<Vec<(String, String, String, String, Option<String>)>, OmegaError>` where each tuple is `(id, channel, reply_target, description, repeat)`.
+
+**SQL:**
+```sql
+SELECT id, channel, reply_target, description, repeat
+FROM scheduled_tasks
+WHERE status = 'pending' AND datetime(due_at) <= datetime('now')
+```
+
+**Called by:** `gateway.rs::scheduler_loop()` every `poll_interval_secs` seconds.
+
+---
+
+#### `async fn complete_task(&self, id: &str, repeat: Option<&str>) -> Result<(), OmegaError>`
+
+**Purpose:** Complete a task after delivery. One-shot tasks are marked as delivered. Recurring tasks have their `due_at` advanced by the repeat interval.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `&str` | The task UUID. |
+| `repeat` | `Option<&str>` | Recurrence pattern (`None` or `Some("once")` for one-shot, `Some("daily")`, etc.). |
+
+**Returns:** `Result<(), OmegaError>`.
+
+**Logic:**
+1. If `repeat` is `None` or `"once"`:
+   - Set `status = 'delivered'` and `delivered_at = datetime('now')`.
+2. If `repeat` is a recurring pattern:
+   - Advance `due_at` by the interval:
+     - `"daily"` or `"weekdays"` → `+1 day`
+     - `"weekly"` → `+7 days`
+     - `"monthly"` → `+1 month`
+     - Unknown → `+1 day` (fallback)
+   - For `"weekdays"`: if the new `due_at` falls on Saturday (strftime `%w` = 6), advance by 2 more days to Monday. If it falls on Sunday (`%w` = 0), advance by 1 more day to Monday.
+
+**SQL (one-shot):**
+```sql
+UPDATE scheduled_tasks SET status = 'delivered', delivered_at = datetime('now') WHERE id = ?
+```
+
+**SQL (recurring advance):**
+```sql
+UPDATE scheduled_tasks SET due_at = datetime(due_at, '<offset>') WHERE id = ?
+```
+
+**SQL (weekday skip Saturday):**
+```sql
+UPDATE scheduled_tasks SET due_at = datetime(due_at, '+2 days')
+WHERE id = ? AND CAST(strftime('%w', due_at) AS INTEGER) = 6
+```
+
+**SQL (weekday skip Sunday):**
+```sql
+UPDATE scheduled_tasks SET due_at = datetime(due_at, '+1 day')
+WHERE id = ? AND CAST(strftime('%w', due_at) AS INTEGER) = 0
+```
+
+**Called by:** `gateway.rs::scheduler_loop()` after successful delivery.
+
+---
+
+#### `async fn get_tasks_for_sender(&self, sender_id: &str) -> Result<Vec<(String, String, String, Option<String>)>, OmegaError>`
+
+**Purpose:** Get all pending tasks for a specific user (for the `/tasks` command).
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sender_id` | `&str` | The user whose tasks to retrieve. |
+
+**Returns:** `Result<Vec<(String, String, String, Option<String>)>, OmegaError>` where each tuple is `(id, description, due_at, repeat)`, ordered by `due_at` ascending.
+
+**SQL:**
+```sql
+SELECT id, description, due_at, repeat
+FROM scheduled_tasks
+WHERE sender_id = ? AND status = 'pending'
+ORDER BY due_at ASC
+```
+
+**Called by:** `commands.rs` for the `/tasks` command.
+
+---
+
+#### `async fn cancel_task(&self, id_prefix: &str, sender_id: &str) -> Result<bool, OmegaError>`
+
+**Purpose:** Cancel a task by ID prefix. The task must belong to the specified sender and be in pending status.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id_prefix` | `&str` | The beginning of the task UUID (e.g., first 8 characters). |
+| `sender_id` | `&str` | The user requesting cancellation (ownership check). |
+
+**Returns:** `Result<bool, OmegaError>` -- `true` if a task was cancelled, `false` if no matching task found.
+
+**SQL:**
+```sql
+UPDATE scheduled_tasks SET status = 'cancelled'
+WHERE id LIKE ? AND sender_id = ? AND status = 'pending'
+```
+
+**Bind parameters:** `id_prefix` is bound as `"{id_prefix}%"` for prefix matching via `LIKE`.
+
+**Security:** The `sender_id` filter ensures users can only cancel their own tasks.
+
+**Called by:** `commands.rs` for the `/cancel` command.
+
 ### Private Methods
 
 #### `async fn run_migrations(pool: &SqlitePool) -> Result<(), OmegaError>`
@@ -714,6 +898,7 @@ let migrations: &[(&str, &str)] = &[
     ("002_audit_log", include_str!("../migrations/002_audit_log.sql")),
     ("003_memory_enhancement", include_str!("../migrations/003_memory_enhancement.sql")),
     ("004_fts5_recall", include_str!("../migrations/004_fts5_recall.sql")),
+    ("005_scheduled_tasks", include_str!("../migrations/005_scheduled_tasks.sql")),
 ];
 ```
 
@@ -837,6 +1022,12 @@ Related past context:                 ← (only if recall is non-empty)
 - [2024-01-08 11:30:00] User: I need to set up nginx reverse proxy for port 8080...
 
 Respond in Spanish.                   ← (only if likely_spanish() returns true)
+
+When the user asks to schedule, remind, or set a recurring task,
+include this marker on its own line at the END of your response:
+SCHEDULE: <description> | <ISO 8601 datetime> | <once|daily|weekly|monthly|weekdays>
+Example: SCHEDULE: Call John | 2026-02-17T15:00:00 | once
+Only include the marker if the user explicitly asks for a reminder or scheduled task.
 ```
 
 **Conditional sections:**
@@ -844,6 +1035,7 @@ Respond in Spanish.                   ← (only if likely_spanish() returns true
 - Summaries section: appended only if `summaries` is non-empty.
 - Recall section: appended only if `recall` is non-empty. Each message is truncated to 200 characters.
 - Spanish directive: appended only if `likely_spanish(current_message)` returns true.
+- SCHEDULE marker instructions: always appended (unconditional). Tells the provider to include a `SCHEDULE:` marker line when the user explicitly requests a reminder or scheduled task.
 
 ---
 
@@ -997,6 +1189,11 @@ All errors are wrapped in `OmegaError::Memory(String)` with descriptive messages
 | `get_history()` | Propagates errors. |
 | `get_recent_summaries()` | Propagates errors. |
 | `db_size()` | Propagates errors. |
+| `create_task()` | Propagates errors. |
+| `get_due_tasks()` | Propagates errors (caller in scheduler loop logs and continues). |
+| `complete_task()` | Propagates errors (caller in scheduler loop logs and continues). |
+| `get_tasks_for_sender()` | Propagates errors. |
+| `cancel_task()` | Propagates errors. |
 
 ### Resilience in build_context()
 Facts, summaries, and recalled messages are fetched with `unwrap_or_default()`. This ensures that a failure in retrieving personalization data does not prevent the provider from receiving a valid context. The conversation will still work; it will just lack facts, summaries, or recalled context.
@@ -1015,6 +1212,21 @@ Facts, summaries, and recalled messages are fetched with `unwrap_or_default()`. 
 - `omega_core::error::OmegaError` -- Error type used for all results.
 - `omega_core::message::{IncomingMessage, OutgoingMessage}` -- Message types used by `build_context()` and `store_exchange()`.
 
+## Tests
+
+### Scheduled Task Tests
+
+All tests use an in-memory SQLite store (`sqlite::memory:`) with migrations applied.
+
+| Test | Purpose |
+|------|---------|
+| `test_create_and_get_tasks` | Creates a one-shot task, verifies it appears in `get_tasks_for_sender()` with correct description, due_at, and `None` repeat. |
+| `test_get_due_tasks` | Creates a past-due task and a future task, verifies only the past-due task appears in `get_due_tasks()`. |
+| `test_complete_one_shot` | Creates and completes a one-shot task, verifies it no longer appears in pending or due queries. |
+| `test_complete_recurring` | Creates a daily recurring task with past due_at, completes it, verifies the task still exists with `due_at` advanced by 1 day. |
+| `test_cancel_task` | Creates a task, cancels it by ID prefix, verifies it no longer appears in `get_tasks_for_sender()`. |
+| `test_cancel_task_wrong_sender` | Creates a task for user1, attempts cancellation by user2, verifies it fails (returns `false`) and the task still exists for user1. |
+
 ## Invariants
 
 1. Every conversation has a UUID v4 as its primary key.
@@ -1029,3 +1241,8 @@ Facts, summaries, and recalled messages are fetched with `unwrap_or_default()`. 
 10. Migrations are idempotent -- running them multiple times has no effect.
 11. The database is created with WAL journal mode for concurrent read access.
 12. Connection pool is limited to 4 connections maximum.
+13. Scheduled tasks have UUID v4 as their primary key.
+14. Task status is one of `'pending'`, `'delivered'`, or `'cancelled'`.
+15. Recurring tasks stay in `'pending'` status with an advanced `due_at`; one-shot tasks transition to `'delivered'`.
+16. Task cancellation requires sender_id ownership check (users can only cancel their own tasks).
+17. The SCHEDULE marker instruction is always included in the system prompt.

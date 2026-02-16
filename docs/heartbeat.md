@@ -1,0 +1,151 @@
+# Omega Heartbeat: Periodic AI Check-Ins
+
+## What Is the Heartbeat?
+
+The heartbeat is Omega's proactive monitoring feature. Instead of waiting for you to ask a question, Omega periodically checks in with the AI provider to evaluate a health checklist or perform a general status check. If everything is fine, the result is silently logged. If something needs your attention, Omega sends an alert to your messaging channel.
+
+Think of it as a watchdog that uses AI reasoning instead of simple threshold checks.
+
+## How It Works
+
+The heartbeat runs as a background loop inside the gateway, firing every N minutes (default: 30). Each cycle follows this sequence:
+
+1. **Check active hours** -- If you configured an active hours window (e.g., 08:00-22:00), the heartbeat checks the current local time. Outside the window, it sleeps until the next cycle.
+2. **Read the checklist** -- Looks for `~/.omega/HEARTBEAT.md`. If the file exists and is not empty, its contents are included in the prompt.
+3. **Call the provider** -- Sends a prompt to the AI provider. The prompt asks the AI to evaluate the checklist (if provided) or perform a general health check.
+4. **Evaluate the response**:
+   - If the response contains `HEARTBEAT_OK`, the heartbeat logs an INFO message and sends nothing to the user.
+   - If the response contains anything else, it is treated as an alert and delivered to the configured channel.
+
+```
+Every N minutes:
+  → Is it within active hours?
+    → No: skip, sleep
+    → Yes: read HEARTBEAT.md (optional)
+      → Call provider with checklist prompt
+        → Response contains "HEARTBEAT_OK"?
+          → Yes: log "heartbeat: OK", done
+          → No: send response as alert to channel
+```
+
+## The HEARTBEAT_OK Suppression Mechanism
+
+When the AI determines that everything is fine, it responds with exactly `HEARTBEAT_OK`. The gateway detects this keyword and suppresses the message -- it is logged but never sent to you.
+
+This prevents notification fatigue. Without suppression, you would receive a message every 30 minutes telling you everything is fine. The suppression mechanism ensures you only hear from the heartbeat when something actually needs attention.
+
+The keyword check is a simple `contains("HEARTBEAT_OK")`, so the provider can include additional text alongside it. However, the convention is to respond with just `HEARTBEAT_OK` when all checks pass.
+
+## Active Hours
+
+Active hours define a time window during which heartbeats are allowed to fire. Outside this window, the heartbeat sleeps without calling the provider.
+
+**Configuration:**
+```toml
+[heartbeat]
+active_start = "08:00"
+active_end = "22:00"
+```
+
+This means heartbeats only fire between 8:00 AM and 10:00 PM local time. At night, no provider calls are made and no alerts are sent.
+
+**Midnight wrapping is supported.** If you set `active_start = "22:00"` and `active_end = "06:00"`, heartbeats will fire from 10 PM to 6 AM (useful for overnight monitoring).
+
+**To disable active hours** and run heartbeats 24/7, leave both fields empty:
+```toml
+active_start = ""
+active_end = ""
+```
+
+## The HEARTBEAT.md Checklist
+
+`~/.omega/HEARTBEAT.md` is an optional file you create to customize what the heartbeat checks. When this file exists and has content, its contents are appended to the heartbeat prompt.
+
+### Example HEARTBEAT.md
+
+```markdown
+## System Health Checklist
+
+- Is the system load below 80%?
+- Are all Docker containers in the "running" state?
+- Is disk usage on / below 90%?
+- Are there any CRITICAL or ERROR entries in /var/log/syslog from the last hour?
+- Is the backup process completing without errors?
+- Is the network latency to 8.8.8.8 below 100ms?
+```
+
+The AI evaluates each item. If all checks pass, it responds with `HEARTBEAT_OK`. If any check fails or raises concern, the AI describes the issue in its response, which is then delivered as an alert.
+
+### What Happens Without HEARTBEAT.md
+
+If the file does not exist or is empty, the heartbeat sends a generic prompt:
+
+```
+You are Omega performing a periodic heartbeat check. If everything is fine,
+respond with exactly HEARTBEAT_OK. Otherwise, respond with a brief alert.
+```
+
+This still works -- the AI can perform general reasoning about the system state. However, without a specific checklist, the responses will be less targeted.
+
+## Configuration
+
+The heartbeat is controlled by the `[heartbeat]` section in `config.toml`:
+
+```toml
+[heartbeat]
+enabled = false
+interval_minutes = 30
+active_start = "08:00"
+active_end = "22:00"
+channel = "telegram"
+reply_target = ""
+```
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Whether the heartbeat loop runs. Disabled by default. |
+| `interval_minutes` | integer | `30` | How often the heartbeat fires (in minutes). |
+| `active_start` | string | `""` | Start of the active window (`HH:MM`). Empty = always active. |
+| `active_end` | string | `""` | End of the active window (`HH:MM`). Empty = always active. |
+| `channel` | string | `""` | Channel for alert delivery (e.g., `"telegram"`). |
+| `reply_target` | string | `""` | Platform-specific target (e.g., Telegram chat ID). |
+
+**Important:** The heartbeat is disabled by default because it requires `channel` and `reply_target` to be set. Enabling it without configuring a delivery target will cause alerts to be dropped (with a warning in the log).
+
+## Use Cases
+
+### System Monitoring
+
+Create a `HEARTBEAT.md` checklist that covers your infrastructure health. The AI evaluates each item and alerts you only when something is wrong.
+
+### Daily Check-Ins
+
+Set `interval_minutes = 1440` (24 hours) and `active_start = "09:00"` / `active_end = "09:05"` to get a once-daily morning briefing.
+
+### Proactive Alerts
+
+Use the heartbeat to monitor external services, log files, or system metrics. The AI can reason about whether conditions are normal or concerning, catching issues that simple threshold alerts might miss.
+
+### Development Watchdog
+
+During long CI/CD runs or deployments, enable the heartbeat to periodically check build status or deployment health.
+
+## Design Decisions
+
+### Why Not Store Results?
+
+Heartbeat results are not persisted to the database. Each check is stateless -- the AI evaluates the current state without reference to previous checks. This keeps the implementation simple and avoids unbounded storage growth from periodic polling.
+
+If you need a history of heartbeat results, enable audit logging -- the provider calls are captured in the audit log.
+
+### Why Suppress OK?
+
+Notification fatigue is a real problem. A message every 30 minutes saying "everything is fine" trains you to ignore your notifications, which means you might also ignore the one message that says something is wrong. Suppressing OK responses ensures that when you do get a heartbeat alert, it is meaningful and worth your attention.
+
+### Why Use the AI Provider?
+
+Simple threshold checks (CPU > 90%, disk > 95%) can be done with shell scripts. The value of using an AI provider is that it can reason about context, correlate multiple signals, and describe issues in plain language. A shell script tells you "disk at 92%"; the AI can tell you "disk usage is at 92% and growing fast -- the backup directory has 15GB of stale snapshots that could be cleaned."
+
+### Why Active Hours?
+
+Provider calls have a cost (API credits or local compute time). Active hours prevent unnecessary calls during times when you are unlikely to act on alerts anyway. If the server catches fire at 3 AM, you want to know about it in the morning -- not have 6 hours of suppressed heartbeat alerts queued up.

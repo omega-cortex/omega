@@ -92,6 +92,18 @@ backend = "sqlite"
 db_path = "~/.omega/memory.db"
 max_context_messages = 50
 
+[scheduler]
+enabled = true
+poll_interval_secs = 60
+
+[heartbeat]
+enabled = false
+interval_minutes = 30
+active_start = "08:00"
+active_end = "22:00"
+channel = "telegram"
+reply_target = ""
+
 [sandbox]
 enabled = true
 allowed_commands = ["ls", "cat", "grep", "find", "git", "cargo", "npm", "python"]
@@ -195,6 +207,28 @@ No API key needed -- Ollama runs locally.
 | `backend` | string | `"sqlite"` | Storage backend. Currently only `"sqlite"` is supported. |
 | `db_path` | string | `"~/.omega/memory.db"` | Path to the SQLite database. `~` is expanded at runtime. |
 | `max_context_messages` | integer | `50` | How many recent messages to include when building context for the provider. |
+
+### `[scheduler]` -- Task Queue
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `true` | Whether the scheduler background loop runs. Safe to leave enabled -- it has zero cost when no tasks exist. |
+| `poll_interval_secs` | integer | `60` | How often (in seconds) the scheduler checks for due tasks. Lower values mean faster delivery but slightly more database polling. |
+
+The scheduler delivers reminders and recurring tasks that users create through natural language (e.g., "remind me to call John at 3pm"). Tasks are stored in the `scheduled_tasks` SQLite table and delivered via the channel that created them.
+
+### `[heartbeat]` -- Periodic Check-in
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Whether the heartbeat background loop runs. Disabled by default because it requires channel and reply_target to be configured. |
+| `interval_minutes` | integer | `30` | How often (in minutes) the heartbeat fires. |
+| `active_start` | string | `""` | Start of the active hours window in `HH:MM` format (e.g., `"08:00"`). Empty means always active. |
+| `active_end` | string | `""` | End of the active hours window in `HH:MM` format (e.g., `"22:00"`). Empty means always active. |
+| `channel` | string | `""` | Which channel to deliver heartbeat alerts on (e.g., `"telegram"`). |
+| `reply_target` | string | `""` | Platform-specific target for delivery (e.g., a Telegram chat ID). |
+
+The heartbeat calls the AI provider periodically to perform a health check. If the provider responds with `HEARTBEAT_OK`, the result is suppressed (log only). Otherwise, the response is sent as an alert to the configured channel and reply target. An optional `~/.omega/HEARTBEAT.md` file can contain a checklist for the AI to evaluate.
 
 ### `[sandbox]` -- Command Execution Safety
 

@@ -14,7 +14,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 ### Milestone 2: Binary (`src/`)
 - [binary-main.md](binary-main.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap
 - [binary-gateway.md](binary-gateway.md) — Gateway event loop, message pipeline, auth, summarization, shutdown
-- [binary-commands.md](binary-commands.md) — Built-in bot commands (status, memory, history, facts, forget, help)
+- [binary-commands.md](binary-commands.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, help)
 - [binary-init.md](binary-init.md) — Interactive setup wizard
 - [binary-selfcheck.md](binary-selfcheck.md) — Startup health checks
 
@@ -46,6 +46,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [memory-audit.md](memory-audit.md) — Audit logging system
 - [memory-migrations.md](memory-migrations.md) — Database schema and migration system
 - [memory-migration-004.md](memory-migration-004.md) — FTS5 cross-conversation recall migration
+- [memory-migration-005.md](memory-migration-005.md) — Scheduled tasks table migration
 
 ### Milestone 7: omega-skills
 - [skills.md](skills.md) — Skills/plugin system (planned)
@@ -79,5 +80,10 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 ## Data Flow
 
 ```
-Message → Auth → Sanitize → Memory (context) → Provider → Memory (store) → Audit → Send
+Message → Auth → Sanitize → Memory (context) → Provider → SCHEDULE extract → Memory (store) → Audit → Send
+
+Background:
+  Scheduler: poll due_tasks → channel.send(reminder) → complete_task
+  Heartbeat: provider.complete(check-in) → suppress HEARTBEAT_OK / channel.send(alert)
+  Summarizer: find idle convos → summarize → close
 ```

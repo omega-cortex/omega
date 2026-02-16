@@ -109,6 +109,8 @@ async fn main() -> anyhow::Result<()> {
                 memory,
                 cfg.auth.clone(),
                 cfg.channel.clone(),
+                cfg.heartbeat.clone(),
+                cfg.scheduler.clone(),
             );
             gw.run().await?;
         }

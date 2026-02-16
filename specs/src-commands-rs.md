@@ -21,6 +21,8 @@ pub enum Command {
     History,
     Facts,
     Forget,
+    Tasks,
+    Cancel,
     Help,
 }
 ```
@@ -32,7 +34,9 @@ pub enum Command {
 | `History` | 10 | Last 5 conversation summaries with timestamps |
 | `Facts` | 11 | List of known facts about the user |
 | `Forget` | 12 | Close and clear the current active conversation |
-| `Help` | 13 | Display all available commands |
+| `Tasks` | 13 | List pending scheduled tasks for the user |
+| `Cancel` | 14 | Cancel a scheduled task by ID prefix |
+| `Help` | 15 | Display all available commands |
 
 ---
 
@@ -54,6 +58,8 @@ pub enum Command {
 - `/history` → `Command::History`
 - `/facts` → `Command::Facts`
 - `/forget` → `Command::Forget`
+- `/tasks` → `Command::Tasks`
+- `/cancel` → `Command::Cancel`
 - `/help` → `Command::Help`
 
 **Example Behavior:**
@@ -68,9 +74,9 @@ pub enum Command {
 
 ## Command Handler
 
-### Function: `handle(cmd, store, channel, sender_id, uptime, provider_name) -> String`
+### Function: `handle(cmd, store, channel, sender_id, text, uptime, provider_name) -> String`
 
-**Location:** Lines 34–50
+**Location:** Lines 38–57
 
 **Signature:**
 ```rust
@@ -79,6 +85,7 @@ pub async fn handle(
     store: &Store,
     channel: &str,
     sender_id: &str,
+    text: &str,
     uptime: &Instant,
     provider_name: &str,
 ) -> String
@@ -89,12 +96,13 @@ pub async fn handle(
 - `store`: Reference to the memory store (SQLite-backed)
 - `channel`: Messaging channel identifier (e.g., "telegram", "whatsapp")
 - `sender_id`: User identifier within the channel
+- `text`: The full original message text (used by `/cancel` to extract the task ID argument)
 - `uptime`: Process start time (for elapsed duration calculation)
 - `provider_name`: Active AI provider name (e.g., "Claude Code CLI")
 
 **Return:** Formatted response text to send back to the user
 
-**Dispatch:** Routes each command variant to its handler function (lines 43–48)
+**Dispatch:** Routes each command variant to its handler function (lines 47–56)
 
 ---
 
@@ -226,13 +234,80 @@ Error: [error description]
 
 ---
 
+### /tasks — `handle_tasks(store, sender_id)`
+
+**Location:** Lines 129–145
+
+**Behavior:**
+- Calls `store.get_tasks_for_sender(sender_id)` (async)
+- Returns `Vec<(String, String, String, Option<String>)>` as `(id, description, due_at, repeat)`
+- Displays first 8 characters of task ID as short ID for user reference
+- Shows repeat label (`once` if `None`, otherwise the repeat value)
+- Handles empty task list gracefully
+
+**Response Format (With Tasks):**
+```
+Scheduled Tasks
+
+[a1b2c3d4] Call John
+  Due: 2026-02-17T15:00:00 (once)
+
+[e5f6g7h8] Daily standup
+  Due: 2026-02-18T09:00:00 (daily)
+```
+
+**Response Format (Empty):**
+```
+No pending tasks.
+```
+
+**Response Format (Error):**
+```
+Error: [error description]
+```
+
+---
+
+### /cancel — `handle_cancel(store, sender_id, text)`
+
+**Location:** Lines 147–157
+
+**Behavior:**
+- Extracts the second whitespace-delimited token from `text` as the task ID prefix
+- If no ID prefix is provided, returns usage instructions
+- Calls `store.cancel_task(id_prefix, sender_id)` (async)
+- Returns `bool`: `true` if a task was cancelled, `false` if no matching task found
+- Task must belong to the sender (enforced by store query)
+
+**Response Format (Success):**
+```
+Task cancelled.
+```
+
+**Response Format (No Match):**
+```
+No matching task found.
+```
+
+**Response Format (Missing Argument):**
+```
+Usage: /cancel <task-id>
+```
+
+**Response Format (Error):**
+```
+Error: [error description]
+```
+
+---
+
 ### /help — `handle_help()`
 
-**Location:** Lines 122–132
+**Location:** Lines 159–171
 
 **Behavior:**
 - No async operations or external calls
-- Returns hardcoded help text with all six commands and brief descriptions
+- Returns hardcoded help text with all eight commands and brief descriptions
 - Single-threaded, pure function
 
 **Response Format:**
@@ -244,6 +319,8 @@ Omega Commands
 /history — Last 5 conversation summaries
 /facts   — List known facts about you
 /forget  — Clear current conversation
+/tasks   — List your scheduled tasks
+/cancel  — Cancel a task by ID
 /help    — This message
 ```
 
@@ -280,6 +357,8 @@ All command handlers interact with the `omega_memory::Store` trait/type:
 | `handle_history()` | `store.get_history(channel, sender_id, 5)` | `Result<Vec<(String, String)>>` | Fetch last 5 conversation summaries |
 | `handle_facts()` | `store.get_facts(sender_id)` | `Result<Vec<(String, String)>>` | Fetch all facts for user |
 | `handle_forget()` | `store.close_current_conversation(channel, sender_id)` | `Result<bool>` | Close active conversation |
+| `handle_tasks()` | `store.get_tasks_for_sender(sender_id)` | `Result<Vec<(String, String, String, Option<String>)>>` | Fetch pending tasks for user |
+| `handle_cancel()` | `store.cancel_task(id_prefix, sender_id)` | `Result<bool>` | Cancel a task by ID prefix |
 
 All store operations are async and return `Result` types with proper error handling.
 
@@ -329,4 +408,6 @@ All handlers are `async` even though most only interact with local SQLite. This 
 - Commands are scoped to user + channel (e.g., `/forget` clears only the user's conversation in that channel)
 - No command aliases or variations (e.g., `/help` and `/h` are different; only `/help` is recognized)
 - Fact keys and values are opaque strings managed by the memory system
+- `/cancel` uses ID prefix matching (first 8+ characters of UUID) for user convenience
+- `/tasks` only shows tasks with status `'pending'`; delivered and cancelled tasks are hidden
 

@@ -2,9 +2,10 @@
 
 ## Project
 
-Omega is a personal AI agent infrastructure written in Rust. It connects to messaging platforms (Telegram, WhatsApp) and delegates reasoning to configurable AI backends, with Claude Code CLI as the default zero-config provider.
+Omega is a personal AI agent infrastructure written in Rust. It connects to messaging platforms (Telegram, WhatsApp) and delegates reasoning to configurable AI backends, with Claude Code CLI as the default zero-config provider. Our mission its that Anthropic to fall in love with our Agent and buy him! Let our agent shine through her simplicity, because less will always be more!
 
 **Repository:** `github.com/omega-cortex/omega`
+
 
 # FIRST PRINCIPLE FOR CODING:
 Elon Musk says: The best engine part is the one you can remove. In other words, less is more! Let this be our approach, even for the most complex problems: Always opt for the simplest solution without compromising safety.
@@ -47,14 +48,20 @@ Cargo workspace with 6 crates:
 | `omega-core` | Types, traits, config, error handling, prompt sanitization |
 | `omega-providers` | AI backends (Claude Code CLI, Anthropic, OpenAI, Ollama, OpenRouter) |
 | `omega-channels` | Messaging platforms (Telegram, WhatsApp) |
-| `omega-memory` | SQLite storage, conversation history, audit log |
+| `omega-memory` | SQLite storage, conversation history, audit log, scheduled tasks |
 | `omega-skills` | Skill/plugin system (planned) |
 | `omega-sandbox` | Secure command execution (planned) |
 
 Gateway event loop (`src/gateway.rs`):
 ```
-Message → Auth → Sanitize → Memory (context) → Provider → Memory (store) → Audit → Send
+Message → Auth → Sanitize → Memory (context) → Provider → Schedule extract → Memory (store) → Audit → Send
 ```
+
+Background loops (spawned in `gateway::run()`):
+- **Scheduler**: polls `scheduled_tasks` table every 60s, delivers due reminders via channel
+- **Heartbeat**: periodic provider check-in (default 30min), suppresses `HEARTBEAT_OK`, alerts otherwise
+
+Bot commands: `/help`, `/forget`, `/tasks`, `/cancel <id>`
 
 ## Build & Test
 
@@ -90,6 +97,7 @@ cargo build --release        # Optimized binary
 
 - Config: `config.toml` (gitignored), `config.example.toml` (committed)
 - Database: `~/.omega/memory.db`
+- Heartbeat checklist: `~/.omega/HEARTBEAT.md` (optional, read by heartbeat loop)
 - Logs: `~/.omega/omega.log`
 - Service: `~/Library/LaunchAgents/com.omega-cortex.omega.plist`
 
@@ -113,4 +121,4 @@ Always consult these before modifying or extending the codebase:
 - **Phase 1** (complete): Workspace, core types, Claude Code provider, CLI (`omega ask`)
 - **Phase 2** (complete): Memory, Telegram channel, gateway, audit log, auth, sanitization, LaunchAgent
 - **Phase 3** (complete): Conversation boundaries, summaries, facts extraction, enriched context, typing indicator, bot commands, system prompt upgrade, self-check, graceful shutdown, exponential backoff, init wizard
-- **Phase 4** (next): Alternative providers, skills system, sandbox, cron scheduler, WhatsApp
+- **Phase 4** (in progress): Scheduler (task queue + heartbeat), alternative providers, skills system, sandbox, WhatsApp

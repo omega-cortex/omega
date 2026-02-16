@@ -29,6 +29,8 @@ pub struct Gateway {
     audit: AuditLogger,                        // Event audit trail
     auth_config: AuthConfig,                   // Authentication rules
     channel_config: ChannelConfig,             // Per-channel configuration
+    heartbeat_config: HeartbeatConfig,         // Periodic AI check-in settings
+    scheduler_config: SchedulerConfig,         // Scheduled task delivery settings
     uptime: Instant,                           // Server start time
 }
 ```
@@ -40,13 +42,15 @@ pub struct Gateway {
 - `audit`: Logger that records all interactions for security and debugging.
 - `auth_config`: Global authentication policy (enabled flag, deny message).
 - `channel_config`: Per-channel settings (Telegram allowed_users list).
+- `heartbeat_config`: Periodic heartbeat check-in configuration (interval, active hours, channel, reply target).
+- `scheduler_config`: Scheduled task delivery configuration (enabled flag, poll interval).
 - `uptime`: Tracks server start time for uptime calculations in commands.
 
 ## Functions
 
 ### Public Methods
 
-#### `new(provider, channels, memory, auth_config, channel_config) -> Self`
+#### `new(provider, channels, memory, auth_config, channel_config, heartbeat_config, scheduler_config) -> Self`
 **Purpose:** Construct a new gateway instance.
 
 **Parameters:**
@@ -55,6 +59,8 @@ pub struct Gateway {
 - `memory: Store` - SQLite store initialized with database pool.
 - `auth_config: AuthConfig` - Authentication configuration.
 - `channel_config: ChannelConfig` - Per-channel configuration.
+- `heartbeat_config: HeartbeatConfig` - Heartbeat check-in configuration.
+- `scheduler_config: SchedulerConfig` - Scheduled task delivery configuration.
 
 **Returns:** New `Gateway` instance.
 
@@ -81,16 +87,19 @@ pub struct Gateway {
    - Log successful channel start.
 4. Drop the sender to signal EOF when all channels close.
 5. Spawn a background summarization task via `tokio::spawn(background_summarizer())`.
-6. Enter the main event loop using `tokio::select!`:
+6. If `scheduler_config.enabled`, spawn `scheduler_loop()` via `tokio::spawn()`. Store handle as `Option<JoinHandle<()>>`.
+7. If `heartbeat_config.enabled`, spawn `heartbeat_loop()` via `tokio::spawn()`. Store handle as `Option<JoinHandle<()>>`.
+8. Enter the main event loop using `tokio::select!`:
    - Wait for incoming messages via `rx.recv()` and call `handle_message()`.
    - Wait for Ctrl+C signal via `tokio::signal::ctrl_c()`.
    - On shutdown signal, break from loop.
-7. Call `shutdown()` for graceful cleanup.
-8. Return Ok(()).
+9. Call `shutdown(bg_handle, sched_handle, hb_handle)` for graceful cleanup.
+10. Return Ok(()).
 
 **Async Patterns:**
 - Uses `tokio::spawn` to run channel listeners concurrently.
 - Uses `tokio::select!` for the main event loop to handle both messages and shutdown signals.
+- Scheduler and heartbeat loops are conditionally spawned based on config.
 - All channel and provider operations are awaited.
 
 **Error Handling:**
@@ -121,6 +130,73 @@ pub struct Gateway {
 **Error Handling:**
 - Errors are logged with `error!()` but do not stop the task.
 - Task runs indefinitely regardless of errors.
+
+#### `async fn scheduler_loop(store: Store, channels: HashMap<String, Arc<dyn Channel>>, poll_secs: u64)`
+**Purpose:** Background task that periodically checks for due scheduled tasks and delivers them via the appropriate channel.
+
+**Parameters:**
+- `store: Store` - Shared memory store for task queries.
+- `channels: HashMap<String, Arc<dyn Channel>>` - Map of channel implementations for delivery.
+- `poll_secs: u64` - Polling interval in seconds (from `SchedulerConfig.poll_interval_secs`).
+
+**Returns:** Never returns (infinite loop).
+
+**Logic:**
+1. Loop forever with `poll_secs`-second sleep between iterations.
+2. Call `store.get_due_tasks()` to find tasks where `status = 'pending'` and `due_at <= now`.
+3. For each due task `(id, channel_name, reply_target, description, repeat)`:
+   - Build an `OutgoingMessage` with text `"Reminder: {description}"` and `reply_target`.
+   - Look up the channel by `channel_name` in the channels map.
+   - If channel not found, log warning and skip.
+   - Send the message via `channel.send()`.
+   - If send fails, log error and skip to next task.
+   - Call `store.complete_task(id, repeat)` to mark task as delivered (one-shot) or advance `due_at` (recurring).
+   - Log success.
+4. Log errors from `get_due_tasks()` but continue the loop.
+
+**Async Patterns:**
+- Uses `tokio::time::sleep()` for periodic ticking.
+- All storage and channel operations are awaited.
+
+**Error Handling:**
+- Channel send errors are logged and the task is skipped (not marked complete).
+- Task completion errors are logged but do not stop the loop.
+- `get_due_tasks()` errors are logged but do not stop the loop.
+
+#### `async fn heartbeat_loop(provider: Arc<dyn Provider>, channels: HashMap<String, Arc<dyn Channel>>, config: HeartbeatConfig)`
+**Purpose:** Background task that periodically invokes the AI provider for a health check-in. If the provider reports an issue, the alert is delivered via a configured channel. If everything is fine (response contains `HEARTBEAT_OK`), the response is suppressed.
+
+**Parameters:**
+- `provider: Arc<dyn Provider>` - Shared provider reference for the check-in call.
+- `channels: HashMap<String, Arc<dyn Channel>>` - Map of channel implementations for alert delivery.
+- `config: HeartbeatConfig` - Heartbeat configuration (interval, active hours, channel, reply target).
+
+**Returns:** Never returns (infinite loop).
+
+**Logic:**
+1. Loop forever with `config.interval_minutes * 60` second sleep between iterations.
+2. Check active hours:
+   - If both `active_start` and `active_end` are non-empty, call `is_within_active_hours()`.
+   - If outside active hours, log info and skip this iteration.
+3. Read optional checklist from `~/.omega/HEARTBEAT.md` via `read_heartbeat_file()`.
+4. Build prompt:
+   - If checklist is empty: generic heartbeat prompt asking provider to respond with `HEARTBEAT_OK` if fine.
+   - If checklist has content: prompt includes the checklist for review.
+5. Call `provider.complete()` with the prompt context.
+6. On success:
+   - If response contains `HEARTBEAT_OK`, log info and suppress (no message sent).
+   - Otherwise, send the response as an alert via `config.channel` to `config.reply_target`.
+   - If channel not found, log warning.
+7. On provider error, log error.
+
+**Async Patterns:**
+- Uses `tokio::time::sleep()` for periodic ticking.
+- Provider and channel operations are awaited.
+
+**Error Handling:**
+- Provider errors are logged but do not stop the loop.
+- Channel send errors are logged but do not stop the loop.
+- Missing channel is logged as warning.
 
 #### `async fn summarize_conversation(store: &Store, provider: &Arc<dyn Provider>, conversation_id: &str) -> Result<(), anyhow::Error>`
 **Purpose:** Summarize a conversation, extract user facts, and close it.
@@ -164,23 +240,27 @@ pub struct Gateway {
 - Database query errors are suppressed via `.ok().flatten()`.
 - Returns top-level error on `close_conversation()` failure.
 
-#### `async fn shutdown(&self, bg_handle: &tokio::task::JoinHandle<()>)`
+#### `async fn shutdown(&self, bg_handle: &JoinHandle<()>, sched_handle: &Option<JoinHandle<()>>, hb_handle: &Option<JoinHandle<()>>)`
 **Purpose:** Gracefully shut down the gateway.
 
 **Parameters:**
 - `bg_handle: &tokio::task::JoinHandle<()>` - Handle to the background summarizer task.
+- `sched_handle: &Option<tokio::task::JoinHandle<()>>` - Optional handle to the scheduler loop task.
+- `hb_handle: &Option<tokio::task::JoinHandle<()>>` - Optional handle to the heartbeat loop task.
 
 **Returns:** None (void).
 
 **Logic:**
 1. Log "Shutting down...".
 2. Abort the background summarizer task via `bg_handle.abort()`.
-3. Find all active conversations via `store.find_all_active_conversations()`.
-4. For each active conversation, call `summarize_conversation()` to summarize before closing.
-5. Log warnings for summarization errors but continue.
-6. For each channel, call `channel.stop()` to cleanly shut down the channel.
-7. Log warnings for channel stop errors but continue.
-8. Log "Shutdown complete.".
+3. If `sched_handle` is `Some`, abort the scheduler task.
+4. If `hb_handle` is `Some`, abort the heartbeat task.
+5. Find all active conversations via `store.find_all_active_conversations()`.
+6. For each active conversation, call `summarize_conversation()` to summarize before closing.
+7. Log warnings for summarization errors but continue.
+8. For each channel, call `channel.stop()` to cleanly shut down the channel.
+9. Log warnings for channel stop errors but continue.
+10. Log "Shutdown complete.".
 
 **Error Handling:**
 - Errors are logged with `warn!()` but do not stop the shutdown process.
@@ -237,16 +317,26 @@ pub struct Gateway {
   - Send error message.
   - Return.
 
-**Stage 7: Store Exchange in Memory (Lines 398-401)**
+**Stage 5b: SCHEDULE Marker Extraction (Lines 545-577)**
+- After receiving the provider response and aborting the typing indicator:
+- Call `extract_schedule_marker(&response.text)` to find a `SCHEDULE:` line.
+- If found, call `parse_schedule_line()` to extract `(description, due_at, repeat)`.
+- If parsing succeeds:
+  - Map `repeat = "once"` to `None`, otherwise `Some(repeat)`.
+  - Call `self.memory.create_task()` with channel, sender_id, reply_target, description, due_at, repeat.
+  - Log the created task ID on success, or log error on failure.
+- Call `strip_schedule_marker(&response.text)` to remove the `SCHEDULE:` line from the response before sending to the user.
+
+**Stage 6: Store Exchange in Memory (Lines 579-582)**
 - Call `self.memory.store_exchange(&incoming, &response)` to save the exchange.
 - Log error if storage fails but continue.
 
-**Stage 8: Audit Log (Lines 403-418)**
+**Stage 7: Audit Log (Lines 584-599)**
 - Log the successful exchange via `self.audit.log()`.
 - Include all metadata: provider, model, processing time.
 - Status: `AuditStatus::Ok`.
 
-**Stage 9: Send Response (Lines 420-427)**
+**Stage 8: Send Response (Lines 601-608)**
 - Get the channel for the incoming message.
 - Call `channel.send(response)` to deliver the response.
 - Log error if channel send fails.
@@ -310,6 +400,58 @@ pub struct Gateway {
 **Error Handling:**
 - Send errors are logged but do not return an error code.
 
+## Free Functions (Module-Level Helpers)
+
+### `fn extract_schedule_marker(text: &str) -> Option<String>`
+**Purpose:** Extract the first `SCHEDULE:` line from response text.
+
+**Logic:** Iterates through lines, finds the first line whose trimmed form starts with `"SCHEDULE:"`, returns it trimmed.
+
+**Returns:** `Some(line)` if found, `None` otherwise.
+
+### `fn parse_schedule_line(line: &str) -> Option<(String, String, String)>`
+**Purpose:** Parse a `SCHEDULE:` line into `(description, due_at, repeat)`.
+
+**Format:** `SCHEDULE: <description> | <ISO 8601 datetime> | <once|daily|weekly|monthly|weekdays>`
+
+**Logic:**
+1. Strip `"SCHEDULE:"` prefix.
+2. Split on `|` into exactly 3 parts.
+3. Trim each part.
+4. Validate that description and due_at are non-empty.
+5. Lowercase the repeat value.
+6. Return the tuple.
+
+**Returns:** `None` if format is invalid (wrong number of parts or empty fields).
+
+### `fn strip_schedule_marker(text: &str) -> String`
+**Purpose:** Remove all `SCHEDULE:` lines from response text so the marker is not shown to the user.
+
+**Logic:** Filters out any line whose trimmed form starts with `"SCHEDULE:"`, then joins remaining lines and trims the result.
+
+### `fn read_heartbeat_file() -> Option<String>`
+**Purpose:** Read `~/.omega/HEARTBEAT.md` if it exists, for use as a heartbeat checklist.
+
+**Logic:**
+1. Get `$HOME` env var.
+2. Read `{home}/.omega/HEARTBEAT.md`.
+3. Return `None` if file does not exist, is unreadable, or has only whitespace.
+4. Return `Some(content)` otherwise.
+
+### `fn is_within_active_hours(start: &str, end: &str) -> bool`
+**Purpose:** Check if the current local time is within the active hours window.
+
+**Parameters:**
+- `start: &str` - Start time in `"HH:MM"` format.
+- `end: &str` - End time in `"HH:MM"` format.
+
+**Logic:**
+1. Get current local time as `"HH:MM"` string via `chrono::Local::now()`.
+2. If `start <= end` (normal range, e.g., `"08:00"` to `"22:00"`): return `now >= start && now < end`.
+3. If `start > end` (midnight wrap, e.g., `"22:00"` to `"06:00"`): return `now >= start || now < end`.
+
+**Dependencies:** `chrono` crate for local time formatting.
+
 ## Message Flow Diagram
 
 ```
@@ -331,7 +473,7 @@ pub struct Gateway {
          [Audit]         ↓                     ↓
         [Send Msg]   [5. Build Context]     [Continue]
         [Return]          ↓                     ↓
-                    [With History + Facts] [6. Provider.complete()]
+                    [With History + Facts] [5a. Provider.complete()]
                            ↓                   ↓
                       [Enriched CTX]    [Get Response/Error]
                            ↓                   ↓
@@ -341,15 +483,40 @@ pub struct Gateway {
                                           /      \
                                       [Yes]     [No]
                                         ↓         ↓
-                                    [Send Err] [7. Store Exchange]
+                                    [Send Err] [Abort Typing]
                                     [Audit Err]    ↓
-                                    [Abort Type]  [8. Audit Log (Success)]
+                                    [Abort Type]  [5b. Extract SCHEDULE:]
                                     [Return]       ↓
-                                            [Abort Typing Task]
+                                            [create_task() if marker]
+                                            [strip marker from response]
                                                    ↓
-                                            [9. Send Response]
+                                            [6. Store Exchange]
+                                                   ↓
+                                            [7. Audit Log (Success)]
+                                                   ↓
+                                            [8. Send Response]
                                                    ↓
                                                 [Done]
+
+--- Background Tasks ---
+
+[Scheduler Loop]   ←── polls every poll_interval_secs
+       ↓
+  get_due_tasks()
+       ↓
+  [For each due task] → channel.send("Reminder: ...")
+       ↓                       ↓
+  complete_task()         [Advance due_at for recurring]
+
+[Heartbeat Loop]   ←── polls every interval_minutes * 60s
+       ↓
+  is_within_active_hours()
+       ↓ (if active)
+  read_heartbeat_file()
+       ↓
+  provider.complete(heartbeat prompt)
+       ↓
+  [HEARTBEAT_OK?] → suppress / [Alert?] → channel.send(alert)
 ```
 
 ## Error Handling Strategy
@@ -386,6 +553,8 @@ pub struct Gateway {
 - **Single main thread:** The gateway runs on a single tokio runtime thread.
 - **Multiple channels:** Each channel listener runs in its own `tokio::spawn()` task.
 - **Background summarizer:** Runs in a dedicated `tokio::spawn()` task.
+- **Scheduler loop:** Conditionally runs in a dedicated `tokio::spawn()` task (when `scheduler_config.enabled`).
+- **Heartbeat loop:** Conditionally runs in a dedicated `tokio::spawn()` task (when `heartbeat_config.enabled`).
 - **Typing repeater:** For each message, a separate `tokio::spawn()` task repeats typing every 5 seconds.
 
 ### Synchronization
@@ -395,7 +564,7 @@ pub struct Gateway {
 
 ### Shutdown Coordination
 - **Signal handling:** `tokio::signal::ctrl_c()` breaks the main loop.
-- **Task abortion:** Background summarizer is aborted via `bg_handle.abort()`.
+- **Task abortion:** Background summarizer is aborted via `bg_handle.abort()`. Scheduler and heartbeat handles are aborted if present.
 - **Channel stopping:** Each channel's `stop()` method is called.
 - **Graceful conversation closure:** All active conversations are summarized before shutdown completes.
 
@@ -438,6 +607,9 @@ The response includes:
 - **`find_idle_conversations() -> Result<Vec<(String, String, String)>>`:** Finds conversations inactive for a threshold.
 - **`find_all_active_conversations() -> Result<Vec<(String, String, String)>>`:** Finds all currently active conversations.
 - **`pool() -> &SqlitePool`:** Provides direct database access for queries.
+- **`create_task(&channel, &sender_id, &reply_target, &description, &due_at, repeat) -> Result<String>`:** Creates a scheduled task. Called from handle_message Stage 5b.
+- **`get_due_tasks() -> Result<Vec<(String, String, String, String, Option<String>)>>`:** Fetches tasks where status is pending and due_at <= now. Called by scheduler_loop.
+- **`complete_task(&id, repeat) -> Result<()>`:** Marks a one-shot task as delivered or advances due_at for recurring tasks. Called by scheduler_loop.
 
 ## Configuration Parameters
 
@@ -448,6 +620,18 @@ The response includes:
 ### ChannelConfig
 - `telegram: Option<TelegramConfig>` - Telegram-specific settings.
   - `allowed_users: Vec<i64>` - Whitelist of user IDs. Empty = allow all.
+
+### HeartbeatConfig
+- `enabled: bool` - Whether the heartbeat loop is spawned.
+- `interval_minutes: u64` - Minutes between heartbeat checks (default: 30).
+- `active_start: String` - Start of active hours window (`"HH:MM"` format). Empty = always active.
+- `active_end: String` - End of active hours window (`"HH:MM"` format). Empty = always active.
+- `channel: String` - Channel name for alert delivery (e.g., `"telegram"`).
+- `reply_target: String` - Platform-specific delivery target (e.g., chat ID).
+
+### SchedulerConfig
+- `enabled: bool` - Whether the scheduler loop is spawned (default: true).
+- `poll_interval_secs: u64` - Seconds between scheduler polls (default: 60).
 
 ## Logging and Observability
 
@@ -487,6 +671,7 @@ All interactions are logged to SQLite with:
 - `tokio` - Async runtime, synchronization primitives.
 - `tracing` - Structured logging.
 - `sqlx` - Database queries (via Store).
+- `chrono` - Local time formatting for active hours check.
 
 ### Internal Dependencies
 - `omega_core` - Core types, traits, config, sanitization.
@@ -503,4 +688,8 @@ All interactions are logged to SQLite with:
 6. Response is sent to the channel that received the message.
 7. All exchanges are stored in memory before audit logging.
 8. Typing indicator is aborted when response is sent or on error.
-9. On shutdown, all active conversations are summarized and all channels are stopped.
+9. On shutdown, all active conversations are summarized, all background tasks are aborted, and all channels are stopped.
+10. SCHEDULE: markers are stripped from the response before sending to the user.
+11. Scheduler loop only runs when `scheduler_config.enabled` is true.
+12. Heartbeat loop only runs when `heartbeat_config.enabled` is true.
+13. Heartbeat alerts are suppressed when the provider response contains `HEARTBEAT_OK`.

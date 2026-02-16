@@ -18,6 +18,8 @@ The configuration uses TOML format with six main sections:
 [provider]        # AI backend provider selection and configuration
 [channel.*]       # Messaging platform integrations
 [memory]          # Conversation storage backend
+[scheduler]       # Scheduled task delivery
+[heartbeat]       # Periodic AI health check-in
 [sandbox]         # Command execution security
 ```
 
@@ -284,6 +286,70 @@ max_context_messages = 50
 - **Context Window:** When a user sends a message, Omega retrieves up to `max_context_messages` prior messages to provide context to the AI. Older messages are retrieved on-demand or via summaries.
 - **Audit Trail:** All interactions (user message, provider response, metadata) are logged in the same database for accountability and debugging.
 - The database file should be backed up regularly if conversations are important.
+
+---
+
+## Section: `[scheduler]`
+
+Scheduled task delivery configuration. Controls the background loop that delivers due reminders and recurring tasks to users.
+
+### Keys
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | Boolean | `true` | Enable/disable the scheduler background loop. When `true`, Omega periodically checks for due tasks and delivers them. Zero cost when no tasks exist. |
+| `poll_interval_secs` | Integer | `60` | How often (in seconds) the scheduler checks for due tasks. Lower values mean faster delivery at the cost of more database queries. |
+
+### Example
+
+```toml
+[scheduler]
+enabled = true                  # Zero cost when no tasks exist
+poll_interval_secs = 60
+```
+
+### Notes
+
+- The scheduler is enabled by default because it has no overhead when no scheduled tasks exist in the database.
+- Tasks are created automatically when the AI provider includes a `SCHEDULE:` marker in its response (triggered by user requests like "remind me to...").
+- Users can view pending tasks with `/tasks` and cancel them with `/cancel <id>`.
+- Supported repeat patterns: `once` (one-shot), `daily`, `weekly`, `monthly`, `weekdays` (Mon-Fri).
+
+---
+
+## Section: `[heartbeat]`
+
+Periodic AI health check-in configuration. When enabled, Omega periodically invokes the AI provider with a heartbeat prompt. If the provider reports all is well (`HEARTBEAT_OK`), the response is suppressed. If the provider reports an issue, an alert is delivered to the configured channel.
+
+### Keys
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | Boolean | `false` | Enable/disable the heartbeat background loop. Disabled by default because it requires channel and reply_target configuration. |
+| `interval_minutes` | Integer | `30` | Minutes between heartbeat check-ins. |
+| `active_start` | String | `""` (empty) | Start of active hours window in `"HH:MM"` format (e.g., `"08:00"`). When both start and end are empty, heartbeat is always active. |
+| `active_end` | String | `""` (empty) | End of active hours window in `"HH:MM"` format (e.g., `"22:00"`). Midnight wrapping is supported (e.g., `"22:00"` to `"06:00"`). |
+| `channel` | String | `""` (empty) | Channel name for alert delivery (e.g., `"telegram"`). Must match a configured and enabled channel. |
+| `reply_target` | String | `""` (empty) | Platform-specific delivery target (e.g., Telegram chat ID). Required for the heartbeat to deliver alerts. |
+
+### Example
+
+```toml
+[heartbeat]
+enabled = false
+interval_minutes = 30
+active_start = "08:00"          # Empty = always active
+active_end = "22:00"
+channel = "telegram"
+reply_target = ""               # Chat ID for delivery
+```
+
+### Notes
+
+- **Heartbeat File:** If `~/.omega/HEARTBEAT.md` exists and contains content, it is included in the heartbeat prompt as a checklist for the provider to review.
+- **Suppression:** When the provider responds with text containing `HEARTBEAT_OK`, no message is sent to the user. Only non-OK responses are delivered as alerts.
+- **Active Hours:** Heartbeat checks are skipped outside the configured active hours window. Useful to avoid late-night alerts.
+- **Prerequisites:** The `channel` must be configured and enabled, and `reply_target` must be set to a valid chat/conversation ID for the target channel.
 
 ---
 
