@@ -45,6 +45,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [memory-store.md](memory-store.md) — SQLite persistent store, conversations, facts, context building
 - [memory-audit.md](memory-audit.md) — Audit logging system
 - [memory-migrations.md](memory-migrations.md) — Database schema and migration system
+- [memory-migration-004.md](memory-migration-004.md) — FTS5 cross-conversation recall migration
 
 ### Milestone 7: omega-skills
 - [skills.md](skills.md) — Skills/plugin system (planned)

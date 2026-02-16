@@ -43,7 +43,7 @@ pub struct Store {
 
 ## Database Schema
 
-The store manages three tables created across three migrations. A fourth table (`_migrations`) tracks migration state.
+The store manages three tables and one virtual table created across four migrations. A fifth table (`_migrations`) tracks migration state.
 
 ### Table: `_migrations`
 
@@ -150,6 +150,37 @@ CREATE TABLE facts (
 
 **Unique constraint:** `(sender_id, key)` -- each user can have at most one value per key.
 
+### Virtual Table: `messages_fts`
+
+Created by `004_fts5_recall.sql`. FTS5 full-text search index over user messages.
+
+```sql
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    content,
+    content='messages',
+    content_rowid='rowid'
+);
+```
+
+| Property | Value |
+|----------|-------|
+| Type | FTS5 virtual table (content-sync) |
+| Content table | `messages` |
+| Rowid mapping | `messages.rowid` |
+| Indexed columns | `content` |
+
+**Content-sync mode:** Stores only the inverted index, not message text. Queries join back to `messages` via rowid.
+
+**Auto-sync triggers:**
+
+| Trigger | Event | Condition |
+|---------|-------|-----------|
+| `messages_fts_insert` | `AFTER INSERT ON messages` | `NEW.role = 'user'` |
+| `messages_fts_delete` | `AFTER DELETE ON messages` | `OLD.role = 'user'` |
+| `messages_fts_update` | `AFTER UPDATE OF content ON messages` | `NEW.role = 'user'` |
+
+Only user messages are indexed. Assistant messages are excluded.
+
 ### Table: `audit_log`
 
 Created by `002_audit_log.sql`. Not accessed by `Store` directly (managed by `AuditLogger`), but shares the same database pool.
@@ -171,6 +202,7 @@ Migrations are tracked via the `_migrations` table. The system handles three sce
 | `001_init` | `migrations/001_init.sql` | Creates `conversations`, `messages`, `facts` tables with indexes. |
 | `002_audit_log` | `migrations/002_audit_log.sql` | Creates `audit_log` table with indexes. |
 | `003_memory_enhancement` | `migrations/003_memory_enhancement.sql` | Adds `summary`, `last_activity`, `status` to `conversations`. Recreates `facts` with `sender_id` scoping. |
+| `004_fts5_recall` | `migrations/004_fts5_recall.sql` | Creates `messages_fts` FTS5 virtual table, backfills existing user messages, adds auto-sync triggers. |
 
 ### Bootstrap Detection Logic
 
@@ -521,9 +553,45 @@ PRAGMA page_size
 
 ---
 
+#### `async fn search_messages(&self, query: &str, exclude_conversation_id: &str, sender_id: &str, limit: i64) -> Result<Vec<(String, String, String)>, OmegaError>`
+
+**Purpose:** Search past messages across all conversations using FTS5 full-text search for cross-conversation recall.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | `&str` | The search query (typically the user's current message text). |
+| `exclude_conversation_id` | `&str` | Conversation ID to exclude from results (the current conversation). |
+| `sender_id` | `&str` | User identifier — only messages from this user's conversations are searched. |
+| `limit` | `i64` | Maximum number of results to return. |
+
+**Returns:** `Result<Vec<(String, String, String)>, OmegaError>` where each tuple is `(role, content, timestamp)`, ordered by FTS5 BM25 relevance rank.
+
+**Short query guard:** Queries shorter than 3 characters return an empty vec immediately (short queries produce noisy results).
+
+**SQL:**
+```sql
+SELECT m.role, m.content, m.timestamp
+FROM messages_fts fts
+JOIN messages m ON m.rowid = fts.rowid
+JOIN conversations c ON c.id = m.conversation_id
+WHERE messages_fts MATCH ?
+AND m.conversation_id != ?
+AND c.sender_id = ?
+ORDER BY rank
+LIMIT ?
+```
+
+**Security:** The `sender_id` filter ensures users can only recall their own messages.
+
+**Called by:** `build_context()` with the incoming message text as query, `limit = 5`.
+
+---
+
 #### `async fn build_context(&self, incoming: &IncomingMessage) -> Result<Context, OmegaError>`
 
-**Purpose:** Build a complete conversation context for the AI provider from the current conversation state, user facts, and recent summaries.
+**Purpose:** Build a complete conversation context for the AI provider from the current conversation state, user facts, recent summaries, and recalled past messages.
 
 **Parameters:**
 
@@ -538,8 +606,9 @@ PRAGMA page_size
 2. Fetch recent messages from the conversation (newest first, then reversed to chronological order).
 3. Fetch all facts for the sender (errors suppressed, default to empty).
 4. Fetch the 3 most recent closed conversation summaries (errors suppressed, default to empty).
-5. Build a dynamic system prompt via `build_system_prompt()`.
-6. Return a `Context` with the system prompt, history, and current message.
+5. Search past messages via FTS5 for cross-conversation recall (errors suppressed, default to empty).
+6. Build a dynamic system prompt via `build_system_prompt()`.
+7. Return a `Context` with the system prompt, history, and current message.
 
 **SQL (step 2):**
 ```sql
@@ -555,24 +624,27 @@ get_or_create_conversation(channel, sender_id)
           v
     conversation_id
           |
-    ┌─────┴─────────────────────────┐
-    v                                v
-SELECT messages                 get_facts(sender_id)
-(newest N, reversed)                 |
-    |                                v
-    |                         get_recent_summaries(channel, sender_id, 3)
-    |                                |
-    v                                v
-history: Vec<ContextEntry>     build_system_prompt(facts, summaries, text)
-    |                                |
-    v                                v
-    └───────────┬───────────────────┘
-                v
-         Context {
-           system_prompt,
-           history,
-           current_message: incoming.text
-         }
+    ┌─────┴──────────────────────────────────┐
+    v                                         v
+SELECT messages                          get_facts(sender_id)
+(newest N, reversed)                          |
+    |                                         v
+    |                                   get_recent_summaries(channel, sender_id, 3)
+    |                                         |
+    |                                         v
+    |                                   search_messages(text, conv_id, sender_id, 5)
+    |                                         |
+    v                                         v
+history: Vec<ContextEntry>     build_system_prompt(facts, summaries, recall, text)
+    |                                         |
+    v                                         v
+    └──────────────┬─────────────────────────┘
+                   v
+            Context {
+              system_prompt,
+              history,
+              current_message: incoming.text
+            }
 ```
 
 **Error handling:**
@@ -580,6 +652,7 @@ history: Vec<ContextEntry>     build_system_prompt(facts, summaries, text)
 - Message query failure propagates as `OmegaError`.
 - `get_facts` failure silently defaults to empty vec (`unwrap_or_default()`).
 - `get_recent_summaries` failure silently defaults to empty vec (`unwrap_or_default()`).
+- `search_messages` failure silently defaults to empty vec (`unwrap_or_default()`).
 
 ---
 
@@ -640,6 +713,7 @@ let migrations: &[(&str, &str)] = &[
     ("001_init", include_str!("../migrations/001_init.sql")),
     ("002_audit_log", include_str!("../migrations/002_audit_log.sql")),
     ("003_memory_enhancement", include_str!("../migrations/003_memory_enhancement.sql")),
+    ("004_fts5_recall", include_str!("../migrations/004_fts5_recall.sql")),
 ];
 ```
 
@@ -723,9 +797,9 @@ same ID  new ID
 
 ---
 
-### `fn build_system_prompt(facts: &[(String, String)], summaries: &[(String, String)], current_message: &str) -> String`
+### `fn build_system_prompt(facts: &[(String, String)], summaries: &[(String, String)], recall: &[(String, String, String)], current_message: &str) -> String`
 
-**Purpose:** Build a dynamic system prompt enriched with user facts, conversation summaries, and language detection.
+**Purpose:** Build a dynamic system prompt enriched with user facts, conversation summaries, recalled past messages, and language detection.
 
 **Parameters:**
 
@@ -733,6 +807,7 @@ same ID  new ID
 |-----------|------|-------------|
 | `facts` | `&[(String, String)]` | User facts as `(key, value)` pairs. |
 | `summaries` | `&[(String, String)]` | Recent conversation summaries as `(summary, timestamp)` pairs. |
+| `recall` | `&[(String, String, String)]` | Recalled past messages as `(role, content, timestamp)` tuples. |
 | `current_message` | `&str` | The user's current message (used for language detection). |
 
 **Returns:** `String` -- the complete system prompt.
@@ -757,12 +832,17 @@ Recent conversation history:          ← (only if summaries is non-empty)
 - [2024-01-15 14:30:00] User asked about Rust async patterns.
 - [2024-01-14 09:15:00] User discussed project architecture.
 
+Related past context:                 ← (only if recall is non-empty)
+- [2024-01-10 16:00:00] User: How do I use tokio::spawn for background tasks...
+- [2024-01-08 11:30:00] User: I need to set up nginx reverse proxy for port 8080...
+
 Respond in Spanish.                   ← (only if likely_spanish() returns true)
 ```
 
 **Conditional sections:**
 - Facts section: appended only if `facts` is non-empty.
 - Summaries section: appended only if `summaries` is non-empty.
+- Recall section: appended only if `recall` is non-empty. Each message is truncated to 200 characters.
 - Spanish directive: appended only if `likely_spanish(current_message)` returns true.
 
 ---
@@ -793,52 +873,53 @@ Respond in Spanish.                   ← (only if likely_spanish() returns true
 ## Context Building Flow Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                     build_context()                              │
-│                                                                  │
-│  IncomingMessage { channel, sender_id, text }                   │
-│         |                                                        │
-│         v                                                        │
-│  get_or_create_conversation(channel, sender_id)                 │
-│         |                                                        │
-│         v                                                        │
-│  ┌──────────────────────────────┐                               │
-│  │ Active conversation exists?  │                               │
-│  │ (within 30min timeout)       │                               │
-│  └──────┬───────────┬──────────┘                               │
-│         |           |                                            │
-│        Yes         No                                            │
-│         |           |                                            │
-│         v           v                                            │
-│    Touch activity  Create new                                    │
-│         |           |                                            │
-│         └─────┬─────┘                                           │
-│               v                                                  │
-│        conversation_id                                           │
-│               |                                                  │
-│    ┌──────────┼──────────────────┐                              │
-│    v          v                  v                                │
-│  SELECT     get_facts()    get_recent_summaries()               │
-│  messages   (sender_id)    (channel, sender_id, 3)              │
-│  (DESC,     └──┬───┘       └──────┬──────────┘                  │
-│   LIMIT N)     |                  |                              │
-│    |           v                  v                              │
-│    v       facts[]          summaries[]                          │
-│  Reverse                         |                               │
-│  to ASC                          v                               │
-│    |           build_system_prompt(facts, summaries, text)       │
-│    v                             |                               │
-│  history[]                       v                               │
-│    |                       system_prompt                         │
-│    |                             |                               │
-│    └──────────┬──────────────────┘                              │
-│               v                                                  │
-│         Context {                                                │
-│           system_prompt,                                         │
-│           history,                                               │
-│           current_message: text                                  │
-│         }                                                        │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                          build_context()                              │
+│                                                                       │
+│  IncomingMessage { channel, sender_id, text }                        │
+│         |                                                             │
+│         v                                                             │
+│  get_or_create_conversation(channel, sender_id)                      │
+│         |                                                             │
+│         v                                                             │
+│  ┌──────────────────────────────┐                                    │
+│  │ Active conversation exists?  │                                    │
+│  │ (within 30min timeout)       │                                    │
+│  └──────┬───────────┬──────────┘                                    │
+│         |           |                                                 │
+│        Yes         No                                                 │
+│         |           |                                                 │
+│         v           v                                                 │
+│    Touch activity  Create new                                         │
+│         |           |                                                 │
+│         └─────┬─────┘                                                │
+│               v                                                       │
+│        conversation_id                                                │
+│               |                                                       │
+│    ┌──────────┼──────────────────────────────────┐                   │
+│    v          v                  v                v                    │
+│  SELECT     get_facts()    get_recent_      search_messages()        │
+│  messages   (sender_id)    summaries()      (text, conv_id,          │
+│  (DESC,     └──┬───┘      (channel,         sender_id, 5)           │
+│   LIMIT N)     |           sender_id, 3)    └──────┬─────┘           │
+│    |           v           └──┬──────┘             v                  │
+│    v       facts[]            v               recall[]                │
+│  Reverse                 summaries[]               |                  │
+│  to ASC                       |                    |                  │
+│    |                          v                    v                  │
+│    |      build_system_prompt(facts, summaries, recall, text)        │
+│    v                          |                                       │
+│  history[]                    v                                       │
+│    |                    system_prompt                                  │
+│    |                          |                                       │
+│    └───────────┬──────────────┘                                      │
+│                v                                                      │
+│          Context {                                                    │
+│            system_prompt,                                             │
+│            history,                                                   │
+│            current_message: text                                      │
+│          }                                                            │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Conversation Lifecycle Diagram
@@ -903,7 +984,8 @@ All errors are wrapped in `OmegaError::Memory(String)` with descriptive messages
 | `new()` | Propagates all errors (fatal -- store cannot function without database). |
 | `run_migrations()` | Propagates all errors (fatal -- schema must be correct). |
 | `get_or_create_conversation()` | Propagates all errors (called internally). |
-| `build_context()` | Propagates conversation/message errors. Suppresses fact/summary errors (defaults to empty). |
+| `build_context()` | Propagates conversation/message errors. Suppresses fact/summary/recall errors (defaults to empty). |
+| `search_messages()` | Propagates errors. |
 | `store_exchange()` | Propagates all errors (caller in gateway logs but continues). |
 | `find_idle_conversations()` | Propagates errors (caller in background task logs and continues). |
 | `close_conversation()` | Propagates errors. |
@@ -917,7 +999,7 @@ All errors are wrapped in `OmegaError::Memory(String)` with descriptive messages
 | `db_size()` | Propagates errors. |
 
 ### Resilience in build_context()
-Facts and summaries are fetched with `unwrap_or_default()`. This ensures that a failure in retrieving personalization data does not prevent the provider from receiving a valid context. The conversation will still work; it will just lack facts and summaries.
+Facts, summaries, and recalled messages are fetched with `unwrap_or_default()`. This ensures that a failure in retrieving personalization data does not prevent the provider from receiving a valid context. The conversation will still work; it will just lack facts, summaries, or recalled context.
 
 ## Dependencies
 
@@ -942,7 +1024,7 @@ Facts and summaries are fetched with `unwrap_or_default()`. This ensures that a 
 5. Message roles are constrained to `'user'` or `'assistant'` by a CHECK constraint.
 6. Facts are unique per `(sender_id, key)` -- duplicate inserts update the existing value.
 7. `build_context()` always returns history in chronological order (oldest first).
-8. `build_context()` never fails due to fact/summary retrieval errors.
+8. `build_context()` never fails due to fact/summary/recall retrieval errors.
 9. The conversation timeout is 30 minutes -- this is a compile-time constant, not configurable.
 10. Migrations are idempotent -- running them multiple times has no effect.
 11. The database is created with WAL journal mode for concurrent read access.

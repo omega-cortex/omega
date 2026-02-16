@@ -82,14 +82,15 @@ impl Store {
 
         if count.0 == 0 {
             // Check if the schema already has the Phase 3 columns (summary on conversations).
-            let has_summary: bool =
-                sqlx::query_scalar::<_, String>("SELECT sql FROM sqlite_master WHERE type='table' AND name='conversations'")
-                    .fetch_optional(pool)
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|sql| sql.contains("summary"))
-                    .unwrap_or(false);
+            let has_summary: bool = sqlx::query_scalar::<_, String>(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='conversations'",
+            )
+            .fetch_optional(pool)
+            .await
+            .ok()
+            .flatten()
+            .map(|sql| sql.contains("summary"))
+            .unwrap_or(false);
 
             if has_summary {
                 // All 3 migrations were already applied before tracking existed.
@@ -115,6 +116,10 @@ impl Store {
                 "003_memory_enhancement",
                 include_str!("../migrations/003_memory_enhancement.sql"),
             ),
+            (
+                "004_fts5_recall",
+                include_str!("../migrations/004_fts5_recall.sql"),
+            ),
         ];
 
         for (name, sql) in migrations {
@@ -131,9 +136,10 @@ impl Store {
                 continue;
             }
 
-            sqlx::raw_sql(sql).execute(pool).await.map_err(|e| {
-                OmegaError::Memory(format!("migration {name} failed: {e}"))
-            })?;
+            sqlx::raw_sql(sql)
+                .execute(pool)
+                .await
+                .map_err(|e| OmegaError::Memory(format!("migration {name} failed: {e}")))?;
 
             sqlx::query("INSERT INTO _migrations (name) VALUES (?)")
                 .bind(name)
@@ -452,7 +458,7 @@ impl Store {
             .map(|(role, content)| ContextEntry { role, content })
             .collect();
 
-        // Fetch facts and summaries for enriched context.
+        // Fetch facts, summaries, and recalled messages for enriched context.
         let facts = self
             .get_facts(&incoming.sender_id)
             .await
@@ -461,14 +467,53 @@ impl Store {
             .get_recent_summaries(&incoming.channel, &incoming.sender_id, 3)
             .await
             .unwrap_or_default();
+        let recall = self
+            .search_messages(&incoming.text, &conv_id, &incoming.sender_id, 5)
+            .await
+            .unwrap_or_default();
 
-        let system_prompt = build_system_prompt(&facts, &summaries, &incoming.text);
+        let system_prompt = build_system_prompt(&facts, &summaries, &recall, &incoming.text);
 
         Ok(Context {
             system_prompt,
             history,
             current_message: incoming.text.clone(),
         })
+    }
+
+    /// Search past messages across all conversations using FTS5 full-text search.
+    pub async fn search_messages(
+        &self,
+        query: &str,
+        exclude_conversation_id: &str,
+        sender_id: &str,
+        limit: i64,
+    ) -> Result<Vec<(String, String, String)>, OmegaError> {
+        // Skip short queries — they produce noisy results.
+        if query.len() < 3 {
+            return Ok(Vec::new());
+        }
+
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT m.role, m.content, m.timestamp \
+             FROM messages_fts fts \
+             JOIN messages m ON m.rowid = fts.rowid \
+             JOIN conversations c ON c.id = m.conversation_id \
+             WHERE messages_fts MATCH ? \
+             AND m.conversation_id != ? \
+             AND c.sender_id = ? \
+             ORDER BY rank \
+             LIMIT ?",
+        )
+        .bind(query)
+        .bind(exclude_conversation_id)
+        .bind(sender_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| OmegaError::Memory(format!("fts search failed: {e}")))?;
+
+        Ok(rows)
     }
 
     /// Store a user message and assistant response.
@@ -523,10 +568,11 @@ fn shellexpand(path: &str) -> String {
     path.to_string()
 }
 
-/// Build a dynamic system prompt enriched with facts and conversation history.
+/// Build a dynamic system prompt enriched with facts, conversation history, and recalled messages.
 fn build_system_prompt(
     facts: &[(String, String)],
     summaries: &[(String, String)],
+    recall: &[(String, String, String)],
     current_message: &str,
 ) -> String {
     let mut prompt = String::from(
@@ -551,6 +597,18 @@ fn build_system_prompt(
         prompt.push_str("\n\nRecent conversation history:");
         for (summary, timestamp) in summaries {
             prompt.push_str(&format!("\n- [{timestamp}] {summary}"));
+        }
+    }
+
+    if !recall.is_empty() {
+        prompt.push_str("\n\nRelated past context:");
+        for (_role, content, timestamp) in recall {
+            let truncated = if content.len() > 200 {
+                format!("{}...", &content[..200])
+            } else {
+                content.clone()
+            };
+            prompt.push_str(&format!("\n- [{timestamp}] User: {truncated}"));
         }
     }
 

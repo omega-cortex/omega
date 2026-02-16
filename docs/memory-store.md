@@ -7,11 +7,12 @@
 
 The Memory Store is Omega's long-term memory. It is a SQLite-backed persistence layer that remembers conversations, messages, and facts about users across sessions. Without it, Omega would forget everything the moment a message is processed.
 
-The store serves three core purposes:
+The store serves four core purposes:
 
 1. **Conversation continuity** -- When a user sends a message, the store retrieves their recent conversation history so the AI provider knows what was said before.
 2. **User personalization** -- Facts extracted from past conversations (name, preferences, timezone) are stored and injected into future prompts, making the AI feel personal and context-aware.
-3. **Context building** -- Before every AI provider call, the store assembles a rich context containing the system prompt, conversation history, user facts, and summaries of past conversations.
+3. **Cross-conversation recall** -- FTS5 full-text search lets Omega find relevant details from ANY past conversation, not just the current one. When a conversation closes, its summary compresses details, but the original messages remain searchable.
+4. **Context building** -- Before every AI provider call, the store assembles a rich context containing the system prompt, conversation history, user facts, summaries, and recalled past messages.
 
 ## How the Store Fits in the Pipeline
 
@@ -157,7 +158,8 @@ Behind the scenes, this does:
 2. **Fetch recent messages** from the conversation (up to `max_context_messages`).
 3. **Fetch user facts** -- all stored facts for this sender (name, preferences, etc.).
 4. **Fetch recent summaries** -- the 3 most recent closed conversation summaries.
-5. **Build the system prompt** -- weave facts and summaries into the base prompt.
+5. **Search past messages** -- FTS5 full-text search finds up to 5 relevant messages from other conversations.
+6. **Build the system prompt** -- weave facts, summaries, and recalled messages into the base prompt.
 
 ### The System Prompt
 
@@ -183,14 +185,18 @@ Recent conversation history:
 - [2024-01-15 14:30:00] User asked about deploying a Rust service.
 - [2024-01-14 09:15:00] User discussed SQLite performance tuning.
 
+Related past context:
+- [2024-01-10 16:00:00] User: I need to set up nginx reverse proxy for port 8080...
+- [2024-01-08 11:30:00] User: The SSL cert is at /etc/letsencrypt/live/example.com...
+
 Respond in Spanish.
 ```
 
-The "Known facts" and "Recent conversation history" sections are only included when data is available. The "Respond in Spanish" directive is added only when the current message appears to be in Spanish (detected by a simple keyword heuristic).
+The "Known facts", "Recent conversation history", and "Related past context" sections are only included when data is available. Recalled messages are truncated to 200 characters to avoid bloating the prompt. The "Respond in Spanish" directive is added only when the current message appears to be in Spanish (detected by a simple keyword heuristic).
 
 ### Resilience
 
-If facts or summaries cannot be loaded (e.g., database error), the context is still built -- it just lacks personalization. The store uses `unwrap_or_default()` for these queries, ensuring that a transient database issue does not prevent the user from getting a response.
+If facts, summaries, or recalled messages cannot be loaded (e.g., database error), the context is still built -- it just lacks personalization or recalled context. The store uses `unwrap_or_default()` for these queries, ensuring that a transient database issue does not prevent the user from getting a response.
 
 ## Facts Management
 
@@ -284,6 +290,7 @@ The store uses a simple, custom migration system. SQL migration files are embedd
 1. **001_init** -- Creates the `conversations`, `messages`, and `facts` tables.
 2. **002_audit_log** -- Creates the `audit_log` table.
 3. **003_memory_enhancement** -- Adds conversation boundaries (status, last_activity, summary) and re-creates facts with sender-scoped uniqueness.
+4. **004_fts5_recall** -- Creates FTS5 full-text search index on user messages for cross-conversation recall.
 
 ### Handling Pre-Existing Databases
 

@@ -225,7 +225,10 @@ impl ClaudeCodeProvider {
             Err(e) => {
                 // JSON parsing failed — try to extract text from raw output.
                 warn!("failed to parse claude JSON response: {e}");
-                debug!("raw stdout (first 500 chars): {}", &stdout[..stdout.len().min(500)]);
+                debug!(
+                    "raw stdout (first 500 chars): {}",
+                    &stdout[..stdout.len().min(500)]
+                );
 
                 let trimmed = stdout.trim();
                 if trimmed.is_empty() {
