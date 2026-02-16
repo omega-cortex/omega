@@ -5,3 +5,4 @@ config.toml
 com.ilozada.omega.plist
 .direnv/
 result
+openclaw/
