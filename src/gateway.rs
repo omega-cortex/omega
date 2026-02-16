@@ -691,14 +691,14 @@ impl Gateway {
 /// Return a hardcoded welcome message for the given language.
 fn welcome_message(language: &str) -> &'static str {
     match language {
-        "Spanish" => "Hola, soy Omega, tu agente personal de IA. Estoy listo para ayudarte. \u{00bf}En qu\u{00e9} puedo asistirte?",
-        "Portuguese" => "Ol\u{00e1}, sou o Omega, seu agente pessoal de IA. Estou pronto para ajud\u{00e1}-lo. Como posso ser \u{00fa}til?",
-        "French" => "Bonjour, je suis Omega, votre agent IA personnel. Je suis pr\u{00ea}t \u{00e0} vous aider. Comment puis-je vous assister\u{00a0}?",
-        "German" => "Hallo, ich bin Omega, dein pers\u{00f6}nlicher KI-Agent. Ich bin bereit, dir zu helfen. Wie kann ich dich unterst\u{00fc}tzen?",
-        "Italian" => "Ciao, sono Omega, il tuo agente IA personale. Sono pronto ad aiutarti. Come posso assisterti?",
-        "Dutch" => "Hallo, ik ben Omega, je persoonlijke AI-agent. Ik sta klaar om je te helpen. Hoe kan ik je van dienst zijn?",
-        "Russian" => "\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}, \u{044f} Omega, \u{0432}\u{0430}\u{0448} \u{043f}\u{0435}\u{0440}\u{0441}\u{043e}\u{043d}\u{0430}\u{043b}\u{044c}\u{043d}\u{044b}\u{0439} \u{0418}\u{0418}-\u{0430}\u{0433}\u{0435}\u{043d}\u{0442}. \u{042f} \u{0433}\u{043e}\u{0442}\u{043e}\u{0432} \u{043f}\u{043e}\u{043c}\u{043e}\u{0447}\u{044c}. \u{0427}\u{0435}\u{043c} \u{043c}\u{043e}\u{0433}\u{0443} \u{0431}\u{044b}\u{0442}\u{044c} \u{043f}\u{043e}\u{043b}\u{0435}\u{0437}\u{0435}\u{043d}?",
-        _ => "Hi, I'm Omega, your personal AI agent. I'm ready to help. What can I do for you?",
+        "Spanish" => "Soy Omega, tu agente personal de inteligencia artificial. Corro sobre tu propia infraestructura, construido en Rust, conectado a Telegram y con Claude como cerebro.\n\nEs un honor estar a tu servicio. \u{00bf}Qu\u{00e9} necesitas de m\u{00ed}?",
+        "Portuguese" => "Sou o Omega, seu agente pessoal de intelig\u{00ea}ncia artificial. Rodo na sua pr\u{00f3}pria infraestrutura, constru\u{00ed}do em Rust, conectado ao Telegram e com Claude como c\u{00e9}rebro.\n\n\u{00c9} uma honra estar ao seu servi\u{00e7}o. Do que voc\u{00ea} precisa?",
+        "French" => "Je suis Omega, votre agent personnel d'intelligence artificielle. Je tourne sur votre propre infrastructure, construit en Rust, connect\u{00e9} \u{00e0} Telegram et avec Claude comme cerveau.\n\nC'est un honneur d'\u{00ea}tre \u{00e0} votre service. De quoi avez-vous besoin\u{00a0}?",
+        "German" => "Ich bin Omega, dein pers\u{00f6}nlicher KI-Agent. Ich laufe auf deiner eigenen Infrastruktur, gebaut in Rust, verbunden mit Telegram und mit Claude als Gehirn.\n\nEs ist mir eine Ehre, dir zu dienen. Was brauchst du von mir?",
+        "Italian" => "Sono Omega, il tuo agente personale di intelligenza artificiale. Giro sulla tua infrastruttura, costruito in Rust, connesso a Telegram e con Claude come cervello.\n\n\u{00c8} un onore essere al tuo servizio. Di cosa hai bisogno?",
+        "Dutch" => "Ik ben Omega, je persoonlijke AI-agent. Ik draai op je eigen infrastructuur, gebouwd in Rust, verbonden met Telegram en met Claude als brein.\n\nHet is een eer om je van dienst te zijn. Wat heb je nodig?",
+        "Russian" => "\u{042f} Omega, \u{0432}\u{0430}\u{0448} \u{043f}\u{0435}\u{0440}\u{0441}\u{043e}\u{043d}\u{0430}\u{043b}\u{044c}\u{043d}\u{044b}\u{0439} \u{0430}\u{0433}\u{0435}\u{043d}\u{0442} \u{0438}\u{0441}\u{043a}\u{0443}\u{0441}\u{0441}\u{0442}\u{0432}\u{0435}\u{043d}\u{043d}\u{043e}\u{0433}\u{043e} \u{0438}\u{043d}\u{0442}\u{0435}\u{043b}\u{043b}\u{0435}\u{043a}\u{0442}\u{0430}. \u{042f} \u{0440}\u{0430}\u{0431}\u{043e}\u{0442}\u{0430}\u{044e} \u{043d}\u{0430} \u{0432}\u{0430}\u{0448}\u{0435}\u{0439} \u{0441}\u{043e}\u{0431}\u{0441}\u{0442}\u{0432}\u{0435}\u{043d}\u{043d}\u{043e}\u{0439} \u{0438}\u{043d}\u{0444}\u{0440}\u{0430}\u{0441}\u{0442}\u{0440}\u{0443}\u{043a}\u{0442}\u{0443}\u{0440}\u{0435}, \u{043d}\u{0430}\u{043f}\u{0438}\u{0441}\u{0430}\u{043d} \u{043d}\u{0430} Rust, \u{043f}\u{043e}\u{0434}\u{043a}\u{043b}\u{044e}\u{0447}\u{0451}\u{043d} \u{043a} Telegram \u{0438} \u{0438}\u{0441}\u{043f}\u{043e}\u{043b}\u{044c}\u{0437}\u{0443}\u{044e} Claude \u{043a}\u{0430}\u{043a} \u{043c}\u{043e}\u{0437}\u{0433}.\n\n\u{0414}\u{043b}\u{044f} \u{043c}\u{0435}\u{043d}\u{044f} \u{0447}\u{0435}\u{0441}\u{0442}\u{044c} \u{0441}\u{043b}\u{0443}\u{0436}\u{0438}\u{0442}\u{044c} \u{0432}\u{0430}\u{043c}. \u{0427}\u{0442}\u{043e} \u{0432}\u{0430}\u{043c} \u{043d}\u{0443}\u{0436}\u{043d}\u{043e}?",
+        _ => "I'm Omega, your personal artificial intelligence agent. I run on your own infrastructure, built in Rust, connected to Telegram and with Claude as my brain.\n\nIt's an honor to be at your service. What do you need from me?",
     }
 }
 
@@ -890,6 +890,6 @@ mod tests {
     fn test_welcome_message_unknown_falls_back_to_english() {
         let msg = welcome_message("Klingon");
         assert!(msg.contains("Omega"));
-        assert!(msg.contains("Hi"));
+        assert!(msg.contains("Rust"));
     }
 }
