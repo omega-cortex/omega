@@ -716,6 +716,18 @@ impl Store {
 
         Ok(result.rows_affected() > 0)
     }
+
+    /// Check if a sender has never been welcomed (no `welcomed` fact).
+    pub async fn is_new_user(&self, sender_id: &str) -> Result<bool, OmegaError> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM facts WHERE sender_id = ? AND key = 'welcomed'")
+                .bind(sender_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| OmegaError::Memory(format!("query failed: {e}")))?;
+
+        Ok(row.is_none())
+    }
 }
 
 /// Expand `~` to home directory.
@@ -802,7 +814,7 @@ fn build_system_prompt(
 
 /// Detect the most likely language of a text using stop-word heuristics.
 /// Returns a language name like "English", "Spanish", etc.
-fn detect_language(text: &str) -> &'static str {
+pub fn detect_language(text: &str) -> &'static str {
     let lower = text.to_lowercase();
 
     let languages: &[(&str, &[&str])] = &[
@@ -1065,5 +1077,22 @@ mod tests {
         // Task still exists.
         let tasks = store.get_tasks_for_sender("user1").await.unwrap();
         assert_eq!(tasks.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_is_new_user() {
+        let store = test_store().await;
+
+        // New user — no welcomed fact yet.
+        assert!(store.is_new_user("fresh_user").await.unwrap());
+
+        // Store the welcomed fact.
+        store
+            .store_fact("fresh_user", "welcomed", "true")
+            .await
+            .unwrap();
+
+        // No longer new.
+        assert!(!store.is_new_user("fresh_user").await.unwrap());
     }
 }

@@ -13,7 +13,7 @@ use omega_core::{
 };
 use omega_memory::{
     audit::{AuditEntry, AuditLogger, AuditStatus},
-    Store,
+    detect_language, Store,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -450,6 +450,22 @@ impl Gateway {
         let mut clean_incoming = incoming.clone();
         clean_incoming.text = sanitized.text;
 
+        // --- 2b. WELCOME CHECK (first-time users) ---
+        if let Ok(true) = self.memory.is_new_user(&incoming.sender_id).await {
+            let lang = detect_language(&clean_incoming.text);
+            self.send_text(&incoming, welcome_message(lang)).await;
+            // Store welcomed fact and detected language preference.
+            let _ = self
+                .memory
+                .store_fact(&incoming.sender_id, "welcomed", "true")
+                .await;
+            let _ = self
+                .memory
+                .store_fact(&incoming.sender_id, "preferred_language", lang)
+                .await;
+            info!("welcomed new user {} ({})", incoming.sender_id, lang);
+        }
+
         // --- 3. COMMAND DISPATCH ---
         if let Some(cmd) = commands::Command::parse(&clean_incoming.text) {
             let response = commands::handle(
@@ -672,6 +688,20 @@ impl Gateway {
     }
 }
 
+/// Return a hardcoded welcome message for the given language.
+fn welcome_message(language: &str) -> &'static str {
+    match language {
+        "Spanish" => "Hola, soy Omega, tu agente personal de IA. Estoy listo para ayudarte. \u{00bf}En qu\u{00e9} puedo asistirte?",
+        "Portuguese" => "Ol\u{00e1}, sou o Omega, seu agente pessoal de IA. Estou pronto para ajud\u{00e1}-lo. Como posso ser \u{00fa}til?",
+        "French" => "Bonjour, je suis Omega, votre agent IA personnel. Je suis pr\u{00ea}t \u{00e0} vous aider. Comment puis-je vous assister\u{00a0}?",
+        "German" => "Hallo, ich bin Omega, dein pers\u{00f6}nlicher KI-Agent. Ich bin bereit, dir zu helfen. Wie kann ich dich unterst\u{00fc}tzen?",
+        "Italian" => "Ciao, sono Omega, il tuo agente IA personale. Sono pronto ad aiutarti. Come posso assisterti?",
+        "Dutch" => "Hallo, ik ben Omega, je persoonlijke AI-agent. Ik sta klaar om je te helpen. Hoe kan ik je van dienst zijn?",
+        "Russian" => "\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}, \u{044f} Omega, \u{0432}\u{0430}\u{0448} \u{043f}\u{0435}\u{0440}\u{0441}\u{043e}\u{043d}\u{0430}\u{043b}\u{044c}\u{043d}\u{044b}\u{0439} \u{0418}\u{0418}-\u{0430}\u{0433}\u{0435}\u{043d}\u{0442}. \u{042f} \u{0433}\u{043e}\u{0442}\u{043e}\u{0432} \u{043f}\u{043e}\u{043c}\u{043e}\u{0447}\u{044c}. \u{0427}\u{0435}\u{043c} \u{043c}\u{043e}\u{0433}\u{0443} \u{0431}\u{044b}\u{0442}\u{044c} \u{043f}\u{043e}\u{043b}\u{0435}\u{0437}\u{0435}\u{043d}?",
+        _ => "Hi, I'm Omega, your personal AI agent. I'm ready to help. What can I do for you?",
+    }
+}
+
 /// Extract the first `SCHEDULE:` line from response text.
 fn extract_schedule_marker(text: &str) -> Option<String> {
     text.lines()
@@ -839,5 +869,27 @@ mod tests {
         // Range 00:00 to 00:00 is empty (start == end, so start <= end is true,
         // and now >= "00:00" && now < "00:00" is always false).
         assert!(!is_within_active_hours("00:00", "00:00"));
+    }
+
+    #[test]
+    fn test_welcome_message_all_languages() {
+        let languages = [
+            "English", "Spanish", "Portuguese", "French", "German", "Italian", "Dutch", "Russian",
+        ];
+        for lang in &languages {
+            let msg = welcome_message(lang);
+            assert!(!msg.is_empty(), "welcome for {lang} should not be empty");
+            assert!(
+                msg.contains("Omega"),
+                "welcome for {lang} should mention Omega"
+            );
+        }
+    }
+
+    #[test]
+    fn test_welcome_message_unknown_falls_back_to_english() {
+        let msg = welcome_message("Klingon");
+        assert!(msg.contains("Omega"));
+        assert!(msg.contains("Hi"));
     }
 }
