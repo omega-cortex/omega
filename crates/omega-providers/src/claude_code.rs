@@ -11,9 +11,12 @@ use omega_core::{
     traits::Provider,
 };
 use serde::Deserialize;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::process::Command;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
+
+/// Default timeout for Claude Code CLI subprocess (2 minutes).
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Claude Code CLI provider configuration.
 pub struct ClaudeCodeProvider {
@@ -23,6 +26,8 @@ pub struct ClaudeCodeProvider {
     max_turns: u32,
     /// Tools the CLI is allowed to use.
     allowed_tools: Vec<String>,
+    /// Subprocess timeout.
+    timeout: Duration,
 }
 
 /// JSON response from `claude -p --output-format json`.
@@ -64,6 +69,7 @@ impl ClaudeCodeProvider {
                 "Write".to_string(),
                 "Edit".to_string(),
             ],
+            timeout: DEFAULT_TIMEOUT,
         }
     }
 
@@ -73,6 +79,7 @@ impl ClaudeCodeProvider {
             session_id: None,
             max_turns,
             allowed_tools,
+            timeout: DEFAULT_TIMEOUT,
         }
     }
 
@@ -107,11 +114,37 @@ impl Provider for ClaudeCodeProvider {
         let prompt = context.to_prompt_string();
         let start = Instant::now();
 
+        let output = self.run_cli(&prompt).await?;
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let (text, model) = self.parse_response(&stdout);
+
+        Ok(OutgoingMessage {
+            text,
+            metadata: MessageMetadata {
+                provider_used: "claude-code".to_string(),
+                tokens_used: None,
+                processing_time_ms: elapsed_ms,
+                model,
+            },
+            reply_target: None,
+        })
+    }
+
+    async fn is_available(&self) -> bool {
+        Self::check_cli().await
+    }
+}
+
+impl ClaudeCodeProvider {
+    /// Run the claude CLI subprocess with a timeout.
+    async fn run_cli(&self, prompt: &str) -> Result<std::process::Output, OmegaError> {
         let mut cmd = Command::new("claude");
         // Remove CLAUDECODE env var so the CLI doesn't think it's nested.
         cmd.env_remove("CLAUDECODE");
         cmd.arg("-p")
-            .arg(&prompt)
+            .arg(prompt)
             .arg("--output-format")
             .arg("json")
             .arg("--max-turns")
@@ -129,12 +162,15 @@ impl Provider for ClaudeCodeProvider {
 
         debug!("executing: claude -p <prompt> --output-format json");
 
-        let output = cmd
-            .output()
+        let output = tokio::time::timeout(self.timeout, cmd.output())
             .await
+            .map_err(|_| {
+                OmegaError::Provider(format!(
+                    "claude CLI timed out after {}s",
+                    self.timeout.as_secs()
+                ))
+            })?
             .map_err(|e| OmegaError::Provider(format!("failed to run claude CLI: {e}")))?;
-
-        let elapsed_ms = start.elapsed().as_millis() as u64;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -144,10 +180,12 @@ impl Provider for ClaudeCodeProvider {
             )));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(output)
+    }
 
-        // Try to parse structured JSON response.
-        let (text, model) = match serde_json::from_str::<ClaudeCliResponse>(&stdout) {
+    /// Parse the JSON response from Claude Code CLI, with diagnostic logging.
+    fn parse_response(&self, stdout: &str) -> (String, Option<String>) {
+        match serde_json::from_str::<ClaudeCliResponse>(stdout) {
             Ok(resp) => {
                 // Handle error_max_turns — still extract whatever result exists.
                 if resp.subtype.as_deref() == Some("error_max_turns") {
@@ -155,42 +193,52 @@ impl Provider for ClaudeCodeProvider {
                 }
 
                 let text = match resp.result {
-                    Some(r) if !r.is_empty() => r,
+                    Some(ref r) if !r.is_empty() => r.clone(),
                     _ => {
-                        // No result text — provide a meaningful fallback.
+                        // Log the full response for debugging empty results.
+                        error!(
+                            "claude returned empty result | is_error={} subtype={:?} \
+                             type={:?} num_turns={:?} | raw_len={}",
+                            resp.is_error,
+                            resp.subtype,
+                            resp.response_type,
+                            resp.num_turns,
+                            stdout.len(),
+                        );
+                        debug!("full claude response for empty result: {stdout}");
+
                         if resp.is_error {
                             format!(
                                 "Error from Claude: {}",
                                 resp.subtype.as_deref().unwrap_or("unknown")
                             )
                         } else {
-                            "(No response text returned)".to_string()
+                            // Try to provide something useful instead of a generic fallback.
+                            "I received your message but wasn't able to generate a response. \
+                             Please try again."
+                                .to_string()
                         }
                     }
                 };
                 (text, resp.model)
             }
             Err(e) => {
-                // Fall back to raw text if JSON parsing fails.
+                // JSON parsing failed — try to extract text from raw output.
                 warn!("failed to parse claude JSON response: {e}");
-                (stdout.trim().to_string(), None)
+                debug!("raw stdout (first 500 chars): {}", &stdout[..stdout.len().min(500)]);
+
+                let trimmed = stdout.trim();
+                if trimmed.is_empty() {
+                    (
+                        "I received your message but the response was empty. Please try again."
+                            .to_string(),
+                        None,
+                    )
+                } else {
+                    (trimmed.to_string(), None)
+                }
             }
-        };
-
-        Ok(OutgoingMessage {
-            text,
-            metadata: MessageMetadata {
-                provider_used: "claude-code".to_string(),
-                tokens_used: None,
-                processing_time_ms: elapsed_ms,
-                model,
-            },
-            reply_target: None,
-        })
-    }
-
-    async fn is_available(&self) -> bool {
-        Self::check_cli().await
+        }
     }
 }
 
