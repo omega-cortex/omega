@@ -120,6 +120,24 @@ impl TelegramChannel {
 
         Ok(())
     }
+
+    /// Send a chat action (e.g. "typing") to a chat.
+    async fn send_chat_action(&self, chat_id: i64, action: &str) -> Result<(), OmegaError> {
+        let url = format!("{}/sendChatAction", self.base_url);
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "action": action,
+        });
+
+        self.client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| OmegaError::Channel(format!("telegram sendChatAction failed: {e}")))?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -138,6 +156,8 @@ impl Channel for TelegramChannel {
         info!("Telegram channel starting long polling...");
 
         tokio::spawn(async move {
+            let mut backoff_secs: u64 = 1;
+
             loop {
                 let last = last_update_id.lock().await;
                 let offset = last.map(|id| id + 1);
@@ -156,8 +176,9 @@ impl Channel for TelegramChannel {
                 {
                     Ok(r) => r,
                     Err(e) => {
-                        error!("telegram poll error: {e}");
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        error!("telegram poll error (retry in {backoff_secs}s): {e}");
+                        tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                        backoff_secs = (backoff_secs * 2).min(60);
                         continue;
                     }
                 };
@@ -165,20 +186,25 @@ impl Channel for TelegramChannel {
                 let body: TgResponse<Vec<TgUpdate>> = match resp.json().await {
                     Ok(b) => b,
                     Err(e) => {
-                        error!("telegram parse error: {e}");
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        error!("telegram parse error (retry in {backoff_secs}s): {e}");
+                        tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                        backoff_secs = (backoff_secs * 2).min(60);
                         continue;
                     }
                 };
 
                 if !body.ok {
                     error!(
-                        "telegram API error: {}",
+                        "telegram API error (retry in {backoff_secs}s): {}",
                         body.description.unwrap_or_default()
                     );
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+                    backoff_secs = (backoff_secs * 2).min(60);
                     continue;
                 }
+
+                // Successful poll — reset backoff.
+                backoff_secs = 1;
 
                 let updates = body.result.unwrap_or_default();
 
@@ -237,6 +263,13 @@ impl Channel for TelegramChannel {
         });
 
         Ok(rx)
+    }
+
+    async fn send_typing(&self, target: &str) -> Result<(), OmegaError> {
+        let chat_id: i64 = target.parse().map_err(|e| {
+            OmegaError::Channel(format!("invalid telegram chat_id '{target}': {e}"))
+        })?;
+        self.send_chat_action(chat_id, "typing").await
     }
 
     async fn send(&self, message: OutgoingMessage) -> Result<(), OmegaError> {

@@ -1196,6 +1196,7 @@ name = "omega"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "libc",
  "omega-channels",
@@ -1204,7 +1205,9 @@ dependencies = [
  "omega-providers",
  "omega-sandbox",
  "omega-skills",
+ "reqwest",
  "serde_json",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",

@@ -73,5 +73,5 @@ When `subtype` is `error_max_turns`, extract `result` if available, otherwise re
 
 - **Phase 1** (complete): Workspace, core types, Claude Code provider, CLI (`omega ask`)
 - **Phase 2** (complete): Memory, Telegram channel, gateway, audit log, auth, sanitization, LaunchAgent
-- **Phase 3** (next): Alternative providers, context management, bot commands
-- **Phase 4** (planned): Skills system, sandbox, cron scheduler, WhatsApp
+- **Phase 3** (complete): Conversation boundaries, summaries, facts extraction, enriched context, typing indicator, bot commands, system prompt upgrade, self-check, graceful shutdown, exponential backoff, init wizard
+- **Phase 4** (next): Alternative providers, skills system, sandbox, cron scheduler, WhatsApp

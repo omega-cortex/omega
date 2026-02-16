@@ -40,6 +40,11 @@ pub trait Channel: Send + Sync {
     /// Send a response back through this channel.
     async fn send(&self, message: OutgoingMessage) -> Result<(), OmegaError>;
 
+    /// Send a typing indicator to show the bot is processing.
+    async fn send_typing(&self, _target: &str) -> Result<(), OmegaError> {
+        Ok(())
+    }
+
     /// Graceful shutdown.
     async fn stop(&self) -> Result<(), OmegaError>;
 }

@@ -1,123 +1,135 @@
-# Ω Omega
+# Omega
 
-**Personal AI agent infrastructure, forged in Rust.**
+**Your AI, your server, your rules.**
 
-A lightweight, self-hosted AI agent that connects to messaging platforms and delegates reasoning to configurable AI backends — with Claude Code CLI as the zero-config, first-class citizen.
+A personal AI agent that runs on your own hardware. Connects to Telegram, delegates reasoning to Claude Code CLI, and remembers your conversations across sessions. Single Rust binary, no Docker, no cloud dependency.
+
+## What Makes Omega Different
+
+- **Runs locally** — Your messages never touch third-party servers beyond the AI provider
+- **Real memory** — Conversations are summarized and recalled across sessions. Omega learns facts about you over time.
+- **Zero config AI** — Uses your local `claude` CLI authentication. No API keys to manage.
+- **Action-oriented** — Omega does things, not just talks about them
+- **2-minute setup** — `omega init` walks you through everything
 
 ## Quick Start
 
 ```bash
+# Build
 cargo build --release
-cp config.example.toml config.toml  # Edit with your settings
+
+# Interactive setup
+./target/release/omega init
+
+# Start
 ./target/release/omega start
 ```
 
-## Features
+Or manual setup:
 
-- **Single binary** — no runtime dependencies, no Docker required
-- **Claude Code as first-class provider** — zero API keys needed, uses local `claude` CLI auth
-- **Model-agnostic** — supports Claude Code, Anthropic API, OpenAI, Ollama, OpenRouter
-- **Telegram integration** — long polling, Markdown formatting, message splitting
-- **Persistent memory** — SQLite-backed conversation history with context windowing
-- **Audit log** — every interaction recorded with timestamp, input, output, and status
-- **Auth enforcement** — per-channel user ID allowlists, unauthorized attempts logged and denied
-- **Prompt injection defense** — sanitizes role tags, instruction overrides, and delimiter injection
-- **macOS LaunchAgent** — runs as a persistent background service
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────┐
-│                    OMEGA GATEWAY                      │
-│  Auth → Sanitize → Memory → Provider → Audit → Send  │
-├──────────────┬──────────────┬────────────────────────┤
-│   Channels   │  Orchestrator │      Services          │
-├──────────────┼──────────────┼────────────────────────┤
-│ • Telegram   │ • Router     │ • Memory (SQLite)      │
-│ (future:     │ • Context    │ • Audit log            │
-│  WhatsApp,   │ • Middleware  │ • Skills registry      │
-│  Discord)    │   pipeline   │ • Sandbox executor     │
-├──────────────┴──────────────┴────────────────────────┤
-│                  PROVIDER LAYER                       │
-├──────────────────────────────────────────────────────┤
-│ ClaudeCode │ Anthropic │ OpenAI │ Ollama │ OpenRouter │
-└──────────────────────────────────────────────────────┘
+```bash
+cp config.example.toml config.toml   # Edit with your settings
+./target/release/omega start
 ```
 
-## Project Structure
+## How It Works
 
 ```
-omega/
-├── Cargo.toml              # Workspace root
-├── config.example.toml     # Example configuration
-├── crates/
-│   ├── omega-core/         # Types, traits, config, error handling, sanitization
-│   ├── omega-providers/    # AI provider implementations (Claude Code, etc.)
-│   ├── omega-channels/     # Messaging platforms (Telegram, etc.)
-│   ├── omega-memory/       # SQLite storage, audit log
-│   ├── omega-skills/       # Skill/plugin system (planned)
-│   └── omega-sandbox/      # Secure execution (planned)
-└── src/
-    ├── main.rs             # CLI entry point
-    └── gateway.rs          # Main event loop
+You (Telegram) → Omega Gateway → Claude Code CLI → Response
+                      │
+                 ┌────┴────┐
+              Memory    Audit Log
+            (SQLite)    (SQLite)
 ```
+
+Every message flows through:
+
+1. **Auth** — Only your Telegram user ID gets through
+2. **Sanitize** — Prompt injection patterns neutralized
+3. **Memory** — Context built from conversation history + facts + past summaries
+4. **Provider** — Claude Code CLI processes the request
+5. **Store** — Exchange saved, conversation updated
+6. **Audit** — Full interaction logged
+7. **Respond** — Message sent back with typing indicator
+
+Conversations idle for 30+ minutes are automatically summarized and closed. New conversations include recent summaries for continuity.
 
 ## Commands
 
-```bash
-omega start              # Start the agent (connects to enabled channels)
-omega status             # Check provider and channel availability
-omega ask "question"     # One-shot query via CLI
-```
+| Command | Description |
+|---------|-------------|
+| `/status` | Uptime, provider, database info |
+| `/memory` | Your conversation and fact counts |
+| `/history` | Last 5 conversation summaries |
+| `/facts` | Known facts about you |
+| `/forget` | Clear current conversation |
+| `/help` | List commands |
+
+Commands are instant (no AI call). Everything else goes to the provider.
+
+## Requirements
+
+- Rust 1.70+
+- `claude` CLI installed and authenticated
+- Telegram bot token (from [@BotFather](https://t.me/BotFather))
 
 ## Configuration
 
-Copy `config.example.toml` to `config.toml`. Key sections:
+`config.toml` (gitignored):
 
 ```toml
+[omega]
+name = "Omega"
+
 [auth]
-enabled = true                    # Enforce user ID allowlists
+enabled = true
 
 [provider]
-default = "claude-code"           # No API key needed
+default = "claude-code"
+
+[provider.claude-code]
+max_turns = 10
+allowed_tools = ["Bash", "Read", "Write", "Edit"]
 
 [channel.telegram]
 enabled = true
-bot_token = "YOUR_TOKEN"          # From @BotFather
-allowed_users = [123456789]       # Telegram user IDs (empty = allow all)
+bot_token = "YOUR_TOKEN"
+allowed_users = [123456789]    # Your Telegram user ID
 
 [memory]
 db_path = "~/.omega/memory.db"
 max_context_messages = 50
 ```
 
-## Security
+## Architecture
 
-- **Auth**: Per-channel user ID allowlists. Unauthorized messages are rejected and audit-logged.
-- **Sanitization**: Neutralizes prompt injection patterns (role tags, instruction overrides, delimiter injection) before they reach the provider.
-- **Audit log**: Every interaction is recorded in SQLite with full traceability.
-- **Root guard**: Omega refuses to run as root to prevent privilege escalation.
-- **No secrets in repo**: `config.toml` is gitignored; credentials never committed.
+Cargo workspace with 6 crates:
+
+| Crate | Purpose |
+|-------|---------|
+| `omega-core` | Types, traits, config, error handling, prompt sanitization |
+| `omega-providers` | AI backends (Claude Code CLI + planned: Anthropic, OpenAI, Ollama) |
+| `omega-channels` | Messaging platforms (Telegram + planned: WhatsApp) |
+| `omega-memory` | SQLite storage, conversation history, facts, audit log |
+| `omega-skills` | Skill/plugin system (planned) |
+| `omega-sandbox` | Secure command execution (planned) |
 
 ## macOS Service
 
-Install as a persistent LaunchAgent:
+Run as a persistent LaunchAgent:
 
 ```bash
 cp com.ilozada.omega.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.ilozada.omega.plist
 ```
 
-Logs: `~/.omega/omega.log`
-
 ## Development
 
 ```bash
-cargo check                  # Type check
-cargo clippy --workspace     # Lint
-cargo test --workspace       # Run tests
-cargo fmt                    # Format
-cargo build --release        # Build optimized binary
+cargo clippy --workspace     # Lint (zero warnings required)
+cargo test --workspace       # All tests must pass
+cargo fmt --check            # Formatting check
+cargo build --release        # Optimized binary
 ```
 
 ## License

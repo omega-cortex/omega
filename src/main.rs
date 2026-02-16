@@ -1,4 +1,7 @@
+mod commands;
 mod gateway;
+mod init;
+mod selfcheck;
 
 use clap::{Parser, Subcommand};
 use omega_channels::telegram::TelegramChannel;
@@ -35,6 +38,8 @@ enum Commands {
         #[arg(trailing_var_arg = true)]
         message: Vec<String>,
     },
+    /// Interactive setup wizard.
+    Init,
 }
 
 #[tokio::main]
@@ -61,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
             let cfg = config::load(&cli.config)?;
 
             // Build provider.
-            let provider = build_provider(&cfg)?;
+            let provider: Arc<dyn omega_core::traits::Provider> = Arc::from(build_provider(&cfg)?);
 
             if !provider.is_available().await {
                 anyhow::bail!("provider '{}' is not available", provider.name());
@@ -91,9 +96,14 @@ async fn main() -> anyhow::Result<()> {
             // Build memory.
             let memory = Store::new(&cfg.memory).await?;
 
+            // Self-check before starting.
+            if !selfcheck::run(&cfg, &memory).await {
+                anyhow::bail!("Self-check failed. Fix the issues above before starting.");
+            }
+
             // Build and run gateway.
             println!("Ω Omega — Starting agent...");
-            let gw = gateway::Gateway::new(
+            let mut gw = gateway::Gateway::new(
                 provider,
                 channels,
                 memory,
@@ -151,6 +161,9 @@ async fn main() -> anyhow::Result<()> {
             let context = Context::new(&prompt);
             let response = provider.complete(&context).await?;
             println!("{}", response.text);
+        }
+        Commands::Init => {
+            init::run()?;
         }
     }
 
