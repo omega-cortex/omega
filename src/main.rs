@@ -69,7 +69,14 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Start => {
             let cfg = config::load(&cli.config)?;
-            let prompts = Prompts::load(&cfg.omega.data_dir);
+            let mut prompts = Prompts::load(&cfg.omega.data_dir);
+
+            // Load skills from ~/.omega/skills/*.md.
+            let skills = omega_skills::load_skills(&cfg.omega.data_dir);
+            let skill_block = omega_skills::build_skill_prompt(&skills);
+            if !skill_block.is_empty() {
+                prompts.system.push_str(&skill_block);
+            }
 
             // Build provider.
             let provider: Arc<dyn omega_core::traits::Provider> = Arc::from(build_provider(&cfg)?);
@@ -126,6 +133,7 @@ async fn main() -> anyhow::Result<()> {
                 cfg.scheduler.clone(),
                 prompts,
                 cfg.omega.data_dir.clone(),
+                skills,
             );
             gw.run().await?;
         }

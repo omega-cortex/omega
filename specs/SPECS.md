@@ -14,7 +14,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 ### Milestone 2: Binary (`src/`)
 - [binary-main.md](binary-main.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap
 - [binary-gateway.md](binary-gateway.md) — Gateway event loop, message pipeline, auth, summarization, shutdown
-- [binary-commands.md](binary-commands.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, help)
+- [binary-commands.md](binary-commands.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, help)
 - [binary-init.md](binary-init.md) — Interactive setup wizard
 - [binary-selfcheck.md](binary-selfcheck.md) — Startup health checks
 
@@ -49,7 +49,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [memory-migration-005.md](memory-migration-005.md) — Scheduled tasks table migration
 
 ### Milestone 7: omega-skills
-- [skills.md](skills.md) — Skills/plugin system (planned)
+- [skills-lib.md](skills-lib.md) — Generic skill loader (scan `~/.omega/skills/*.md`, frontmatter, prompt builder)
 
 ### Milestone 8: omega-sandbox
 - [sandbox.md](sandbox.md) — Secure execution environment (planned)
@@ -71,8 +71,8 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 │  traits.rs      │                 │               │
 ├─────────────────┼─────────────────┼───────────────┤
 │  omega-memory   │ omega-skills    │ omega-sandbox  │
-│  store.rs       │ builtin/mod.rs  │ (planned)      │
-│  audit.rs       │ (planned)       │                │
+│  store.rs       │ lib.rs (loader) │ (planned)      │
+│  audit.rs       │                 │                │
 │  migrations/    │                 │                │
 └─────────────────┴─────────────────┴───────────────┘
 ```

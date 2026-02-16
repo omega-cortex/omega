@@ -41,7 +41,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 - [heartbeat.md](heartbeat.md) — Periodic AI check-ins, health monitoring, alert suppression
 
 ### Commands
-- [commands.md](commands.md) — Bot command reference (/status, /memory, /history, /facts, /forget, /tasks, /cancel, /help)
+- [commands.md](commands.md) — Bot command reference (/status, /memory, /history, /facts, /forget, /tasks, /cancel, /skills, /help)
 
 ### Development
 - [development.md](development.md) — Build, test, lint, code conventions, contribution guidelines

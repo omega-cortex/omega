@@ -34,6 +34,7 @@ pub struct Gateway {
     scheduler_config: SchedulerConfig,
     prompts: Prompts,
     data_dir: String,
+    skills: Vec<omega_skills::Skill>,
     uptime: Instant,
 }
 
@@ -50,6 +51,7 @@ impl Gateway {
         scheduler_config: SchedulerConfig,
         prompts: Prompts,
         data_dir: String,
+        skills: Vec<omega_skills::Skill>,
     ) -> Self {
         let audit = AuditLogger::new(memory.pool().clone());
         Self {
@@ -63,6 +65,7 @@ impl Gateway {
             scheduler_config,
             prompts,
             data_dir,
+            skills,
             uptime: Instant::now(),
         }
     }
@@ -508,6 +511,7 @@ impl Gateway {
                 &clean_incoming.text,
                 &self.uptime,
                 self.provider.name(),
+                &self.skills,
             )
             .await;
 

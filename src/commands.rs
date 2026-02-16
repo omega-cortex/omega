@@ -13,6 +13,7 @@ pub enum Command {
     Tasks,
     Cancel,
     Language,
+    Skills,
     WhatsApp,
     Help,
 }
@@ -31,6 +32,7 @@ impl Command {
             "/tasks" => Some(Self::Tasks),
             "/cancel" => Some(Self::Cancel),
             "/language" | "/lang" => Some(Self::Language),
+            "/skills" => Some(Self::Skills),
             "/whatsapp" => Some(Self::WhatsApp),
             "/help" => Some(Self::Help),
             _ => None,
@@ -39,6 +41,7 @@ impl Command {
 }
 
 /// Handle a command and return the response text.
+#[allow(clippy::too_many_arguments)]
 pub async fn handle(
     cmd: Command,
     store: &Store,
@@ -47,6 +50,7 @@ pub async fn handle(
     text: &str,
     uptime: &Instant,
     provider_name: &str,
+    skills: &[omega_skills::Skill],
 ) -> String {
     match cmd {
         Command::Status => handle_status(store, uptime, provider_name).await,
@@ -57,6 +61,7 @@ pub async fn handle(
         Command::Tasks => handle_tasks(store, sender_id).await,
         Command::Cancel => handle_cancel(store, sender_id, text).await,
         Command::Language => handle_language(store, sender_id, text).await,
+        Command::Skills => handle_skills(skills),
         Command::WhatsApp => handle_whatsapp(),
         Command::Help => handle_help(),
     }
@@ -192,6 +197,22 @@ async fn handle_language(store: &Store, sender_id: &str, text: &str) -> String {
     }
 }
 
+fn handle_skills(skills: &[omega_skills::Skill]) -> String {
+    if skills.is_empty() {
+        return "No skills installed. Drop .md files into ~/.omega/skills/".to_string();
+    }
+    let mut out = String::from("Installed Skills\n");
+    for s in skills {
+        let status = if s.available {
+            "available"
+        } else {
+            "missing deps"
+        };
+        out.push_str(&format!("\n- {} [{}]: {}", s.name, status, s.description));
+    }
+    out
+}
+
 /// Handle /whatsapp — returns a marker that the gateway intercepts.
 fn handle_whatsapp() -> String {
     "WHATSAPP_QR".to_string()
@@ -208,6 +229,7 @@ Omega Commands\n\n\
 /tasks    — List your scheduled tasks\n\
 /cancel   — Cancel a task by ID\n\
 /language — Show or set your language\n\
+/skills   — List available skills\n\
 /whatsapp — Connect WhatsApp via QR code\n\
 /help     — This message"
         .to_string()
