@@ -6,6 +6,38 @@ Omega is a personal AI agent infrastructure written in Rust. It connects to mess
 
 **Repository:** `github.com/omega-cortex/omega`
 
+# FIRST PRINCIPLE FOR CODING:
+Elon Musk says: The best engine part is the one you can remove. In other words, less is more! Let this be our approach, even for the most complex problems: Always opt for the simplest solution without compromising safety.
+
+Before each implementation, you must tell me if what I'm asking adds an unnecessary level of complexity to the project. If so, you must alert me!
+
+All our architecture must be monolithic and modular, like Legos.
+
+## 🚨 CRITICAL RULES
+
+1. **Environment**: All commands **MUST** run via Nix:
+   `nix --extra-experimental-features "nix-command flakes" develop --command bash -c "<command>"`
+
+2. **Pre-Commit Gate** (Execute in order, all steps mandatory):
+   
+   | Step | Action | Condition |
+   |------|--------|-----------|
+   | 1 | **Update `specs/`** | If technical behavior, API, constants, or protocol changed |
+   | 2 | **Update `docs/`** | If user-facing behavior, CLI, or configuration changed |
+   | 3 | **Update `CLAUDE.md`** | If architecture, crate structure, or constants changed |
+   | 4 | **Verify build** | `cargo build && cargo clippy -- -D warnings && cargo fmt --check` |
+   | 5 | **Verify tests** | `cargo test` |
+   | 6 | **Commit** | Only after steps 1-5 pass |
+
+   **Commit command** (only after all steps pass):
+```bash
+   git add -A && git commit -m "<type>(<scope>): <description>"
+```
+
+3. **Output Filtering**: Always filter verbose output:
+Apply always outour redirection to a /tmp/ folder to avoid polluting the console to later apply filters.
+  command > /tmp/cmd_output.log 2>&1 && grep -iE "error|warn|fail|pass" /tmp/cmd_output.log | head -20
+
 ## Architecture
 
 Cargo workspace with 6 crates:
