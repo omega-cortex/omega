@@ -69,7 +69,7 @@ Background loops (spawned in `gateway::run()`):
 - **Scheduler**: polls `scheduled_tasks` table every 60s, delivers due reminders via channel
 - **Heartbeat**: periodic context-aware provider check-in (default 30min), enriched with user facts + recent summaries, skips when no `~/.omega/HEARTBEAT.md` checklist is configured, suppresses `HEARTBEAT_OK`, alerts otherwise
 
-Bot commands: `/help`, `/forget`, `/tasks`, `/cancel <id>`, `/language`, `/skills`, `/projects`, `/project`
+Bot commands (`src/commands.rs`): `/help`, `/forget`, `/tasks`, `/cancel <id>`, `/language`, `/skills`, `/projects`, `/project` — dispatched via `commands::handle(cmd, &CommandContext)` where `CommandContext` groups store, channel, sender, text, uptime, provider name, skills, and projects into a single struct.
 
 CLI commands: `start`, `status`, `ask`, `init`, `service install|uninstall|status`
 
