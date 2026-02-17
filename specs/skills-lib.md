@@ -17,6 +17,7 @@ Loads skill definitions from markdown files with TOML frontmatter. Each skill fi
 | Item | Kind | Description |
 |------|------|-------------|
 | `Skill` | struct | Loaded skill definition (name, description, requires, homepage, available, path) |
+| `install_bundled_skills(data_dir)` | fn | Deploy bundled core skills to `{data_dir}/skills/`, creating dir if needed. Never overwrites existing files. |
 | `load_skills(data_dir)` | fn | Scan `{data_dir}/skills/*.md`, parse frontmatter, check deps, return `Vec<Skill>` |
 | `build_skill_prompt(skills)` | fn | Build the system prompt block listing all skills with install status |
 
@@ -35,12 +36,21 @@ homepage = "https://gogcli.sh"
 (Body text — full instructions the AI reads on demand)
 ```
 
+## Bundled Skills
+
+Core skills are embedded at compile time from `skills/` in the repo root via `include_str!`. On startup, `install_bundled_skills()` writes them to `{data_dir}/skills/` only if absent, preserving user edits.
+
+| File | Skill |
+|------|-------|
+| `skills/google-workspace.md` | Google Workspace CLI (`gog`) |
+
 ## Internal Functions
 
 | Function | Description |
 |----------|-------------|
 | `parse_skill_file(content)` | Extract and deserialize TOML frontmatter from `---` delimiters |
 | `which_exists(tool)` | Check if a CLI tool exists on `$PATH` via `which` |
+| `expand_tilde(path)` | Expand `~` to `$HOME` in data_dir paths |
 
 ## Dependencies
 
@@ -59,3 +69,4 @@ homepage = "https://gogcli.sh"
 - Prompt format with installed/not-installed status
 - `which` detection for known and unknown tools
 - Missing skills directory returns empty vec
+- Bundled skills deploy to new dir, never overwrite existing files

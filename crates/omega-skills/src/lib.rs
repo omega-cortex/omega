@@ -6,7 +6,34 @@
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use tracing::warn;
+use tracing::{info, warn};
+
+/// Bundled core skills — embedded at compile time from `skills/` in the repo root.
+const BUNDLED_SKILLS: &[(&str, &str)] = &[(
+    "google-workspace.md",
+    include_str!("../../../skills/google-workspace.md"),
+)];
+
+/// Deploy bundled skills to `{data_dir}/skills/`, creating the directory if needed.
+///
+/// Never overwrites existing files so user edits are preserved.
+pub fn install_bundled_skills(data_dir: &str) {
+    let dir = Path::new(&expand_tilde(data_dir)).join("skills");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        warn!("skills: failed to create {}: {e}", dir.display());
+        return;
+    }
+    for (filename, content) in BUNDLED_SKILLS {
+        let dest = dir.join(filename);
+        if !dest.exists() {
+            if let Err(e) = std::fs::write(&dest, content) {
+                warn!("skills: failed to write {}: {e}", dest.display());
+            } else {
+                info!("skills: installed bundled skill {filename}");
+            }
+        }
+    }
+}
 
 /// A loaded skill definition.
 #[derive(Debug, Clone)]
@@ -38,7 +65,7 @@ struct SkillFrontmatter {
 
 /// Scan `{data_dir}/skills/*.md` and return all valid skill definitions.
 pub fn load_skills(data_dir: &str) -> Vec<Skill> {
-    let dir = Path::new(data_dir).join("skills");
+    let dir = Path::new(&expand_tilde(data_dir)).join("skills");
     let entries = match std::fs::read_dir(&dir) {
         Ok(e) => e,
         Err(_) => return Vec::new(),
@@ -107,6 +134,16 @@ pub fn build_skill_prompt(skills: &[Skill]) -> String {
     }
 
     out
+}
+
+/// Expand `~` to the user's home directory.
+fn expand_tilde(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return format!("{}/{rest}", home.to_string_lossy());
+        }
+    }
+    path.to_string()
 }
 
 /// Extract TOML frontmatter delimited by `---` lines.
@@ -215,5 +252,22 @@ description = \"No deps.\"
     fn test_load_skills_missing_dir() {
         let skills = load_skills("/tmp/__omega_test_no_such_dir__");
         assert!(skills.is_empty());
+    }
+
+    #[test]
+    fn test_install_bundled_skills_creates_files() {
+        let tmp = std::env::temp_dir().join("__omega_test_bundled__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        install_bundled_skills(tmp.to_str().unwrap());
+        let dest = tmp.join("skills/google-workspace.md");
+        assert!(dest.exists(), "bundled skill should be deployed");
+        let content = std::fs::read_to_string(&dest).unwrap();
+        assert!(content.contains("google-workspace"));
+        // Run again — should not overwrite.
+        std::fs::write(&dest, "custom").unwrap();
+        install_bundled_skills(tmp.to_str().unwrap());
+        let after = std::fs::read_to_string(&dest).unwrap();
+        assert_eq!(after, "custom", "should not overwrite user edits");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

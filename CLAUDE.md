@@ -57,7 +57,7 @@ Cargo workspace with 6 crates:
 | `omega-providers` | AI backends (Claude Code CLI, Anthropic, OpenAI, Ollama, OpenRouter) |
 | `omega-channels` | Messaging platforms (Telegram, WhatsApp) |
 | `omega-memory` | SQLite storage, conversation history, audit log, scheduled tasks |
-| `omega-skills` | Skill/plugin system (planned) |
+| `omega-skills` | Skill loader — scans `~/.omega/skills/*.md`, bundles core skills from `skills/` |
 | `omega-sandbox` | Secure command execution (planned) |
 
 Gateway event loop (`src/gateway.rs`):

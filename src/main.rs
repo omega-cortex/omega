@@ -71,7 +71,8 @@ async fn main() -> anyhow::Result<()> {
             let cfg = config::load(&cli.config)?;
             let mut prompts = Prompts::load(&cfg.omega.data_dir);
 
-            // Load skills from ~/.omega/skills/*.md.
+            // Deploy bundled skills, then load all from ~/.omega/skills/*.md.
+            omega_skills::install_bundled_skills(&cfg.omega.data_dir);
             let skills = omega_skills::load_skills(&cfg.omega.data_dir);
             let skill_block = omega_skills::build_skill_prompt(&skills);
             if !skill_block.is_empty() {
