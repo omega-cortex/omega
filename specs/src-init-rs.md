@@ -395,7 +395,7 @@ Public pure function that builds the `config.toml` content string. Extracted fro
 
 ```toml
 [omega]
-name = "Omega"
+name = "Ω OMEGA"
 data_dir = "~/.omega"
 log_level = "info"
 

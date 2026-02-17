@@ -40,7 +40,7 @@ The config file is gitignored because it may contain secrets (API keys, bot toke
 
 ```toml
 [omega]
-name = "Omega"
+name = "Ω OMEGA"
 data_dir = "~/.omega"
 log_level = "info"
 

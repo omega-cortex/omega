@@ -428,7 +428,7 @@ The wizard creates `config.toml`, the main configuration file that Omega reads o
 **The Generated Config (Full Example)**
 ```toml
 [omega]
-name = "Omega"
+name = "Ω OMEGA"
 data_dir = "~/.omega"
 log_level = "info"
 

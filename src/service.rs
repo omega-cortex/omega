@@ -72,7 +72,7 @@ pub fn generate_systemd_unit(
 ) -> String {
     format!(
         r#"[Unit]
-Description=Omega AI Agent
+Description=Ω OMEGA AI Agent
 After=network-online.target
 Wants=network-online.target
 
@@ -190,7 +190,7 @@ pub fn install(config_path: &str) -> anyhow::Result<()> {
         spinner.error("Activation returned an error — check logs");
     }
 
-    cliclack::outro("Omega will now start automatically on login")?;
+    cliclack::outro("Ω OMEGA will now start automatically on login")?;
     Ok(())
 }
 
@@ -373,7 +373,7 @@ mod tests {
         assert!(unit.contains("[Service]"));
         assert!(unit.contains("[Install]"));
         assert!(unit.contains("WantedBy=default.target"));
-        assert!(unit.contains("Description=Omega AI Agent"));
+        assert!(unit.contains("Description=Ω OMEGA AI Agent"));
     }
 
     #[test]

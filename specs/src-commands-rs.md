@@ -131,7 +131,7 @@ pub async fn handle(
 
 **Response Format:**
 ```
-Omega Status
+*Ω OMEGA* Status
 Uptime: 1h 23m 45s
 Provider: Claude Code CLI
 Database: 2.3 MB
@@ -406,7 +406,7 @@ Project 'xyz' not found. Use /projects to see available projects.
 
 **Response Format:**
 ```
-Omega Commands
+*Ω OMEGA* Commands
 
 /status   — Uptime, provider, database info
 /memory   — Your conversation and facts stats

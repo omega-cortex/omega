@@ -1166,8 +1166,8 @@ mod tests {
             let msg = prompts.welcome.get(*lang);
             assert!(msg.is_some(), "welcome for {lang} should exist");
             assert!(
-                msg.unwrap().contains("Omega"),
-                "welcome for {lang} should mention Omega"
+                msg.unwrap().contains("*Ω OMEGA*"),
+                "welcome for {lang} should mention *Ω OMEGA*"
             );
         }
     }
@@ -1177,7 +1177,7 @@ mod tests {
         let prompts = Prompts::default();
         let default = prompts.welcome.get("English").cloned().unwrap_or_default();
         let msg = prompts.welcome.get("Klingon").unwrap_or(&default);
-        assert!(msg.contains("Omega"));
+        assert!(msg.contains("*Ω OMEGA*"));
         assert!(msg.contains("Rust"));
     }
 
