@@ -216,7 +216,8 @@ async fn handle_language(store: &Store, sender_id: &str, text: &str) -> String {
 
 fn handle_skills(skills: &[omega_skills::Skill]) -> String {
     if skills.is_empty() {
-        return "No skills installed. Drop .md files into ~/.omega/skills/".to_string();
+        return "No skills installed. Create a directory in ~/.omega/skills/ with a SKILL.md file."
+            .to_string();
     }
     let mut out = String::from("Installed Skills\n");
     for s in skills {

@@ -1,6 +1,6 @@
 //! # omega-skills
 //!
-//! Generic skill loader for Omega. Scans `~/.omega/skills/*.md` for skill
+//! Generic skill loader for Omega. Scans `~/.omega/skills/*/SKILL.md` for skill
 //! definitions and exposes them to the system prompt so the AI knows what
 //! tools are available.
 
@@ -9,12 +9,15 @@ use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 /// Bundled core skills — embedded at compile time from `skills/` in the repo root.
+///
+/// Each entry is `(directory_name, content)`. Deployed to `{data_dir}/skills/{name}/SKILL.md`.
 const BUNDLED_SKILLS: &[(&str, &str)] = &[(
-    "google-workspace.md",
-    include_str!("../../../skills/google-workspace.md"),
+    "google-workspace",
+    include_str!("../../../skills/google-workspace/SKILL.md"),
 )];
 
-/// Deploy bundled skills to `{data_dir}/skills/`, creating the directory if needed.
+/// Deploy bundled skills to `{data_dir}/skills/{name}/SKILL.md`, creating
+/// subdirectories as needed.
 ///
 /// Never overwrites existing files so user edits are preserved.
 pub fn install_bundled_skills(data_dir: &str) {
@@ -23,14 +26,74 @@ pub fn install_bundled_skills(data_dir: &str) {
         warn!("skills: failed to create {}: {e}", dir.display());
         return;
     }
-    for (filename, content) in BUNDLED_SKILLS {
-        let dest = dir.join(filename);
+    for (name, content) in BUNDLED_SKILLS {
+        let skill_dir = dir.join(name);
+        if let Err(e) = std::fs::create_dir_all(&skill_dir) {
+            warn!("skills: failed to create {}: {e}", skill_dir.display());
+            continue;
+        }
+        let dest = skill_dir.join("SKILL.md");
         if !dest.exists() {
             if let Err(e) = std::fs::write(&dest, content) {
                 warn!("skills: failed to write {}: {e}", dest.display());
             } else {
-                info!("skills: installed bundled skill {filename}");
+                info!("skills: installed bundled skill {name}");
             }
+        }
+    }
+}
+
+/// Migrate legacy flat skill files (`{data_dir}/skills/*.md`) to the
+/// directory-per-skill layout (`{data_dir}/skills/{name}/SKILL.md`).
+///
+/// For each `foo.md` found directly in the skills directory, creates a `foo/`
+/// subdirectory and moves the file into it as `SKILL.md`. Existing directories
+/// are never overwritten.
+pub fn migrate_flat_skills(data_dir: &str) {
+    let dir = Path::new(&expand_tilde(data_dir)).join("skills");
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let mut to_migrate: Vec<(PathBuf, String)> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("md") {
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            if !stem.is_empty() {
+                to_migrate.push((path, stem));
+            }
+        }
+    }
+
+    for (file_path, stem) in to_migrate {
+        let target_dir = dir.join(&stem);
+        if target_dir.exists() {
+            // Directory already exists — skip to avoid overwriting.
+            continue;
+        }
+        if let Err(e) = std::fs::create_dir_all(&target_dir) {
+            warn!("skills: failed to create {}: {e}", target_dir.display());
+            continue;
+        }
+        let dest = target_dir.join("SKILL.md");
+        if let Err(e) = std::fs::rename(&file_path, &dest) {
+            warn!(
+                "skills: failed to migrate {} → {}: {e}",
+                file_path.display(),
+                dest.display()
+            );
+        } else {
+            info!(
+                "skills: migrated {} → {}",
+                file_path.display(),
+                dest.display()
+            );
         }
     }
 }
@@ -48,11 +111,11 @@ pub struct Skill {
     pub homepage: String,
     /// Whether all required CLIs are available on `$PATH`.
     pub available: bool,
-    /// Absolute path to the skill file.
+    /// Absolute path to the `SKILL.md` file.
     pub path: PathBuf,
 }
 
-/// TOML frontmatter parsed from a skill `.md` file.
+/// TOML frontmatter parsed from a `SKILL.md` file.
 #[derive(Debug, Deserialize)]
 struct SkillFrontmatter {
     name: String,
@@ -63,7 +126,7 @@ struct SkillFrontmatter {
     homepage: String,
 }
 
-/// Scan `{data_dir}/skills/*.md` and return all valid skill definitions.
+/// Scan `{data_dir}/skills/*/SKILL.md` and return all valid skill definitions.
 pub fn load_skills(data_dir: &str) -> Vec<Skill> {
     let dir = Path::new(&expand_tilde(data_dir)).join("skills");
     let entries = match std::fs::read_dir(&dir) {
@@ -74,18 +137,16 @@ pub fn load_skills(data_dir: &str) -> Vec<Skill> {
     let mut skills = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+        if !path.is_dir() {
             continue;
         }
-        let content = match std::fs::read_to_string(&path) {
+        let skill_file = path.join("SKILL.md");
+        let content = match std::fs::read_to_string(&skill_file) {
             Ok(c) => c,
-            Err(e) => {
-                warn!("skills: failed to read {}: {e}", path.display());
-                continue;
-            }
+            Err(_) => continue,
         };
         let Some(fm) = parse_skill_file(&content) else {
-            warn!("skills: no valid frontmatter in {}", path.display());
+            warn!("skills: no valid frontmatter in {}", skill_file.display());
             continue;
         };
         let available = fm.requires.iter().all(|t| which_exists(t));
@@ -95,7 +156,7 @@ pub fn load_skills(data_dir: &str) -> Vec<Skill> {
             requires: fm.requires,
             homepage: fm.homepage,
             available,
-            path,
+            path: skill_file,
         });
     }
 
@@ -293,7 +354,7 @@ description = \"No deps.\"
                 requires: vec!["gog".into()],
                 homepage: "https://gogcli.sh".into(),
                 available: true,
-                path: PathBuf::from("/home/user/.omega/skills/gog.md"),
+                path: PathBuf::from("/home/user/.omega/skills/gog/SKILL.md"),
             },
             Skill {
                 name: "missing".into(),
@@ -301,13 +362,13 @@ description = \"No deps.\"
                 requires: vec!["nope".into()],
                 homepage: String::new(),
                 available: false,
-                path: PathBuf::from("/home/user/.omega/skills/missing.md"),
+                path: PathBuf::from("/home/user/.omega/skills/missing/SKILL.md"),
             },
         ];
         let prompt = build_skill_prompt(&skills);
         assert!(prompt.contains("gog [installed]"));
         assert!(prompt.contains("missing [not installed]"));
-        assert!(prompt.contains("Read /home/user/.omega/skills/gog.md"));
+        assert!(prompt.contains("Read /home/user/.omega/skills/gog/SKILL.md"));
     }
 
     #[test]
@@ -325,6 +386,64 @@ description = \"No deps.\"
     fn test_load_skills_missing_dir() {
         let skills = load_skills("/tmp/__omega_test_no_such_dir__");
         assert!(skills.is_empty());
+    }
+
+    #[test]
+    fn test_load_skills_valid() {
+        let tmp = std::env::temp_dir().join("__omega_test_skills_valid__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let skill_dir = tmp.join("skills/my-skill");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname = \"my-skill\"\ndescription = \"A test skill.\"\n---\n\nBody.",
+        )
+        .unwrap();
+
+        let skills = load_skills(tmp.to_str().unwrap());
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].name, "my-skill");
+        assert_eq!(skills[0].description, "A test skill.");
+        assert!(skills[0].path.ends_with("my-skill/SKILL.md"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_migrate_flat_skills() {
+        let tmp = std::env::temp_dir().join("__omega_test_migrate__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let skills_dir = tmp.join("skills");
+        std::fs::create_dir_all(&skills_dir).unwrap();
+
+        // Create a flat skill file.
+        std::fs::write(
+            skills_dir.join("my-tool.md"),
+            "---\nname = \"my-tool\"\ndescription = \"Test.\"\n---\n",
+        )
+        .unwrap();
+
+        // Create a directory that already exists (should not be touched).
+        let existing_dir = skills_dir.join("existing");
+        std::fs::create_dir_all(&existing_dir).unwrap();
+        std::fs::write(existing_dir.join("SKILL.md"), "original").unwrap();
+        // Also create a flat file with the same stem — should be skipped.
+        std::fs::write(skills_dir.join("existing.md"), "flat version").unwrap();
+
+        migrate_flat_skills(tmp.to_str().unwrap());
+
+        // my-tool.md should have been moved to my-tool/SKILL.md.
+        assert!(!skills_dir.join("my-tool.md").exists());
+        assert!(skills_dir.join("my-tool/SKILL.md").exists());
+        let content = std::fs::read_to_string(skills_dir.join("my-tool/SKILL.md")).unwrap();
+        assert!(content.contains("my-tool"));
+
+        // existing/ should be untouched.
+        let existing_content = std::fs::read_to_string(existing_dir.join("SKILL.md")).unwrap();
+        assert_eq!(existing_content, "original");
+        // The flat existing.md should still be there (skipped because dir exists).
+        assert!(skills_dir.join("existing.md").exists());
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -400,7 +519,7 @@ description = \"No deps.\"
         let tmp = std::env::temp_dir().join("__omega_test_bundled__");
         let _ = std::fs::remove_dir_all(&tmp);
         install_bundled_skills(tmp.to_str().unwrap());
-        let dest = tmp.join("skills/google-workspace.md");
+        let dest = tmp.join("skills/google-workspace/SKILL.md");
         assert!(dest.exists(), "bundled skill should be deployed");
         let content = std::fs::read_to_string(&dest).unwrap();
         assert!(content.contains("google-workspace"));

@@ -96,8 +96,9 @@ async fn main() -> anyhow::Result<()> {
             config::install_bundled_prompts(&cfg.omega.data_dir);
             let mut prompts = Prompts::load(&cfg.omega.data_dir);
 
-            // Deploy bundled skills, then load all from ~/.omega/skills/*.md.
+            // Deploy bundled skills, migrate legacy flat files, then load from ~/.omega/skills/*/SKILL.md.
             omega_skills::install_bundled_skills(&cfg.omega.data_dir);
+            omega_skills::migrate_flat_skills(&cfg.omega.data_dir);
             let skills = omega_skills::load_skills(&cfg.omega.data_dir);
             let skill_block = omega_skills::build_skill_prompt(&skills);
             if !skill_block.is_empty() {

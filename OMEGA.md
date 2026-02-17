@@ -241,8 +241,8 @@ The key function is `build_context()` in `store.rs` — it assembles everything 
 Skills are markdown files with TOML frontmatter that teach Omega new capabilities:
 
 ```
-~/.omega/skills/google-workspace.md
-~/.omega/skills/custom-tool.md
+~/.omega/skills/google-workspace/SKILL.md
+~/.omega/skills/custom-tool/SKILL.md
 ```
 
 Projects are directories with instruction files that give Omega context about what you're working on:
@@ -418,7 +418,8 @@ Omega is also a CLI tool. Entry point: `main.rs`.
 ├── WELCOME.toml           ← Welcome messages per language (editable)
 ├── HEARTBEAT.md           ← Monitoring checklist (editable, also managed via chat)
 ├── skills/
-│   └── google-workspace.md  ← Bundled skill (auto-deployed)
+│   └── google-workspace/
+│       └── SKILL.md           ← Bundled skill (auto-deployed)
 └── projects/
     └── my-app/
         └── INSTRUCTIONS.md  ← Project context (user-created)
@@ -445,7 +446,8 @@ omega/                     ← Repository root
 │   ├── SYSTEM_PROMPT.md   ← Bundled AI personality (source of truth)
 │   └── WELCOME.toml       ← Bundled welcome messages
 ├── skills/
-│   └── google-workspace.md ← Bundled skill definition
+│   └── google-workspace/
+│       └── SKILL.md        ← Bundled skill definition
 └── config.example.toml    ← Config template
 ```
 
