@@ -2,6 +2,7 @@ mod commands;
 mod gateway;
 mod init;
 mod selfcheck;
+mod service;
 
 use clap::{Parser, Subcommand};
 use omega_channels::telegram::TelegramChannel;
@@ -45,16 +46,37 @@ enum Commands {
     },
     /// Interactive setup wizard.
     Init,
+    /// Manage the system service (install, uninstall, status).
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ServiceAction {
+    /// Install Omega as a system service.
+    Install,
+    /// Remove the Omega system service.
+    Uninstall,
+    /// Check service installation and running status.
+    Status,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
+    // Only enable verbose logging for commands that run the agent.
+    // Init and Service are interactive CLI flows — no backend noise.
+    let log_level = match cli.command {
+        Commands::Init | Commands::Service { .. } => "error",
+        _ => "info",
+    };
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level)),
         )
         .init();
 
@@ -198,8 +220,13 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", response.text);
         }
         Commands::Init => {
-            init::run()?;
+            init::run().await?;
         }
+        Commands::Service { action } => match action {
+            ServiceAction::Install => service::install(&cli.config)?,
+            ServiceAction::Uninstall => service::uninstall()?,
+            ServiceAction::Status => service::status()?,
+        },
     }
 
     Ok(())

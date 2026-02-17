@@ -71,6 +71,8 @@ Background loops (spawned in `gateway::run()`):
 
 Bot commands: `/help`, `/forget`, `/tasks`, `/cancel <id>`, `/language`, `/skills`
 
+CLI commands: `start`, `status`, `ask`, `init`, `service install|uninstall|status`
+
 ## Build & Test
 
 ```bash
@@ -111,7 +113,8 @@ cargo build --release        # Optimized binary
 - Skills: `~/.omega/skills/*.md` (optional, TOML frontmatter + instructions, scanned at startup)
 - Heartbeat checklist: `~/.omega/HEARTBEAT.md` (optional, read by heartbeat loop)
 - Logs: `~/.omega/omega.log`
-- Service: `~/Library/LaunchAgents/com.omega-cortex.omega.plist`
+- Service (macOS): `~/Library/LaunchAgents/com.omega-cortex.omega.plist`
+- Service (Linux): `~/.config/systemd/user/omega.service`
 
 ## Provider Priority
 
@@ -133,4 +136,4 @@ Always consult these before modifying or extending the codebase:
 - **Phase 1** (complete): Workspace, core types, Claude Code provider, CLI (`omega ask`)
 - **Phase 2** (complete): Memory, Telegram channel, gateway, audit log, auth, sanitization, LaunchAgent
 - **Phase 3** (complete): Conversation boundaries, summaries, facts extraction, enriched context, typing indicator, bot commands, system prompt upgrade, self-check, graceful shutdown, exponential backoff, init wizard
-- **Phase 4** (in progress): Scheduler (task queue + heartbeat), alternative providers, skills system, sandbox, WhatsApp, cliclack CLI UX, Google Workspace init (via `gog` CLI)
+- **Phase 4** (in progress): Scheduler (task queue + heartbeat), alternative providers, skills system, sandbox, WhatsApp, cliclack CLI UX, Google Workspace init (via `gog` CLI), OS-aware service management (`omega service install|uninstall|status`)

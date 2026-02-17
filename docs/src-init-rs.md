@@ -394,6 +394,8 @@ Even if verification is ambiguous, the wizard still records the email in the con
 
 ### Step 8: Generate Configuration File (< 1 second)
 
+> **Note:** Step numbering continues from Step 7 (Google Workspace). Steps 8-10 are the final wizard phases.
+
 **What the User Sees (Success):**
 ```
 ◇  Generated config.toml
@@ -479,7 +481,35 @@ Current working directory (typically the project root). The user should run `ome
 
 ---
 
-### Step 9: Success Message and Next Steps (Instant)
+### Step 9: System Service Installation (Optional, < 10 seconds)
+
+**What the User Sees:**
+```
+◆  Install Omega as a system service?
+│  Yes / No
+```
+
+This is a `cliclack::confirm()` toggle defaulting to `Yes`. If the user accepts, the wizard calls `service::install()` to create and activate the service file (LaunchAgent on macOS, systemd on Linux).
+
+**On Success:**
+The service module's own cliclack output is displayed (binary path, config path, service file, activation status).
+
+**On Failure:**
+```
+▲  Service install failed: <error>
+◇  You can install later with: omega service install
+```
+
+The wizard continues regardless — service installation is never fatal.
+
+**If User Declines:**
+No service is installed. The "Next steps" summary will include a tip about `omega service install`.
+
+For full service management details, see the [service documentation](src-service-rs.md).
+
+---
+
+### Step 10: Success Message and Next Steps (Instant)
 
 **What the User Sees:**
 ```
@@ -491,11 +521,17 @@ Current working directory (typically the project root). The user should run `ome
 │  3. Send a message to your bot
 │  4. WhatsApp is linked and ready!
 │  ★ Google Workspace is connected!
+│  ★ System service installed — Omega starts on login!
 │
 └  Setup complete — enjoy Omega!
 ```
 
-Lines 4 and the Google line only appear if those integrations were set up during the wizard. The `└` marker from `cliclack::outro` signals the end of the wizard session.
+Lines 4, Google, and service lines only appear if those integrations were set up during the wizard. If the user declined the service, a tip line appears instead:
+```
+Tip: Run `omega service install` to auto-start on login
+```
+
+The `└` marker from `cliclack::outro` signals the end of the wizard session.
 
 **What Should the User Do?**
 
@@ -596,6 +632,13 @@ Here is a complete example of what a full wizard session looks like with all int
 │
 ◇  Generated config.toml
 │
+◆  Install Omega as a system service?
+│  Yes
+│
+┌  omega service install
+│  ...
+└  Omega will now start automatically on login
+│
 │  Next steps
 │
 │  1. Review config.toml
@@ -603,6 +646,7 @@ Here is a complete example of what a full wizard session looks like with all int
 │  3. Send a message to your bot
 │  4. WhatsApp is linked and ready!
 │  ★ Google Workspace is connected!
+│  ★ System service installed — Omega starts on login!
 │
 └  Setup complete — enjoy Omega!
 ```
@@ -632,7 +676,8 @@ User runs: omega init
 6. WhatsApp pairing via Yes/No toggle (or skipped)
 7. Google Workspace setup (if gog installed, or skipped)
 8. config.toml generated
-9. Next steps + success outro
+9. System service install offer (or skipped)
+10. Next steps + success outro
        |
 [WIZARD ENDS]
        |

@@ -114,14 +114,17 @@ Cargo workspace with 6 crates:
 | `omega-skills` | Skill/plugin system (planned) |
 | `omega-sandbox` | Secure command execution (planned) |
 
-## macOS Service
+## System Service
 
-Run as a persistent LaunchAgent:
+Install as a persistent service (auto-start on login, restart on crash):
 
 ```bash
-cp com.omega-cortex.omega.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.omega-cortex.omega.plist
+omega service install    # macOS LaunchAgent or Linux systemd
+omega service status     # Check if running
+omega service uninstall  # Remove
 ```
+
+The `omega init` wizard offers service installation as its final step.
 
 ## Development
 

@@ -265,20 +265,49 @@ impl Channel for WhatsAppChannel {
 
 // --- QR Code generation utilities ---
 
-/// Generate a QR code as a unicode string for terminal display.
+/// Generate a compact QR code for terminal display using Unicode half-block characters.
+///
+/// Packs two rows of modules into one line of text using `▀`, `▄`, `█`, and space.
+/// This produces a QR code roughly half the height of a naive renderer.
 pub fn generate_qr_terminal(qr_data: &str) -> Result<String, OmegaError> {
-    use qrcode::QrCode;
+    use qrcode::{Color, QrCode};
 
     let code = QrCode::new(qr_data.as_bytes())
         .map_err(|e| OmegaError::Channel(format!("QR generation failed: {e}")))?;
 
-    let string = code
-        .render::<char>()
-        .quiet_zone(false)
-        .module_dimensions(2, 1)
-        .build();
+    let width = code.width();
+    let colors: Vec<Color> = code.into_colors();
+    let is_dark = |row: usize, col: usize| -> bool {
+        if row < width && col < width {
+            colors[row * width + col] == Color::Dark
+        } else {
+            false
+        }
+    };
 
-    Ok(string)
+    let mut out = String::new();
+    // Process two rows at a time.
+    let mut row = 0;
+    while row < width {
+        for col in 0..width {
+            let top = is_dark(row, col);
+            let bottom = if row + 1 < width {
+                is_dark(row + 1, col)
+            } else {
+                false
+            };
+            out.push(match (top, bottom) {
+                (true, true) => '█',
+                (true, false) => '▀',
+                (false, true) => '▄',
+                (false, false) => ' ',
+            });
+        }
+        out.push('\n');
+        row += 2;
+    }
+
+    Ok(out)
 }
 
 /// Generate a QR code as PNG image bytes (for sending as a photo).

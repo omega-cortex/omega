@@ -17,6 +17,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [binary-commands.md](binary-commands.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, help)
 - [binary-init.md](binary-init.md) — Interactive setup wizard
 - [binary-selfcheck.md](binary-selfcheck.md) — Startup health checks
+- [binary-service.md](binary-service.md) — OS-aware service management (macOS LaunchAgent / Linux systemd)
 
 ### Milestone 3: omega-core
 - [core-lib.md](core-lib.md) — Core crate overview, module re-exports
@@ -61,6 +62,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 │                   omega (binary)                 │
 │  main.rs → gateway.rs → commands.rs             │
 │              init.rs    selfcheck.rs             │
+│              service.rs                          │
 ├─────────────────────────────────────────────────┤
 │  omega-core     │ omega-providers │ omega-channels│
 │  config.rs      │ claude_code.rs  │ telegram.rs   │

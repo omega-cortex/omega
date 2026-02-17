@@ -35,6 +35,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 
 ### Operations
 - [operations.md](operations.md) — LaunchAgent setup, logging, self-check, graceful shutdown
+- [service.md](service.md) — OS-aware service management (install, uninstall, status)
 
 ### Proactive Features
 - [scheduler.md](scheduler.md) — Task queue: reminders, recurring tasks, natural language scheduling

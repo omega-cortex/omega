@@ -21,6 +21,7 @@ The main entry point for the Omega binary. Orchestrates CLI argument parsing, ro
 - `crate::gateway` — Event loop gateway
 - `crate::init` — Interactive setup wizard
 - `crate::selfcheck` — Pre-startup health checks
+- `crate::service` — OS-aware service management
 - `omega_channels::telegram::TelegramChannel` — Telegram integration
 - `omega_core::config` — Configuration loading
 - `omega_core::context::Context` — Message context wrapper
@@ -50,7 +51,18 @@ The main entry point for the Omega binary. Orchestrates CLI argument parsing, ro
 - `Start` — Launch the Omega agent daemon (connects to channels, runs gateway loop)
 - `Status` — Health check: verify provider availability and channel configuration
 - `Ask { message: Vec<String> }` — One-shot query: send a message and exit (no persistent gateway)
-- `Init` — Interactive setup wizard for initial configuration
+- `Init` — Interactive setup wizard
+- `Service { action: ServiceAction }` — Manage the system service (install, uninstall, status)
+
+---
+
+### `ServiceAction`
+**Purpose:** Enumeration of service management subcommands.
+
+**Variants:**
+- `Install` — Install Omega as a system service
+- `Uninstall` — Remove the Omega system service
+- `Status` — Check service installation and running status for initial configuration
 
 ---
 
@@ -71,6 +83,7 @@ The main entry point for the Omega binary. Orchestrates CLI argument parsing, ro
    - **Status:** Load config → print provider and channel status information
    - **Ask:** Parse message → load config → build provider → create context → invoke provider → print response
    - **Init:** Run interactive setup wizard
+   - **Service:** Dispatch to `service::install`, `service::uninstall`, or `service::status` based on `ServiceAction` subcommand
 5. Return `Ok(())` on success or propagate errors
 
 **Error Handling:**
@@ -143,6 +156,19 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
 - No arguments
 - Launches interactive setup wizard
 - Guides user through config creation
+
+**`omega service install`**
+- No arguments
+- Installs Omega as a macOS LaunchAgent or Linux systemd user unit
+- Resolves binary and config paths automatically
+
+**`omega service uninstall`**
+- No arguments
+- Stops and removes the system service file
+
+**`omega service status`**
+- No arguments
+- Reports whether service is installed and running
 
 ---
 

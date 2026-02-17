@@ -1,5 +1,6 @@
 //! Init wizard — interactive setup for new users with cliclack styled prompts.
 
+use crate::service;
 use omega_channels::whatsapp;
 use omega_core::shellexpand;
 use std::path::Path;
@@ -14,7 +15,7 @@ const LOGO: &str = r#"
 "#;
 
 /// Run the interactive init wizard.
-pub fn run() -> anyhow::Result<()> {
+pub async fn run() -> anyhow::Result<()> {
     println!("{LOGO}");
     cliclack::intro("omega init")?;
 
@@ -72,7 +73,7 @@ pub fn run() -> anyhow::Result<()> {
     };
 
     // 5. WhatsApp setup.
-    let whatsapp_enabled = run_whatsapp_setup()?;
+    let whatsapp_enabled = run_whatsapp_setup().await?;
 
     // 6. Google Workspace setup.
     let google_email = run_google_setup()?;
@@ -94,7 +95,25 @@ pub fn run() -> anyhow::Result<()> {
         cliclack::log::success("Generated config.toml")?;
     }
 
-    // 8. Next steps.
+    // 8. Offer service installation.
+    let install_service: bool = cliclack::confirm("Install Omega as a system service?")
+        .initial_value(true)
+        .interact()?;
+
+    let service_installed = if install_service {
+        match service::install(config_path) {
+            Ok(()) => true,
+            Err(e) => {
+                cliclack::log::warning(format!("Service install failed: {e}"))?;
+                cliclack::log::info("You can install later with: omega service install")?;
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    // 9. Next steps.
     let mut steps =
         String::from("1. Review config.toml\n2. Run: omega start\n3. Send a message to your bot");
     if whatsapp_enabled {
@@ -102,6 +121,11 @@ pub fn run() -> anyhow::Result<()> {
     }
     if google_email.is_some() {
         steps.push_str("\n★ Google Workspace is connected!");
+    }
+    if service_installed {
+        steps.push_str("\n★ System service installed — Omega starts on login!");
+    } else if !install_service {
+        steps.push_str("\nTip: Run `omega service install` to auto-start on login");
     }
     cliclack::note("Next steps", &steps)?;
 
@@ -172,10 +196,22 @@ account = "{email}"
     config
 }
 
+/// Check if a WhatsApp session already exists.
+fn whatsapp_already_paired() -> bool {
+    let dir = shellexpand("~/.omega/whatsapp_session");
+    Path::new(&dir).join("whatsapp.db").exists()
+}
+
 /// Run WhatsApp pairing as part of the init wizard.
 ///
 /// Returns `true` if WhatsApp was successfully paired.
-fn run_whatsapp_setup() -> anyhow::Result<bool> {
+async fn run_whatsapp_setup() -> anyhow::Result<bool> {
+    // If already paired, skip the QR flow.
+    if whatsapp_already_paired() {
+        cliclack::log::success("WhatsApp — already paired")?;
+        return Ok(true);
+    }
+
     let connect: bool = cliclack::confirm("Connect WhatsApp?")
         .initial_value(false)
         .interact()?;
@@ -187,9 +223,7 @@ fn run_whatsapp_setup() -> anyhow::Result<bool> {
     cliclack::log::step("Starting WhatsApp pairing...")?;
     cliclack::log::info("Open WhatsApp on your phone > Linked Devices > Link a Device")?;
 
-    // Use a small tokio runtime for the pairing flow.
-    let rt = tokio::runtime::Runtime::new()?;
-    let result = rt.block_on(async {
+    let result = async {
         let (mut qr_rx, mut done_rx) = whatsapp::start_pairing("~/.omega").await?;
 
         // Wait for the first QR code.
@@ -219,7 +253,8 @@ fn run_whatsapp_setup() -> anyhow::Result<bool> {
         }
 
         Ok::<bool, anyhow::Error>(paired)
-    });
+    }
+    .await;
 
     match result {
         Ok(true) => Ok(true),

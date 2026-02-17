@@ -215,7 +215,23 @@ See [Google Workspace Setup Flow](#google-workspace-setup-flow-run_google_setup)
 
 ---
 
-### Phase 9: Summary and Next Steps
+### Phase 9: Service Installation Offer
+**Action:** Prompt user to install Omega as a system service
+
+**Logic Flow:**
+1. Prompt with `cliclack::confirm("Install Omega as a system service?")` (initial value: `true`)
+2. If user accepts: Call `service::install(config_path)`
+   - On success: Record `service_installed = true`
+   - On failure: Log warning via `cliclack::log::warning`, suggest `omega service install` later, continue wizard
+3. If user declines: Skip (service can be installed later)
+
+**Purpose:** Offers convenient auto-start setup as part of the init flow. Non-fatal — failures don't block the wizard.
+
+**Related:** See `src/service.rs` for full service install specification.
+
+---
+
+### Phase 10: Summary and Next Steps
 **Action:** Display next steps via `cliclack::note` and close session with `cliclack::outro`
 
 **Logic Flow:**
@@ -227,13 +243,15 @@ See [Google Workspace Setup Flow](#google-workspace-setup-flow-run_google_setup)
    ```
 2. If `whatsapp_enabled` is `true`, append: `4. WhatsApp is linked and ready!`
 3. If `google_email` is `Some(...)`, append: `★ Google Workspace is connected!`
-4. Display via `cliclack::note("Next steps", &steps)?`
-5. Close session with `cliclack::outro("Setup complete — enjoy Omega!")?`
+4. If `service_installed` is `true`, append: `★ System service installed — Omega starts on login!`
+5. If service was declined, append: `Tip: Run 'omega service install' to auto-start on login`
+6. Display via `cliclack::note("Next steps", &steps)?`
+7. Close session with `cliclack::outro("Setup complete — enjoy Omega!")?`
 
 **Purpose:**
 - Confirms successful wizard completion
 - Provides explicit next steps to reduce user confusion
-- Reflects which optional integrations were configured
+- Reflects which optional integrations and service were configured
 
 ---
 

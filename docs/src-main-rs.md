@@ -388,6 +388,29 @@ omega --config /etc/omega/config.toml status
 
 This is useful if you store config in a different location or want multiple configurations.
 
+### 5. omega service
+**Purpose:** Manage the system service (install, uninstall, status)
+
+```bash
+omega service install     # Install as LaunchAgent (macOS) or systemd unit (Linux)
+omega service uninstall   # Remove the system service
+omega service status      # Check if installed and running
+```
+
+With custom config:
+```bash
+omega --config /path/to/config.toml service install
+```
+
+**What happens:**
+- **install**: Resolves binary and config paths, generates the appropriate service file for your OS, writes and activates it
+- **uninstall**: Stops the service, removes the service file
+- **status**: Reports whether the service is installed and running
+
+**When to use:** After initial setup (`omega init`) to make Omega start automatically on login and restart on crash.
+
+For full details, see the [service documentation](src-service-rs.md).
+
 ## Summary
 
 | Command | Purpose | Use Case |
@@ -396,7 +419,10 @@ This is useful if you store config in a different location or want multiple conf
 | `omega status` | Health check | Verify setup before starting |
 | `omega ask` | One-shot query | Quick question, scripting |
 | `omega init` | Setup wizard | First-time configuration |
+| `omega service install` | Install system service | Auto-start on login |
+| `omega service uninstall` | Remove system service | Clean removal |
+| `omega service status` | Check service state | Verify service is running |
 
 **Key Flow:** Parse args → Check root → Load config → Build provider → Initialize channels → Start event loop.
 
-**Remember:** Omega is meant to run in the background listening to your messaging platforms. The "start" command doesn't exit—it blocks indefinitely. Use LaunchAgent or systemd to auto-restart if needed.
+**Remember:** Omega is meant to run in the background listening to your messaging platforms. The "start" command doesn't exit—it blocks indefinitely. Use `omega service install` to set up auto-restart via LaunchAgent or systemd.
