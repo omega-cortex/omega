@@ -65,7 +65,7 @@ Gateway event loop (`src/gateway.rs`):
 Message → Auth → Sanitize → Welcome (non-blocking) → Platform Hint → Group Rules → Heartbeat awareness → Sandbox constraint → Identity+Soul+System compose → Memory (context) → MCP trigger match → Heads-up → Provider (MCP settings write → async CLI + status updates → MCP cleanup) → SILENT suppress → Schedule extract → Lang switch → Heartbeat add/remove → Memory (store) → Audit → Send
 ```
 
-System prompt composition: The `Prompts` struct splits prompts into three fields — `identity` (who the agent is), `soul` (personality/values), `system` (behavioral rules) — parsed from `## Identity`, `## Soul`, `## System` sections in `SYSTEM_PROMPT.md`. Gateway composes them: `format!("{}\n\n{}\n\n{}", identity, soul, system)`. Backward compatible: missing sections keep compiled defaults.
+System prompt composition: The `Prompts` struct splits prompts into three fields — `identity` (autonomous executor with concrete behavioral examples), `soul` (personality, context-aware tone, explicit boundaries, emoji policy), `system` (operational rules + group chat participation) — parsed from `## Identity`, `## Soul`, `## System` sections in `SYSTEM_PROMPT.md`. Gateway composes them: `format!("{}\n\n{}\n\n{}", identity, soul, system)`. Backward compatible: missing sections keep compiled defaults.
 
 User profile: `format_user_profile()` in `omega-memory` replaces the flat "Known facts" dump with a structured "User profile:" block that filters system keys (`welcomed`, `preferred_language`, `active_project`) and groups identity keys first, context keys second, rest last.
 

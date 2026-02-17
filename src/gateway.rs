@@ -1466,7 +1466,7 @@ mod tests {
             "bundled system prompt should contain System section"
         );
         assert!(
-            content.contains("genuinely helpful"),
+            content.contains("quietly confident"),
             "bundled system prompt should contain personality principles"
         );
     }
