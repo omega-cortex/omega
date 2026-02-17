@@ -907,14 +907,16 @@ fn build_system_prompt(
         })
         .count();
     if real_facts == 0 {
-        prompt.push_str(
-            "\n\nThis is your first conversation with this person. Introduce yourself briefly — \
-             you are OMEGA, their personal AI agent, built in Rust, running on their own \
-             infrastructure, with Claude as your brain. Then focus on getting to know them — \
-             ask their name, what they do, what brings them here. Be warm and curious, like \
-             meeting someone you'll be working closely with. Don't answer their message \
-             mechanically — connect first.",
-        );
+        prompt.push_str(&format!(
+            "\n\nThis is your first conversation with this person. Respond with a warm \
+             introduction in {language}. Always bold your name as *OMEGA Ω*. Follow this \
+             structure closely:\n\
+             1. A greeting with 👋\n\
+             2. Say you're glad they're here. Introduce yourself as *OMEGA Ω*, their personal agent.\n\
+             3. Say that before jumping into action, you'd like to get to know them.\n\
+             4. Ask their name and what they do, so you can be more useful from the start.\n\
+             Keep it short, warm, and natural. Do NOT answer their message yet — connect first.",
+        ));
     } else if real_facts < 3 {
         prompt.push_str(
             "\n\nYou're still getting to know this person. Naturally weave in a question \
@@ -1382,7 +1384,7 @@ mod tests {
         ];
         let prompt = build_system_prompt("Rules", &facts, &[], &[], &[], "Spanish");
         assert!(
-            prompt.contains("first conversation"),
+            prompt.contains("warm introduction"),
             "should include first-conversation hint with 0 real facts"
         );
         assert!(
