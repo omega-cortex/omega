@@ -47,6 +47,18 @@ pub enum SandboxMode {
 | `Rx` | Full | Yes | No | Yes | AI can read and execute anywhere on the host, but writes are restricted to the workspace. Good for system inspection. |
 | `Rwx` | Full | Yes | Yes | Yes | Full host access. For power users who trust the AI provider completely. |
 
+### Dependency Installation
+
+All three modes have **full network access** and can install library dependencies for script creation. The difference is where packages are written:
+
+| Mode | How dependencies are installed |
+|------|-------------------------------|
+| `Sandbox` | Locally inside workspace — `npm install`, `pip install --target .`, `cargo init`, etc. |
+| `Rx` | Same as sandbox — writes are restricted to workspace |
+| `Rwx` | Anywhere — global installs also work (`pip install`, `brew install`, etc.) |
+
+In `sandbox` and `rx` modes, the AI uses local install patterns (e.g. `npm install` creates `node_modules/` in the workspace, `pip install --target ./libs` installs Python packages locally). The workspace is a fully functional development area.
+
 ### Default
 
 The default mode is `Sandbox`, which provides maximum isolation. If the `[sandbox]` section is omitted from `config.toml`, or if the `mode` field is not specified, the sandbox defaults to this mode.

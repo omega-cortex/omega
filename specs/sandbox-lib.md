@@ -143,9 +143,13 @@ In `sandbox` and `rx` modes, the provider subprocess `current_dir` is set to `~/
 
 | Mode | Constraint Behavior |
 |------|-------------------|
-| `Sandbox` | Instructs the provider to confine all operations to the workspace directory |
-| `Rx` | Instructs the provider to only read files; no writes, deletes, or command execution |
+| `Sandbox` | Instructs the provider to confine all operations to the workspace directory. Full network access and local dependency installation allowed. |
+| `Rx` | Instructs the provider it may read/execute anywhere on host but writes only in workspace. Full network access and local dependency installation allowed. |
 | `Rwx` | No constraint injected (unrestricted) |
+
+### Dependency Installation
+
+All three modes support installing library dependencies for script creation. Network access (curl, wget, API calls) is unrestricted across all modes. In `sandbox` and `rx` modes, packages must be installed locally within the workspace (e.g. `npm install`, `pip install --target .`). In `rwx` mode, global installs are also permitted.
 
 ### Security Considerations
 
