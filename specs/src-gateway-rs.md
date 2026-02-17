@@ -325,10 +325,9 @@ pub struct Gateway {
 - This includes recent conversation history, relevant facts, and system prompt.
 - If error, abort typing task, send error message, and return.
 
-**Stage 6: Get Response from Provider (async with status updates)**
-- Send a heads-up message to the user before calling the provider.
+**Stage 6: Get Response from Provider (async with delayed status updates)**
 - Spawn `provider.complete(&context)` as a background task via `tokio::spawn`.
-- Spawn a status updater task that sends "Still working on your request..." every 120 seconds.
+- Spawn a delayed status updater task: sends a first nudge ("This is taking a moment...") after 15 seconds, then "Still working on your request..." every 120 seconds. If the provider responds within 15 seconds, the updater is aborted and the user sees no extra messages.
 - Wait for the provider result; abort the status updater when the result arrives.
 - Map provider errors to user-friendly messages via `friendly_provider_error()`:
   - On timeout -> "I took too long to respond. Please try again..."
@@ -611,7 +610,7 @@ pub struct Gateway {
 - **Heartbeat loop:** Conditionally runs in a dedicated `tokio::spawn()` task (when `heartbeat_config.enabled`).
 - **Typing repeater:** For each message, a separate `tokio::spawn()` task repeats typing every 5 seconds.
 - **Provider task:** For each message, `provider.complete()` is spawned via `tokio::spawn()` to run in the background.
-- **Status updater:** For each message, a status updater task is spawned that sends periodic "Still working..." messages every 120 seconds; aborted when the provider result arrives.
+- **Status updater:** For each message, a delayed status updater task is spawned that sends a first nudge after 15 seconds, then periodic "Still working..." messages every 120 seconds; aborted when the provider result arrives. If the provider responds within 15 seconds, no status message is sent.
 
 ### Synchronization
 - **MPSC Channel:** All incoming messages from channels are collected on a single 256-capacity mpsc queue.
