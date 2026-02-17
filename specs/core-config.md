@@ -383,6 +383,29 @@ Channel and provider sub-configs use `Option<T>` rather than `#[serde(default)]`
 
 ---
 
+## Bundled Prompt Deployment
+
+### Constants
+
+| Constant | Source | Description |
+|----------|--------|-------------|
+| `BUNDLED_SYSTEM_PROMPT` | `include_str!("../../../prompts/SYSTEM_PROMPT.md")` | Default system prompt with `## Section` headers |
+| `BUNDLED_WELCOME_TOML` | `include_str!("../../../prompts/WELCOME.toml")` | Default welcome messages (8 languages) in TOML format |
+
+### `install_bundled_prompts(data_dir: &str)`
+
+```rust
+pub fn install_bundled_prompts(data_dir: &str)
+```
+
+Deploys `SYSTEM_PROMPT.md` and `WELCOME.toml` from compile-time embedded templates to `data_dir`. Creates the directory if needed. **Never overwrites existing files** so user edits are preserved.
+
+Called from `main.rs` before `Prompts::load()` so first-run users get editable files instead of falling back to hardcoded defaults.
+
+Follows the same pattern as `omega_skills::install_bundled_skills()`.
+
+---
+
 ## Tests
 
 ### `test_timeout_config_default`
@@ -402,3 +425,9 @@ Verifies that a TOML config with an explicit `timeout_secs` value (e.g., `300`) 
 **Type:** Synchronous unit test (`#[test]`)
 
 Verifies that when `timeout_secs` is omitted from the TOML, the serde default function `default_timeout_secs()` supplies `600`.
+
+### `test_install_bundled_prompts_creates_files`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `install_bundled_prompts()` deploys `SYSTEM_PROMPT.md` and `WELCOME.toml` to a temporary directory, that the deployed files contain expected markers (`## System`, `[messages]`, `English`), and that a second invocation does not overwrite files that were modified by the user.

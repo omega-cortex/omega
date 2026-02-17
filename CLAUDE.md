@@ -108,9 +108,10 @@ cargo build --release        # Optimized binary
 
 - Config: `config.toml` (gitignored), `config.example.toml` (committed)
 - Database: `~/.omega/memory.db`
-- Prompts: `~/.omega/SYSTEM_PROMPT.md` (optional, `## Section` headers, read at startup)
-- Welcome messages: `~/.omega/WELCOME.toml` (optional, `[messages]` table keyed by language, read at startup)
-- Skills: `~/.omega/skills/*.md` (optional, TOML frontmatter + instructions, scanned at startup)
+- Prompt templates: `prompts/SYSTEM_PROMPT.md`, `prompts/WELCOME.toml` (bundled into binary via `include_str!`)
+- Prompts: `~/.omega/SYSTEM_PROMPT.md` (auto-deployed on first run, `## Section` headers, read at startup)
+- Welcome messages: `~/.omega/WELCOME.toml` (auto-deployed on first run, `[messages]` table keyed by language, read at startup)
+- Skills: `~/.omega/skills/*.md` (auto-deployed on first run, TOML frontmatter + instructions, scanned at startup)
 - Heartbeat checklist: `~/.omega/HEARTBEAT.md` (optional, read by heartbeat loop)
 - Logs: `~/.omega/omega.log`
 - Service (macOS): `~/Library/LaunchAgents/com.omega-cortex.omega.plist`

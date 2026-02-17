@@ -91,6 +91,9 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Start => {
             let cfg = config::load(&cli.config)?;
+
+            // Deploy bundled prompts (SYSTEM_PROMPT.md, WELCOME.toml) on first run.
+            config::install_bundled_prompts(&cfg.omega.data_dir);
             let mut prompts = Prompts::load(&cfg.omega.data_dir);
 
             // Deploy bundled skills, then load all from ~/.omega/skills/*.md.

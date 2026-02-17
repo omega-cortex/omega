@@ -79,7 +79,7 @@ The main entry point for the Omega binary. Orchestrates CLI argument parsing, ro
 3. **Root Guard:** Check if running as root via `unsafe { libc::geteuid() } == 0`
    - If root, bail with error message directing user to LaunchAgent setup
 4. Match on `cli.command`:
-   - **Start:** Load config → build provider → verify availability → build channels → initialize memory → run self-checks → start gateway
+   - **Start:** Load config → deploy bundled prompts → load prompts → deploy bundled skills → build provider → verify availability → build channels → initialize memory → run self-checks → start gateway
    - **Status:** Load config → print provider and channel status information
    - **Ask:** Parse message → load config → build provider → create context → invoke provider → print response
    - **Init:** Run interactive setup wizard
@@ -196,6 +196,12 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
    - Read TOML file from `cli.config` path
    - Parse environment variable overrides
    - Return error if file missing or invalid
+
+1b. **Deploy bundled prompts**
+   - Call `config::install_bundled_prompts(&cfg.omega.data_dir)`
+   - Writes `SYSTEM_PROMPT.md` and `WELCOME.toml` to `data_dir` on first run
+   - Never overwrites existing files (preserves user edits)
+   - Then `Prompts::load()` picks up the freshly deployed files
 
 2. **Build provider**
    - Call `build_provider(&cfg)` to instantiate

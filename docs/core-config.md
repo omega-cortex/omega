@@ -331,6 +331,17 @@ impl Default for MemoryConfig {
 - Use `Option<T>` for truly optional subsections (where "not present" is meaningfully different from "present with defaults").
 - Use `#[serde(default)]` for sections that should always exist with sensible defaults.
 
+## Bundled Prompts (Auto-Deployed)
+
+On first startup, Omega automatically deploys two template files to `data_dir` (default `~/.omega/`):
+
+- **`SYSTEM_PROMPT.md`** — The system prompt with `## Section` headers (System, Summarize, Facts, Heartbeat, Heartbeat Checklist). Edit this file to customize the AI's personality and behavior.
+- **`WELCOME.toml`** — Welcome messages in 8 languages (English, Spanish, Portuguese, French, German, Italian, Dutch, Russian). Edit this file to customize the greeting users receive.
+
+These files are embedded in the binary at compile time from the `prompts/` directory in the repository. On startup, `install_bundled_prompts()` writes them to `data_dir` only if they don't already exist — **user edits are never overwritten**.
+
+This follows the same pattern as bundled skills (`~/.omega/skills/*.md`).
+
 ## Security Notes
 
 - **Never commit `config.toml`** -- it is gitignored for a reason. It may contain API keys and bot tokens.

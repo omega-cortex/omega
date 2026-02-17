@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use tracing::{info, warn};
 
 use crate::error::OmegaError;
 
@@ -414,6 +415,38 @@ struct WelcomeFile {
     messages: HashMap<String, String>,
 }
 
+/// Bundled system prompt, embedded at compile time.
+const BUNDLED_SYSTEM_PROMPT: &str = include_str!("../../../prompts/SYSTEM_PROMPT.md");
+
+/// Bundled welcome messages, embedded at compile time.
+const BUNDLED_WELCOME_TOML: &str = include_str!("../../../prompts/WELCOME.toml");
+
+/// Deploy bundled prompt files to `data_dir`, creating the directory if needed.
+///
+/// Never overwrites existing files so user edits are preserved.
+pub fn install_bundled_prompts(data_dir: &str) {
+    let expanded = shellexpand(data_dir);
+    let dir = Path::new(&expanded);
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        warn!("prompts: failed to create {}: {e}", dir.display());
+        return;
+    }
+
+    for (filename, content) in [
+        ("SYSTEM_PROMPT.md", BUNDLED_SYSTEM_PROMPT),
+        ("WELCOME.toml", BUNDLED_WELCOME_TOML),
+    ] {
+        let dest = dir.join(filename);
+        if !dest.exists() {
+            if let Err(e) = std::fs::write(&dest, content) {
+                warn!("prompts: failed to write {}: {e}", dest.display());
+            } else {
+                info!("prompts: deployed bundled {filename}");
+            }
+        }
+    }
+}
+
 impl Prompts {
     /// Load prompts from `SYSTEM_PROMPT.md` and `WELCOME.toml` in `data_dir`.
     ///
@@ -560,5 +593,55 @@ mod tests {
         "#;
         let cc: ClaudeCodeConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(cc.timeout_secs, 600);
+    }
+
+    #[test]
+    fn test_install_bundled_prompts_creates_files() {
+        let tmp = std::env::temp_dir().join("__omega_test_bundled_prompts__");
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        install_bundled_prompts(tmp.to_str().unwrap());
+
+        let prompt_path = tmp.join("SYSTEM_PROMPT.md");
+        let welcome_path = tmp.join("WELCOME.toml");
+        assert!(prompt_path.exists(), "SYSTEM_PROMPT.md should be deployed");
+        assert!(welcome_path.exists(), "WELCOME.toml should be deployed");
+
+        let prompt_content = std::fs::read_to_string(&prompt_path).unwrap();
+        assert!(
+            prompt_content.contains("## System"),
+            "should contain System section"
+        );
+        assert!(
+            prompt_content.contains("## Summarize"),
+            "should contain Summarize section"
+        );
+
+        let welcome_content = std::fs::read_to_string(&welcome_path).unwrap();
+        assert!(
+            welcome_content.contains("[messages]"),
+            "should contain messages table"
+        );
+        assert!(
+            welcome_content.contains("English"),
+            "should contain English key"
+        );
+
+        // Run again with custom content — should not overwrite.
+        std::fs::write(&prompt_path, "custom prompt").unwrap();
+        std::fs::write(&welcome_path, "custom welcome").unwrap();
+        install_bundled_prompts(tmp.to_str().unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&prompt_path).unwrap(),
+            "custom prompt",
+            "should not overwrite user edits to SYSTEM_PROMPT.md"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&welcome_path).unwrap(),
+            "custom welcome",
+            "should not overwrite user edits to WELCOME.toml"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

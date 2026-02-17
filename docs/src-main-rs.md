@@ -185,6 +185,12 @@ This security check is crucial because the Claude CLI doesn't allow root executi
 ```
 Load config.toml
     ↓
+Deploy bundled prompts (SYSTEM_PROMPT.md, WELCOME.toml) if not present
+    ↓
+Load prompts from ~/.omega/
+    ↓
+Deploy bundled skills if not present
+    ↓
 Build Claude Code provider
     ↓
 Check if Claude CLI available
