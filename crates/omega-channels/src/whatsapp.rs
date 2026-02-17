@@ -112,6 +112,11 @@ impl Channel for WhatsAppChannel {
             .with_backend(backend)
             .with_transport_factory(TokioWebSocketTransportFactory::new())
             .with_http_client(UreqHttpClient::new())
+            .with_device_props(
+                Some("OMEGA".to_string()),
+                None,
+                Some(waproto::whatsapp::device_props::PlatformType::Desktop),
+            )
             .on_event(move |event, client| {
                 let tx = tx_events.clone();
                 let allowed = allowed_users.clone();
@@ -270,9 +275,9 @@ impl Channel for WhatsAppChannel {
 /// Packs two rows of modules into one line of text using `▀`, `▄`, `█`, and space.
 /// This produces a QR code roughly half the height of a naive renderer.
 pub fn generate_qr_terminal(qr_data: &str) -> Result<String, OmegaError> {
-    use qrcode::{Color, QrCode};
+    use qrcode::{Color, EcLevel, QrCode};
 
-    let code = QrCode::new(qr_data.as_bytes())
+    let code = QrCode::with_error_correction_level(qr_data.as_bytes(), EcLevel::L)
         .map_err(|e| OmegaError::Channel(format!("QR generation failed: {e}")))?;
 
     let width = code.width();
@@ -313,9 +318,9 @@ pub fn generate_qr_terminal(qr_data: &str) -> Result<String, OmegaError> {
 /// Generate a QR code as PNG image bytes (for sending as a photo).
 pub fn generate_qr_image(qr_data: &str) -> Result<Vec<u8>, OmegaError> {
     use image::{ImageBuffer, Luma};
-    use qrcode::QrCode;
+    use qrcode::{EcLevel, QrCode};
 
-    let code = QrCode::new(qr_data.as_bytes())
+    let code = QrCode::with_error_correction_level(qr_data.as_bytes(), EcLevel::L)
         .map_err(|e| OmegaError::Channel(format!("QR generation failed: {e}")))?;
 
     let module_size: u32 = 10;
@@ -372,6 +377,11 @@ pub async fn start_pairing(
         .with_backend(backend)
         .with_transport_factory(TokioWebSocketTransportFactory::new())
         .with_http_client(UreqHttpClient::new())
+        .with_device_props(
+            Some("OMEGA".to_string()),
+            None,
+            Some(waproto::whatsapp::device_props::PlatformType::Desktop),
+        )
         .on_event(move |event, _client| {
             let qr_tx = qr_tx.clone();
             let done_tx = done_tx.clone();
