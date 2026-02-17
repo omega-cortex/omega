@@ -8,6 +8,7 @@ description = "AI provider implementations for Omega"
 
 [dependencies]
 omega-core = { workspace = true }
+omega-sandbox = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -58,7 +58,7 @@ Cargo workspace with 6 crates:
 | `omega-channels` | Messaging platforms (Telegram, WhatsApp) |
 | `omega-memory` | SQLite storage, conversation history, audit log, scheduled tasks |
 | `omega-skills` | Skill loader + project loader — skills from `~/.omega/skills/*/SKILL.md`, projects from `~/.omega/projects/*/INSTRUCTIONS.md` |
-| `omega-sandbox` | 3-level workspace sandbox (sandbox/rx/rwx modes) |
+| `omega-sandbox` | OS-level filesystem enforcement — Seatbelt (macOS), Landlock (Linux) — restricts writes to workspace + /tmp + ~/.claude in sandbox/rx modes |
 
 Gateway event loop (`src/gateway.rs`):
 ```
@@ -103,7 +103,7 @@ cargo build --release        # Optimized binary
 - Prompt sanitization in `omega-core/src/sanitize.rs` neutralizes injection patterns before they reach the provider.
 - Auth is enforced per-channel via `allowed_users` in config.
 - `config.toml` is gitignored — never commit secrets.
-- **Sandbox**: 3-level workspace isolation (`~/.omega/workspace/`). Claude Code CLI always runs with `current_dir` set to the workspace. Modes: `sandbox` (default, workspace only), `rx` (read/execute host, write workspace), `rwx` (full access). System prompt enforces boundaries per mode.
+- **Sandbox**: 3-level workspace isolation (`~/.omega/workspace/`) with OS-level write enforcement. In `sandbox` and `rx` modes, writes are restricted to workspace + `/tmp` + `~/.claude` via Seatbelt (macOS) or Landlock (Linux). `rwx` mode is unrestricted. System prompt enforces read boundaries per mode. Graceful fallback to prompt-only enforcement on unsupported platforms.
 
 ## File Conventions
 
@@ -142,4 +142,4 @@ Always consult these before modifying or extending the codebase:
 - **Phase 1** (complete): Workspace, core types, Claude Code provider, CLI (`omega ask`)
 - **Phase 2** (complete): Memory, Telegram channel, gateway, audit log, auth, sanitization, LaunchAgent
 - **Phase 3** (complete): Conversation boundaries, summaries, facts extraction, enriched context, typing indicator, bot commands, system prompt upgrade, self-check, graceful shutdown, exponential backoff, init wizard
-- **Phase 4** (in progress): Scheduler (task queue + heartbeat), alternative providers, skills system, 3-level sandbox (sandbox/rx/rwx workspace isolation), WhatsApp, cliclack CLI UX, Google Workspace init (via `gog` CLI), OS-aware service management (`omega service install|uninstall|status`), group chat awareness (is_group + SILENT suppression), platform formatting hints, context-aware heartbeat, Soul personality in system prompt, guided fact-extraction schema
+- **Phase 4** (in progress): Scheduler (task queue + heartbeat), alternative providers, skills system, 3-level sandbox (sandbox/rx/rwx workspace isolation + OS-level write enforcement via Seatbelt/Landlock), WhatsApp, cliclack CLI UX, Google Workspace init (via `gog` CLI), OS-aware service management (`omega service install|uninstall|status`), group chat awareness (is_group + SILENT suppression), platform formatting hints, context-aware heartbeat, Soul personality in system prompt, guided fact-extraction schema

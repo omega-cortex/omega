@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use omega_core::{
+    config::SandboxMode,
     context::Context,
     error::OmegaError,
     message::{MessageMetadata, OutgoingMessage},
@@ -31,6 +32,8 @@ pub struct ClaudeCodeProvider {
     timeout: Duration,
     /// Working directory for the CLI subprocess (sandbox workspace).
     working_dir: Option<PathBuf>,
+    /// Sandbox mode for OS-level filesystem enforcement.
+    sandbox_mode: SandboxMode,
 }
 
 /// JSON response from `claude -p --output-format json`.
@@ -74,6 +77,7 @@ impl ClaudeCodeProvider {
             ],
             timeout: DEFAULT_TIMEOUT,
             working_dir: None,
+            sandbox_mode: SandboxMode::default(),
         }
     }
 
@@ -83,6 +87,7 @@ impl ClaudeCodeProvider {
         allowed_tools: Vec<String>,
         timeout_secs: u64,
         working_dir: Option<PathBuf>,
+        sandbox_mode: SandboxMode,
     ) -> Self {
         Self {
             session_id: None,
@@ -90,6 +95,7 @@ impl ClaudeCodeProvider {
             allowed_tools,
             timeout: Duration::from_secs(timeout_secs),
             working_dir,
+            sandbox_mode,
         }
     }
 
@@ -150,14 +156,16 @@ impl Provider for ClaudeCodeProvider {
 impl ClaudeCodeProvider {
     /// Run the claude CLI subprocess with a timeout.
     async fn run_cli(&self, prompt: &str) -> Result<std::process::Output, OmegaError> {
-        let mut cmd = Command::new("claude");
+        let mut cmd = match self.working_dir {
+            Some(ref dir) => {
+                let mut c = omega_sandbox::sandboxed_command("claude", self.sandbox_mode, dir);
+                c.current_dir(dir);
+                c
+            }
+            None => Command::new("claude"),
+        };
         // Remove CLAUDECODE env var so the CLI doesn't think it's nested.
         cmd.env_remove("CLAUDECODE");
-
-        // Set working directory for sandbox isolation.
-        if let Some(ref dir) = self.working_dir {
-            cmd.current_dir(dir);
-        }
 
         cmd.arg("-p")
             .arg(prompt)
@@ -274,11 +282,18 @@ mod tests {
         assert_eq!(provider.allowed_tools.len(), 4);
         assert_eq!(provider.timeout, Duration::from_secs(600));
         assert!(provider.working_dir.is_none());
+        assert_eq!(provider.sandbox_mode, SandboxMode::Sandbox);
     }
 
     #[test]
     fn test_from_config_with_timeout() {
-        let provider = ClaudeCodeProvider::from_config(5, vec!["Bash".into()], 300, None);
+        let provider = ClaudeCodeProvider::from_config(
+            5,
+            vec!["Bash".into()],
+            300,
+            None,
+            SandboxMode::default(),
+        );
         assert_eq!(provider.max_turns, 5);
         assert_eq!(provider.timeout, Duration::from_secs(300));
         assert!(provider.working_dir.is_none());
@@ -287,8 +302,26 @@ mod tests {
     #[test]
     fn test_from_config_with_working_dir() {
         let dir = PathBuf::from("/home/user/.omega/workspace");
-        let provider =
-            ClaudeCodeProvider::from_config(10, vec!["Bash".into()], 600, Some(dir.clone()));
+        let provider = ClaudeCodeProvider::from_config(
+            10,
+            vec!["Bash".into()],
+            600,
+            Some(dir.clone()),
+            SandboxMode::Sandbox,
+        );
         assert_eq!(provider.working_dir, Some(dir));
+    }
+
+    #[test]
+    fn test_from_config_with_sandbox_mode() {
+        let dir = PathBuf::from("/home/user/.omega/workspace");
+        let provider = ClaudeCodeProvider::from_config(
+            10,
+            vec!["Bash".into()],
+            600,
+            Some(dir),
+            SandboxMode::Rx,
+        );
+        assert_eq!(provider.sandbox_mode, SandboxMode::Rx);
     }
 }

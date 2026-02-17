@@ -6,64 +6,92 @@
 |-------|-------|
 | **Path** | `crates/omega-sandbox/src/lib.rs` |
 | **Crate** | `omega-sandbox` |
-| **Role** | Crate root -- placeholder for the secure command execution environment |
+| **Role** | OS-level filesystem enforcement for provider subprocesses |
 
 ## Purpose
 
-`omega-sandbox` is the secure execution environment for the Omega agent. Its responsibility is to provide a controlled context in which the AI provider operates, using a combination of workspace directory confinement and system prompt constraints to enforce operating boundaries.
+`omega-sandbox` provides real OS-level write restrictions for the AI provider subprocess. It wraps the provider command with platform-native sandbox mechanisms so that even a determined or confused AI cannot write files outside permitted directories.
 
-The sandbox design uses a mode-based approach (`SandboxMode` enum in `omega-core`) rather than command-level allowlists. The three modes -- `sandbox`, `rx`, and `rwx` -- control the provider's working directory and the system prompt constraints injected before each interaction. The actual enforcement is handled via:
-1. **Working directory confinement:** The provider subprocess `current_dir` is set to `~/.omega/workspace/` in sandbox and rx modes.
-2. **System prompt injection:** Mode-specific constraint text is prepended to the system prompt, instructing the provider about its operating boundaries.
+The crate exports a single public function, `sandboxed_command()`, which takes a program name, sandbox mode, and workspace path, and returns a `tokio::process::Command` with appropriate OS enforcement applied.
 
-The crate is currently a **placeholder**. The `lib.rs` file contains only a module-level doc comment and no types, traits, functions, or submodules. The core sandbox logic (mode enum, prompt constraints) lives in `omega-core::config`. Future implementation in this crate may add process-level isolation.
+## Architecture
 
-## Current Contents
+### Two-Layer Enforcement
 
-The entire file consists of a single doc comment:
+| Layer | Mechanism | Scope |
+|-------|-----------|-------|
+| **OS-level** (this crate) | Seatbelt (macOS) / Landlock (Linux) | Restricts file **writes** to workspace + `/tmp` + `~/.claude` |
+| **Prompt-level** (omega-core) | System prompt injection via `SandboxMode::prompt_constraint()` | Restricts file **reads** in Sandbox mode |
 
-```rust
-//! # omega-sandbox
-//!
-//! Secure execution environment for Omega.
+The OS sandbox restricts writes only. The claude CLI process needs to read system files, node.js runtime, etc. Read restriction in Sandbox mode stays prompt-level.
+
+### Platform Dispatch
+
+```
+sandboxed_command(program, mode, workspace)
+  │
+  ├── Rwx → plain Command::new(program)
+  │
+  └── Sandbox / Rx → platform_command()
+        │
+        ├── macOS → seatbelt::sandboxed_command()
+        │     └── sandbox-exec -p <profile> -- <program>
+        │
+        ├── Linux → landlock_sandbox::sandboxed_command()
+        │     └── Command::new(program) + pre_exec Landlock
+        │
+        └── Other → warn + plain Command::new(program)
 ```
 
-### Module Declarations
+## Modules
 
-None.
+### `lib.rs` — Public API
 
-### Public Types
+**Public function:**
 
-None.
+```rust
+pub fn sandboxed_command(program: &str, mode: SandboxMode, workspace: &Path) -> Command
+```
 
-### Public Functions
+- `Rwx` → plain `Command::new(program)` (no restrictions)
+- `Sandbox` / `Rx` → delegates to `platform_command()`
 
-None.
+**Internal function:**
 
-### Traits
+```rust
+fn platform_command(program: &str, workspace: &Path) -> Command
+```
 
-None.
+Platform-dispatched via `#[cfg]` attributes.
 
-### Tests
+### `seatbelt.rs` — macOS (compiled only on `target_os = "macos"`)
 
-None.
+Uses Apple's Seatbelt framework via `sandbox-exec -p <profile>`.
 
----
+**Profile:**
+```scheme
+(version 1)
+(allow default)
+(deny file-write*)
+(allow file-write*
+  (subpath "{workspace}")
+  (subpath "/private/tmp")
+  (subpath "/private/var/folders")
+  (subpath "{home}/.claude")
+)
+```
 
-## Dependencies (Cargo.toml)
+**Fallback:** If `/usr/bin/sandbox-exec` does not exist, logs a warning and returns a plain command.
 
-The crate's `Cargo.toml` already declares the dependencies it will need once implementation begins:
+### `landlock_sandbox.rs` — Linux (compiled only on `target_os = "linux"`)
 
-| Dependency | Workspace | Planned Usage |
-|------------|-----------|---------------|
-| `omega-core` | Yes | Access to `SandboxConfig`, `OmegaError::Sandbox`, and shared types |
-| `tokio` | Yes | Async command execution (`tokio::process::Command`), timeouts, task spawning |
-| `serde` | Yes | Serialization of execution results and configuration |
-| `tracing` | Yes | Structured logging of command execution, policy decisions, and errors |
-| `thiserror` | Yes | Potential sandbox-specific error subtypes (or direct use of `OmegaError::Sandbox`) |
-| `anyhow` | Yes | Ergonomic error handling during development |
+Uses the Landlock LSM (kernel 5.13+) via the `landlock` crate. Applied in a `pre_exec` hook on the child process.
 
----
+**Access rules:**
+- Read + execute on `/` (entire filesystem)
+- Full access to workspace, `/tmp`, `~/.claude`
+
+**Fallback:** If the kernel does not support Landlock or enforcement is partial, logs a warning and continues with best-effort restrictions.
 
 ## Configuration Surface
 
@@ -87,30 +115,17 @@ pub struct SandboxConfig {
 ```
 
 `SandboxMode` methods:
-- `prompt_constraint(&self, workspace_path: &str) -> Option<String>` -- returns mode-specific system prompt constraint text. `Sandbox` returns SANDBOX mode instructions referencing the workspace path. `Rx` returns READ-ONLY mode instructions. `Rwx` returns `None`.
-- `display_name(&self) -> &str` -- returns `"sandbox"`, `"rx"`, or `"rwx"`.
-
-The example configuration (`config.example.toml`) demonstrates the setup:
-
-```toml
-[sandbox]
-mode = "sandbox"   # "sandbox" | "rx" | "rwx"
-```
-
----
+- `prompt_constraint(&self, workspace_path: &str) -> Option<String>` — returns mode-specific system prompt constraint text.
+- `display_name(&self) -> &str` — returns `"sandbox"`, `"rx"`, or `"rwx"`.
 
 ## Error Integration
 
-The unified error enum in `omega-core::error::OmegaError` already includes a `Sandbox` variant:
+The unified error enum in `omega-core::error::OmegaError` includes a `Sandbox` variant:
 
 ```rust
 #[error("sandbox error: {0}")]
 Sandbox(String),
 ```
-
-This variant is manually constructed (no `#[from]` conversion). All sandbox errors should wrap into this variant using descriptive messages that include the command attempted, the policy that blocked it, and the reason.
-
----
 
 ## Workspace Integration Points
 
@@ -120,84 +135,62 @@ This variant is manually constructed (no `#[from]` conversion). All sandbox erro
 | Config | `omega-core::config::SandboxConfig` | Configuration struct with `mode: SandboxMode` field |
 | SandboxMode enum | `omega-core::config::SandboxMode` | Mode enum with `prompt_constraint()` and `display_name()` methods |
 | Error | `omega-core::error::OmegaError::Sandbox` | Error variant for sandbox failures |
-| main.rs | `src/main.rs` | Creates `~/.omega/workspace/` directory, resolves sandbox mode, passes workspace path to `build_provider()` and sandbox mode/prompt to `Gateway::new()` |
-| Gateway | `src/gateway.rs` | Stores `sandbox_mode` and `sandbox_prompt` fields; injects sandbox constraint into system prompt; logs sandbox mode at startup |
-| Provider | `omega-providers::claude_code` | `ClaudeCodeProvider` accepts `working_dir: Option<PathBuf>` and sets `current_dir` on subprocess |
+| main.rs | `src/main.rs` | Creates `~/.omega/workspace/`, passes `sandbox_mode` to `build_provider()` |
+| Gateway | `src/gateway.rs` | Stores `sandbox_mode` and `sandbox_prompt` fields; injects sandbox constraint into system prompt |
+| Provider | `omega-providers::claude_code` | `ClaudeCodeProvider` calls `omega_sandbox::sandboxed_command()` in `run_cli()` |
 | Commands | `src/commands.rs` | `CommandContext` includes `sandbox_mode` field; `/status` displays it |
-| Skills | `omega-skills` | Future skills may invoke sandbox for command execution |
-| Binary | `Cargo.toml` (root) | Already declared as a dependency of the binary |
+| Binary | `Cargo.toml` (root) | Declared as a dependency of the binary |
 
----
+## Permitted Directories
 
-## Current Architecture
+For both Sandbox and Rx modes, OS enforcement allows writes to:
 
-The sandbox design follows the "less is more" principle. Rather than implementing a complex process-level sandbox with command allowlists and path blocklists, the current approach uses two complementary mechanisms:
+| Directory | Reason |
+|-----------|--------|
+| `~/.omega/workspace/` | AI's working directory |
+| `/tmp` (macOS: `/private/tmp`) | Temporary files |
+| `/private/var/folders` (macOS only) | macOS temp directories |
+| `~/.claude` | Claude CLI session data |
 
-### 1. Working Directory Confinement
+## Tests
 
-In `sandbox` and `rx` modes, the provider subprocess `current_dir` is set to `~/.omega/workspace/`. This directory is automatically created by `main.rs` at startup. The provider naturally operates within this directory.
+### `lib.rs` tests (3)
+- `test_rwx_returns_plain_command` — Rwx mode returns unwrapped command
+- `test_sandbox_mode_returns_command` — Sandbox mode returns a valid command
+- `test_rx_mode_returns_command` — Rx mode returns a valid command
 
-### 2. System Prompt Constraints
+### `seatbelt.rs` tests (4, macOS only)
+- `test_profile_contains_workspace` — profile includes workspace path
+- `test_profile_denies_writes_then_allows` — profile has deny + allow structure
+- `test_profile_allows_claude_dir` — profile includes ~/.claude
+- `test_command_structure` — command program is sandbox-exec or claude (fallback)
 
-`SandboxMode::prompt_constraint()` returns mode-specific instructions that are prepended to the system prompt:
-
-| Mode | Constraint Behavior |
-|------|-------------------|
-| `Sandbox` | Instructs the provider to confine all operations to the workspace directory. Full network access and local dependency installation allowed. |
-| `Rx` | Instructs the provider it may read/execute anywhere on host but writes only in workspace. Full network access and local dependency installation allowed. |
-| `Rwx` | No constraint injected (unrestricted) |
-
-### Dependency Installation
-
-All three modes support installing library dependencies for script creation. Network access (curl, wget, API calls) is unrestricted across all modes. In `sandbox` and `rx` modes, packages must be installed locally within the workspace (e.g. `npm install`, `pip install --target .`). In `rwx` mode, global installs are also permitted.
-
-### Security Considerations
-
-| Concern | Mitigation |
-|---------|------------|
-| Filesystem access | Working directory confinement + system prompt instructions |
-| Write operations | `Rx` mode explicitly forbids writes via prompt constraint |
-| Privilege escalation | Omega refuses to run as root (guard in `main.rs`) |
-| Environment leakage | `CLAUDECODE` env var removed from provider subprocess |
-| Default safety | `SandboxMode::Sandbox` is the default, ensuring new installations start confined |
-
-## Planned Extensions
-
-Future implementation in this crate may add:
-- Process-level isolation (e.g., Linux namespaces, macOS sandbox profiles)
-- Runtime enforcement beyond prompt-based constraints
-- Execution result capture and audit logging
-
----
+### `landlock_sandbox.rs` tests (3, Linux only)
+- `test_read_access_flags` — read flags include ReadFile, ReadDir, Execute
+- `test_full_access_contains_writes` — full flags include WriteFile, MakeDir
+- `test_command_structure` — command program is "claude"
 
 ## File Size
 
 | Metric | Value |
 |--------|-------|
-| Lines of code | 3 |
-| Public types | 0 |
-| Public functions | 0 |
-| Tests | 0 |
-| Submodules | 0 |
-
----
+| Lines of code (lib.rs) | ~85 |
+| Lines of code (seatbelt.rs) | ~95 |
+| Lines of code (landlock_sandbox.rs) | ~95 |
+| Public functions | 1 |
+| Modules | 2 (platform-conditional) |
+| Tests | 10 (3 cross-platform + 4 macOS + 3 Linux) |
 
 ## Implementation Status
 
 | Component | Status |
 |-----------|--------|
-| Crate scaffolding (Cargo.toml, lib.rs) | Complete |
-| Configuration (`SandboxConfig` with `SandboxMode`) | Complete (in omega-core) |
-| `SandboxMode` enum with `prompt_constraint()` and `display_name()` | Complete (in omega-core) |
-| Error variant (`OmegaError::Sandbox`) | Complete (in omega-core) |
-| Example config (`config.example.toml` sandbox section) | Complete |
-| Workspace directory creation (`~/.omega/workspace/`) | Complete (in main.rs) |
-| Provider working directory confinement | Complete (in omega-providers) |
-| System prompt constraint injection | Complete (in gateway.rs) |
-| Sandbox mode in `/status` command | Complete (in commands.rs) |
-| Startup logging of sandbox mode | Complete (in gateway.rs) |
-| Unit tests for SandboxMode | Complete (in omega-core) |
-| Process-level isolation | Not started (planned) |
-| Runtime enforcement beyond prompt constraints | Not started (planned) |
-
-The core sandbox functionality (mode-based confinement via working directory and system prompt) is complete. The `omega-sandbox` crate itself remains a placeholder for future process-level isolation features.
+| `sandboxed_command()` public API | Complete |
+| macOS Seatbelt enforcement (`seatbelt.rs`) | Complete |
+| Linux Landlock enforcement (`landlock_sandbox.rs`) | Complete |
+| Unsupported platform fallback | Complete |
+| Provider integration (`ClaudeCodeProvider`) | Complete |
+| `main.rs` passes sandbox mode to provider | Complete |
+| Unit tests | Complete |
+| Prompt-level enforcement (omega-core) | Complete |
+| Working directory confinement (omega-providers) | Complete |

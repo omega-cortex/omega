@@ -292,6 +292,7 @@ fn build_provider(
                 cc.allowed_tools,
                 cc.timeout_secs,
                 Some(workspace_path.to_path_buf()),
+                cfg.sandbox.mode,
             )))
         }
         other => anyhow::bail!("unsupported provider: {other}"),

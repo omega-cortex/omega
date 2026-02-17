@@ -1,8 +1,8 @@
-# omega-sandbox -- Developer Guide
+# omega-sandbox — Developer Guide
 
 ## What is this crate?
 
-`omega-sandbox` is the workspace isolation layer of the Omega project. It defines the `SandboxMode` enum and provides the logic for creating and managing the AI provider's workspace directory (`~/.omega/workspace/`). The sandbox controls how much host access the AI provider has, ranging from full isolation (workspace only) to full host access.
+`omega-sandbox` is the OS-level filesystem enforcement layer of the Omega project. It wraps the AI provider subprocess with platform-native write restrictions so that the provider cannot write files outside permitted directories, regardless of what the AI attempts.
 
 ## Crate structure
 
@@ -10,8 +10,34 @@
 crates/omega-sandbox/
   Cargo.toml
   src/
-    lib.rs
+    lib.rs               # Public API: sandboxed_command()
+    seatbelt.rs          # macOS: sandbox-exec write restrictions
+    landlock_sandbox.rs  # Linux: Landlock LSM write restrictions
 ```
+
+---
+
+## How It Works
+
+Omega uses a **two-layer** sandbox enforcement strategy:
+
+### Layer 1: OS-Level Write Restrictions (this crate)
+
+Platform-native mechanisms prevent the AI subprocess from writing files outside permitted directories:
+
+| Platform | Mechanism | How |
+|----------|-----------|-----|
+| **macOS** | Apple Seatbelt | Wraps command with `sandbox-exec -p <profile>` |
+| **Linux** | Landlock LSM | Applies filesystem restrictions via `pre_exec` hook |
+| **Other** | None | Logs warning, uses prompt-only enforcement |
+
+### Layer 2: Prompt-Level Read Restrictions (omega-core)
+
+The system prompt tells the AI what it may read. This is effective with well-aligned models like Claude but is not enforced at the OS level.
+
+### Why writes only?
+
+The claude CLI process needs to read system files (node.js, shared libraries, etc.) to function. Restricting reads at the OS level would break the subprocess. Read restrictions in Sandbox mode stay prompt-level.
 
 ---
 
@@ -20,61 +46,35 @@ crates/omega-sandbox/
 The sandbox centers around a single concept: the **workspace directory** at `~/.omega/workspace/`. This directory is:
 
 - **Created on startup** by `main.rs` if it does not already exist.
-- **Set as `current_dir`** for the Claude Code CLI subprocess, so all AI file operations default to this location.
-- **Always writable** regardless of sandbox mode -- the AI can always read and write within its workspace.
-
-The workspace gives the AI a safe, isolated area to work in without risking modifications to the host filesystem.
+- **Set as `current_dir`** for the Claude Code CLI subprocess.
+- **Always writable** regardless of sandbox mode.
 
 ---
 
 ## Sandbox Modes
 
-The `SandboxMode` enum defines three levels of host access:
+| Mode | OS Write Restriction | Prompt Read Restriction | Use Case |
+|------|---------------------|------------------------|----------|
+| `Sandbox` | Writes only to workspace + /tmp + ~/.claude | Reads only in workspace | Default. Maximum isolation. |
+| `Rx` | Writes only to workspace + /tmp + ~/.claude | Reads anywhere | System inspection. |
+| `Rwx` | None (unrestricted) | None (unrestricted) | Power users. |
 
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum SandboxMode {
-    Sandbox,
-    Rx,
-    Rwx,
-}
-```
+### Permitted Write Directories (Sandbox and Rx modes)
 
-| Mode | Workspace Access | Host Read | Host Write | Host Execute | Use Case |
-|------|-----------------|-----------|------------|--------------|----------|
-| `Sandbox` | Full | No | No | No | Default. AI is confined to `~/.omega/workspace/`. Maximum isolation. |
-| `Rx` | Full | Yes | No | Yes | AI can read and execute anywhere on the host, but writes are restricted to the workspace. Good for system inspection. |
-| `Rwx` | Full | Yes | Yes | Yes | Full host access. For power users who trust the AI provider completely. |
+| Directory | Purpose |
+|-----------|---------|
+| `~/.omega/workspace/` | AI's working directory |
+| `/tmp` | Temporary files |
+| `/private/var/folders` (macOS) | macOS temp directories |
+| `~/.claude` | Claude CLI session data |
 
 ### Dependency Installation
 
-All three modes have **full network access** and can install library dependencies for script creation. The difference is where packages are written:
-
-| Mode | How dependencies are installed |
-|------|-------------------------------|
-| `Sandbox` | Locally inside workspace — `npm install`, `pip install --target .`, `cargo init`, etc. |
-| `Rx` | Same as sandbox — writes are restricted to workspace |
-| `Rwx` | Anywhere — global installs also work (`pip install`, `brew install`, etc.) |
-
-In `sandbox` and `rx` modes, the AI uses local install patterns (e.g. `npm install` creates `node_modules/` in the workspace, `pip install --target ./libs` installs Python packages locally). The workspace is a fully functional development area.
-
-### Default
-
-The default mode is `Sandbox`, which provides maximum isolation. If the `[sandbox]` section is omitted from `config.toml`, or if the `mode` field is not specified, the sandbox defaults to this mode.
+All three modes have **full network access**. In `sandbox` and `rx` modes, packages must be installed locally within the workspace (e.g., `npm install`, `pip install --target .`). In `rwx` mode, global installs also work.
 
 ---
 
 ## Configuration
-
-The `SandboxConfig` struct in `omega-core::config` has been simplified to a single field:
-
-```rust
-pub struct SandboxConfig {
-    #[serde(default)]
-    pub mode: SandboxMode,
-}
-```
 
 Users configure the sandbox in `config.toml`:
 
@@ -83,30 +83,34 @@ Users configure the sandbox in `config.toml`:
 mode = "sandbox"   # "sandbox" | "rx" | "rwx"
 ```
 
+The default mode is `Sandbox` (safest).
+
 ---
 
-## How Sandbox Mode Is Enforced
+## Platform Details
 
-Sandbox mode is enforced at two complementary levels:
+### macOS — Seatbelt
 
-### 1. Working Directory (Hard Enforcement)
+The crate generates a Seatbelt profile and invokes `sandbox-exec -p <profile> -- claude ...`. The profile:
 
-The Claude Code CLI subprocess is always spawned with `current_dir` set to `~/.omega/workspace/`. This means:
+1. Allows all operations by default
+2. Denies all file writes
+3. Re-allows writes to the permitted directories
 
-- Relative file paths resolve within the workspace.
-- The AI starts in the workspace and must explicitly navigate elsewhere (if its mode permits).
+If `/usr/bin/sandbox-exec` does not exist (unlikely on macOS), falls back to prompt-only enforcement with a warning.
 
-This is configured in `ClaudeCodeProvider::from_config()` via the `working_dir` parameter.
+### Linux — Landlock
 
-### 2. System Prompt Injection (Soft Enforcement)
+The crate uses the `landlock` crate (Landlock LSM, kernel 5.13+) in a `pre_exec` hook. The child process gets:
 
-The gateway injects sandbox rules into the system prompt during message processing (Stage 3c of the pipeline). The injected rules tell the AI what it is allowed to do:
+- Read + execute access to the entire filesystem
+- Full access (read + write + create) to the permitted directories
 
-- **sandbox mode**: "Your workspace is `~/.omega/workspace/`. You may only read, write, and execute within this directory. Do not attempt to access files or run commands outside the workspace."
-- **rx mode**: "Your workspace is `~/.omega/workspace/`. You may read files and execute commands anywhere on the host, but you may only write files within the workspace."
-- **rwx mode**: "You have full access to the host filesystem. You may read, write, and execute anywhere."
+If the kernel does not support Landlock, logs a warning and continues with best-effort enforcement.
 
-This relies on the AI provider respecting the instructions, which is effective with well-aligned models like Claude.
+### Other Platforms
+
+On unsupported platforms, logs a warning and returns a plain command. Prompt-level enforcement still applies.
 
 ---
 
@@ -114,53 +118,50 @@ This relies on the AI provider respecting the instructions, which is effective w
 
 ```
 User message arrives via channel
-    |
-    v
-Gateway pipeline: auth -> sanitize -> sandbox prompt injection -> context -> provider
-    |
-    v
-Provider (Claude Code CLI) runs with current_dir = ~/.omega/workspace/
-    |
-    v
-AI operates within its sandbox boundaries
-    |
-    v
-Gateway: store in memory -> audit log -> send response
+    │
+    ▼
+Gateway pipeline: auth → sanitize → sandbox prompt injection → context → provider
+    │
+    ▼
+Provider calls omega_sandbox::sandboxed_command("claude", mode, workspace)
+    │
+    ▼
+OS-level enforcement applied:
+  macOS: sandbox-exec wraps the process
+  Linux: Landlock applied via pre_exec
+    │
+    ▼
+Claude CLI runs with write restrictions + current_dir = workspace
+    │
+    ▼
+Gateway: store in memory → audit log → send response
 ```
 
-The sandbox is no longer a command-execution chokepoint. Instead, it defines the boundaries within which the AI provider operates, enforced through working directory isolation and system prompt rules.
+---
+
+## Graceful Fallback
+
+The sandbox uses a "best effort" approach. If OS-level enforcement is unavailable:
+
+1. **macOS without sandbox-exec** → warning log, prompt-only enforcement
+2. **Linux without Landlock** → warning log, prompt-only enforcement
+3. **Unsupported OS** → warning log, prompt-only enforcement
+
+The system never fails to start because of sandbox limitations. Working directory confinement (`current_dir`) and prompt constraints always apply.
 
 ---
 
 ## Observability
 
-- **Startup log**: `main.rs` logs the active sandbox mode at INFO level on startup (e.g., "Sandbox mode: sandbox").
-- **`/status` command**: The bot's `/status` command displays the current sandbox mode alongside uptime, provider, and database info.
+- **Startup log**: `main.rs` logs the active sandbox mode at INFO level
+- **`/status` command**: Displays the current sandbox mode
+- **Warning logs**: Emitted when OS enforcement falls back
 
 ---
 
 ## Error Handling
 
-`OmegaError::Sandbox(String)` is defined in `omega-core::error` for sandbox-related errors:
-
-```rust
-use omega_core::error::OmegaError;
-
-// Example: workspace directory creation failure
-return Err(OmegaError::Sandbox(
-    "failed to create workspace directory: permission denied".to_string()
-));
-```
-
----
-
-## Key Project Rules That Apply
-
-- **No `unwrap()`** -- use `?` and `OmegaError::Sandbox` for all error paths.
-- **Tracing, not `println!`** -- use `tracing::{info, warn, error, debug}` for logging.
-- **Async everywhere** -- any I/O operations must be async via tokio.
-- **Every public function gets a doc comment.**
-- **`cargo clippy --workspace` must pass with zero warnings.**
+`OmegaError::Sandbox(String)` is defined in `omega-core::error` for sandbox-related errors.
 
 ---
 
@@ -168,10 +169,12 @@ return Err(OmegaError::Sandbox(
 
 | You want to... | Where to look |
 |----------------|---------------|
+| See the public API | `crates/omega-sandbox/src/lib.rs` |
+| See the macOS implementation | `crates/omega-sandbox/src/seatbelt.rs` |
+| See the Linux implementation | `crates/omega-sandbox/src/landlock_sandbox.rs` |
 | See the sandbox config fields | `omega-core::config::SandboxConfig` |
 | See the sandbox mode enum | `omega-core::config::SandboxMode` |
 | See the error variant | `omega-core::error::OmegaError::Sandbox` |
-| See example config values | `config.example.toml`, `[sandbox]` section |
-| See prompt injection logic | `src/gateway.rs`, Stage 3c |
+| See prompt injection logic | `src/gateway.rs` |
 | See workspace creation | `src/main.rs`, startup sequence |
-| See working_dir usage | `omega-providers::claude_code::ClaudeCodeProvider` |
+| See provider integration | `omega-providers::claude_code::ClaudeCodeProvider::run_cli()` |
