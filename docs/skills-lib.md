@@ -71,6 +71,7 @@ Core skills live in `skills/` at the repo root and are embedded into the binary 
 
 | Directory | Skill |
 |-----------|-------|
+| `claude-code/SKILL.md` | Claude Code CLI (`claude`) |
 | `google-workspace/SKILL.md` | Google Workspace CLI (`gog`) |
 
 To add a new bundled skill: create the directory with a `SKILL.md` file in `skills/`, then add it to the `BUNDLED_SKILLS` const in `crates/omega-skills/src/lib.rs`.

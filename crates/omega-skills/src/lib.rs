@@ -11,10 +11,16 @@ use tracing::{info, warn};
 /// Bundled core skills — embedded at compile time from `skills/` in the repo root.
 ///
 /// Each entry is `(directory_name, content)`. Deployed to `{data_dir}/skills/{name}/SKILL.md`.
-const BUNDLED_SKILLS: &[(&str, &str)] = &[(
-    "google-workspace",
-    include_str!("../../../skills/google-workspace/SKILL.md"),
-)];
+const BUNDLED_SKILLS: &[(&str, &str)] = &[
+    (
+        "claude-code",
+        include_str!("../../../skills/claude-code/SKILL.md"),
+    ),
+    (
+        "google-workspace",
+        include_str!("../../../skills/google-workspace/SKILL.md"),
+    ),
+];
 
 /// Deploy bundled skills to `{data_dir}/skills/{name}/SKILL.md`, creating
 /// subdirectories as needed.

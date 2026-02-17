@@ -62,6 +62,7 @@ Core skills are embedded at compile time from `skills/` in the repo root via `in
 
 | Directory | Skill |
 |-----------|-------|
+| `skills/claude-code/SKILL.md` | Claude Code CLI (`claude`) |
 | `skills/google-workspace/SKILL.md` | Google Workspace CLI (`gog`) |
 
 ## Internal Functions
