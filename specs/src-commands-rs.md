@@ -67,6 +67,7 @@ pub enum Command {
 - `/tasks` → `Command::Tasks`
 - `/cancel` → `Command::Cancel`
 - `/language` or `/lang` → `Command::Language`
+- `/personality` → `Command::Personality`
 - `/projects` → `Command::Projects`
 - `/project` → `Command::Project`
 - `/help` → `Command::Help`
@@ -353,6 +354,47 @@ Language set to: French
 
 **Response Format (Error):**
 ```
+Error: <error message>
+```
+
+---
+
+### /personality — `handle_personality(store, sender_id, text)`
+
+**Behavior:**
+- Collects all whitespace-delimited tokens after `/personality` as the personality argument.
+- **No argument:** Looks up the `personality` fact for the user via `store.get_fact()`. Displays the current personality preference or a message about using default personality with a hint that the user can also just describe their preference conversationally.
+- **`reset`:** Deletes the `personality` fact via `store.delete_fact()`. Returns "Already using default personality." if no fact exists.
+- **With argument:** Stores the text as a `personality` fact via `store.store_fact()`. Confirms the change.
+
+The `personality` fact is injected into the user profile, and the Soul section of the system prompt instructs OMEGA to honor it, overriding default tone. The AI also naturally extracts personality preferences from conversation via the Facts prompt.
+
+**Response Format (Show Default):**
+```
+Using default personality. Just tell me how you'd like me to be — more formal, more casual, funnier, straight to the point — anything.
+```
+
+**Response Format (Show Custom):**
+```
+Your personality preference:
+_be more casual and funny_
+
+Use /personality reset to go back to defaults.
+Or just tell me how you'd like me to be.
+```
+
+**Response Format (Set):**
+```
+Personality updated: _be more casual and funny_
+```
+
+**Response Format (Reset):**
+```
+Personality reset to defaults.
+```
+
+**Response Format (Error):**
+```
 Error: [error description]
 ```
 
@@ -435,6 +477,7 @@ Project 'xyz' not found. Use /projects to see available projects.
 /tasks    — List your scheduled tasks
 /cancel   — Cancel a task by ID
 /language — Show or set your language
+/personality — Show or set how I behave
 /projects — List available projects
 /project  — Show, activate, or deactivate a project
 /help     — This message
@@ -477,6 +520,9 @@ All command handlers interact with the `omega_memory::Store` trait/type:
 | `handle_cancel()` | `store.cancel_task(id_prefix, sender_id)` | `Result<bool>` | Cancel a task by ID prefix |
 | `handle_language()` | `store.get_facts(sender_id)` | `Result<Vec<(String, String)>>` | Look up current preferred_language fact |
 | `handle_language()` | `store.store_fact(sender_id, key, value)` | `Result<()>` | Set preferred_language fact |
+| `handle_personality()` | `store.get_fact(sender_id, "personality")` | `Result<Option<String>>` | Get current personality preference |
+| `handle_personality()` | `store.store_fact(sender_id, "personality", value)` | `Result<()>` | Set personality preference |
+| `handle_personality()` | `store.delete_fact(sender_id, "personality")` | `Result<bool>` | Reset personality to defaults |
 | `handle_projects()` | `store.get_fact(sender_id, "active_project")` | `Result<Option<String>>` | Get current active project |
 | `handle_project()` | `store.get_fact(sender_id, "active_project")` | `Result<Option<String>>` | Get current active project |
 | `handle_project()` | `store.store_fact(sender_id, "active_project", name)` | `Result<()>` | Set active project |

@@ -26,6 +26,7 @@ pub enum Command {
     Tasks,
     Cancel,
     Language,
+    Personality,
     Skills,
     Projects,
     Project,
@@ -47,6 +48,7 @@ impl Command {
             "/tasks" => Some(Self::Tasks),
             "/cancel" => Some(Self::Cancel),
             "/language" | "/lang" => Some(Self::Language),
+            "/personality" => Some(Self::Personality),
             "/skills" => Some(Self::Skills),
             "/projects" => Some(Self::Projects),
             "/project" => Some(Self::Project),
@@ -70,6 +72,7 @@ pub async fn handle(cmd: Command, ctx: &CommandContext<'_>) -> String {
         Command::Tasks => handle_tasks(ctx.store, ctx.sender_id).await,
         Command::Cancel => handle_cancel(ctx.store, ctx.sender_id, ctx.text).await,
         Command::Language => handle_language(ctx.store, ctx.sender_id, ctx.text).await,
+        Command::Personality => handle_personality(ctx.store, ctx.sender_id, ctx.text).await,
         Command::Skills => handle_skills(ctx.skills),
         Command::Projects => handle_projects(ctx.store, ctx.sender_id, ctx.projects).await,
         Command::Project => {
@@ -223,6 +226,44 @@ async fn handle_language(store: &Store, sender_id: &str, text: &str) -> String {
     }
 }
 
+/// Handle /personality — show, set, or reset personality preferences.
+async fn handle_personality(store: &Store, sender_id: &str, text: &str) -> String {
+    let arg = text
+        .split_whitespace()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if arg.is_empty() {
+        // Show current personality preference.
+        return match store.get_fact(sender_id, "personality").await {
+            Ok(Some(p)) => format!(
+                "Your personality preference:\n_{p}_\n\n\
+                 Use /personality reset to go back to defaults.\n\
+                 Or just tell me how you'd like me to be."
+            ),
+            Ok(None) => "Using default personality. Just tell me how you'd like me to be — \
+                         more formal, more casual, funnier, straight to the point — anything."
+                .to_string(),
+            Err(e) => format!("Error: {e}"),
+        };
+    }
+
+    if arg == "reset" {
+        return match store.delete_fact(sender_id, "personality").await {
+            Ok(true) => "Personality reset to defaults.".to_string(),
+            Ok(false) => "Already using default personality.".to_string(),
+            Err(e) => format!("Error: {e}"),
+        };
+    }
+
+    // Store the personality preference as a fact.
+    match store.store_fact(sender_id, "personality", &arg).await {
+        Ok(()) => format!("Personality updated: _{arg}_"),
+        Err(e) => format!("Error: {e}"),
+    }
+}
+
 fn handle_skills(skills: &[omega_skills::Skill]) -> String {
     if skills.is_empty() {
         return "No skills installed. Create a directory in ~/.omega/skills/ with a SKILL.md file."
@@ -334,6 +375,7 @@ fn handle_help() -> String {
 /tasks    — List your scheduled tasks\n\
 /cancel   — Cancel a task by ID\n\
 /language — Show or set your language\n\
+/personality — Show or set how I behave\n\
 /skills   — List available skills\n\
 /projects — List available projects\n\
 /project  — Show, activate, or deactivate a project\n\
@@ -350,5 +392,136 @@ fn format_bytes(bytes: u64) -> String {
         format!("{:.1} KB", bytes as f64 / 1024.0)
     } else {
         format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omega_core::config::MemoryConfig;
+
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    /// Create a temporary on-disk store for testing (unique per call).
+    async fn test_store() -> Store {
+        let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("__omega_cmd_test_{}_{}__", std::process::id(), id));
+        let _ = std::fs::create_dir_all(&dir);
+        let db_path = dir.join("test.db").to_string_lossy().to_string();
+        let _ = std::fs::remove_file(&db_path);
+        let config = MemoryConfig {
+            backend: "sqlite".to_string(),
+            db_path,
+            max_context_messages: 10,
+        };
+        Store::new(&config).await.unwrap()
+    }
+
+    #[test]
+    fn test_parse_personality_command() {
+        assert!(matches!(
+            Command::parse("/personality"),
+            Some(Command::Personality)
+        ));
+        assert!(matches!(
+            Command::parse("/personality be more casual"),
+            Some(Command::Personality)
+        ));
+        assert!(matches!(
+            Command::parse("/personality reset"),
+            Some(Command::Personality)
+        ));
+    }
+
+    #[test]
+    fn test_parse_all_commands() {
+        assert!(matches!(Command::parse("/status"), Some(Command::Status)));
+        assert!(matches!(Command::parse("/memory"), Some(Command::Memory)));
+        assert!(matches!(Command::parse("/history"), Some(Command::History)));
+        assert!(matches!(Command::parse("/facts"), Some(Command::Facts)));
+        assert!(matches!(Command::parse("/forget"), Some(Command::Forget)));
+        assert!(matches!(Command::parse("/tasks"), Some(Command::Tasks)));
+        assert!(matches!(Command::parse("/cancel x"), Some(Command::Cancel)));
+        assert!(matches!(
+            Command::parse("/language"),
+            Some(Command::Language)
+        ));
+        assert!(matches!(Command::parse("/lang"), Some(Command::Language)));
+        assert!(matches!(
+            Command::parse("/personality"),
+            Some(Command::Personality)
+        ));
+        assert!(matches!(Command::parse("/skills"), Some(Command::Skills)));
+        assert!(matches!(
+            Command::parse("/projects"),
+            Some(Command::Projects)
+        ));
+        assert!(matches!(Command::parse("/project"), Some(Command::Project)));
+        assert!(matches!(
+            Command::parse("/whatsapp"),
+            Some(Command::WhatsApp)
+        ));
+        assert!(matches!(Command::parse("/help"), Some(Command::Help)));
+    }
+
+    #[test]
+    fn test_parse_unknown_returns_none() {
+        assert!(Command::parse("/unknown").is_none());
+        assert!(Command::parse("hello").is_none());
+        assert!(Command::parse("").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_personality_show_default() {
+        let store = test_store().await;
+        let result = handle_personality(&store, "user1", "/personality").await;
+        assert!(
+            result.contains("default personality"),
+            "should show default when no preference set"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_personality_set_and_show() {
+        let store = test_store().await;
+        let result =
+            handle_personality(&store, "user1", "/personality be more casual and funny").await;
+        assert!(
+            result.contains("be more casual and funny"),
+            "should confirm the personality was set"
+        );
+
+        let result = handle_personality(&store, "user1", "/personality").await;
+        assert!(
+            result.contains("be more casual and funny"),
+            "should show the stored personality"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_personality_reset() {
+        let store = test_store().await;
+        let _ = handle_personality(&store, "user1", "/personality be formal").await;
+        let result = handle_personality(&store, "user1", "/personality reset").await;
+        assert!(result.contains("reset to defaults"), "should confirm reset");
+
+        let result = handle_personality(&store, "user1", "/personality").await;
+        assert!(
+            result.contains("default personality"),
+            "should show default after reset"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_personality_reset_when_already_default() {
+        let store = test_store().await;
+        let result = handle_personality(&store, "user1", "/personality reset").await;
+        assert!(
+            result.contains("Already using default"),
+            "should indicate already default"
+        );
     }
 }
