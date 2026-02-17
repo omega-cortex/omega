@@ -910,7 +910,7 @@ fn build_system_prompt(
         prompt.push_str(&format!(
             "\n\nThis is your first conversation with this person. Respond ONLY with this \
              introduction in {language} (adapt naturally, do NOT translate literally):\n\n\
-             Greeting with 👋\n\n\
+             Start with '👋 ¡Hola!' (or the equivalent greeting in {language}, always 👋 + greeting on the same line).\n\n\
              Glad to have them here. You are *OMEGA Ω* (always bold), their personal agent — \
              but before jumping into action, you'd like to get to know them a bit.\n\n\
              Ask their name and what they do, so you can be more useful from the start.\n\n\
