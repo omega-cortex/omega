@@ -35,6 +35,7 @@ pub struct Gateway {
     prompts: Prompts,
     data_dir: String,
     skills: Vec<omega_skills::Skill>,
+    projects: Vec<omega_skills::Project>,
     uptime: Instant,
 }
 
@@ -52,6 +53,7 @@ impl Gateway {
         prompts: Prompts,
         data_dir: String,
         skills: Vec<omega_skills::Skill>,
+        projects: Vec<omega_skills::Project>,
     ) -> Self {
         let audit = AuditLogger::new(memory.pool().clone());
         Self {
@@ -66,6 +68,7 @@ impl Gateway {
             prompts,
             data_dir,
             skills,
+            projects,
             uptime: Instant::now(),
         }
     }
@@ -512,6 +515,7 @@ impl Gateway {
                 &self.uptime,
                 self.provider.name(),
                 &self.skills,
+                &self.projects,
             )
             .await;
 
@@ -548,9 +552,26 @@ impl Gateway {
         };
 
         // --- 4. BUILD CONTEXT FROM MEMORY ---
+        // Inject active project instructions into the system prompt.
+        let system_prompt = {
+            let mut prompt = self.prompts.system.clone();
+            if let Ok(Some(project_name)) = self
+                .memory
+                .get_fact(&incoming.sender_id, "active_project")
+                .await
+            {
+                if let Some(instructions) =
+                    omega_skills::get_project_instructions(&self.projects, &project_name)
+                {
+                    prompt = format!("{instructions}\n\n---\n\n{prompt}");
+                }
+            }
+            prompt
+        };
+
         let context = match self
             .memory
-            .build_context(&clean_incoming, &self.prompts.system)
+            .build_context(&clean_incoming, &system_prompt)
             .await
         {
             Ok(ctx) => ctx,
@@ -567,22 +588,27 @@ impl Gateway {
 
         // --- 5. GET RESPONSE FROM PROVIDER (async with status updates) ---
 
-        // Send heads-up so the user knows we're working.
-        self.send_text(
-            &incoming,
-            "This may take a moment — I'll keep you updated every 2 minutes.",
-        )
-        .await;
-
         // Spawn provider call as background task.
         let provider = self.provider.clone();
         let ctx = context.clone();
         let provider_task = tokio::spawn(async move { provider.complete(&ctx).await });
 
-        // Spawn status updater: sends a message every 120s while waiting.
+        // Spawn delayed status updater: first nudge after 15s, then every 120s.
+        // If the provider responds quickly, this gets aborted and the user sees nothing extra.
         let status_channel = self.channels.get(&incoming.channel).cloned();
         let status_target = incoming.reply_target.clone();
         let status_handle = tokio::spawn(async move {
+            // First nudge: wait 15 seconds before telling the user.
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            if let (Some(ref ch), Some(ref target)) = (&status_channel, &status_target) {
+                let msg = OutgoingMessage {
+                    text: "This is taking a moment — I'll keep you updated.".to_string(),
+                    metadata: MessageMetadata::default(),
+                    reply_target: Some(target.clone()),
+                };
+                let _ = ch.send(msg).await;
+            }
+            // Subsequent nudges every 120 seconds.
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(120)).await;
                 if let (Some(ref ch), Some(ref target)) = (&status_channel, &status_target) {

@@ -32,6 +32,7 @@ pub struct Gateway {
     heartbeat_config: HeartbeatConfig,         // Periodic AI check-in settings
     scheduler_config: SchedulerConfig,         // Scheduled task delivery settings
     prompts: Prompts,                          // Externalized prompts & welcome messages
+    projects: Vec<omega_skills::Project>,       // Per-project custom instructions
     uptime: Instant,                           // Server start time
 }
 ```
@@ -52,7 +53,7 @@ pub struct Gateway {
 
 ### Public Methods
 
-#### `new(provider, channels, memory, auth_config, channel_config, heartbeat_config, scheduler_config, prompts) -> Self`
+#### `new(provider, channels, memory, auth_config, channel_config, heartbeat_config, scheduler_config, prompts, projects) -> Self`
 **Purpose:** Construct a new gateway instance.
 
 **Parameters:**
@@ -64,6 +65,7 @@ pub struct Gateway {
 - `heartbeat_config: HeartbeatConfig` - Heartbeat check-in configuration.
 - `scheduler_config: SchedulerConfig` - Scheduled task delivery configuration.
 - `prompts: Prompts` - Externalized prompts and welcome messages (loaded from `~/.omega/` files or defaults).
+- `projects: Vec<omega_skills::Project>` - Per-project custom instructions loaded from `~/.omega/projects/`.
 
 **Returns:** New `Gateway` instance.
 
@@ -312,8 +314,14 @@ pub struct Gateway {
   - Abort if channel send fails.
 - Store handle for later abort.
 
+**Stage 4b: Project Instruction Injection**
+- Calls `self.memory.get_fact(&incoming.sender_id, "active_project")` to check for an active project.
+- If an active project is found, calls `omega_skills::get_project_instructions(&self.projects, &project_name)`.
+- If instructions are found, prepends them to the base system prompt with a `---` separator.
+- The enriched system prompt is passed to `memory.build_context()`.
+
 **Stage 5: Build Context from Memory (Lines 344-356)**
-- Call `self.memory.build_context(&clean_incoming, &self.prompts.system)` to build enriched context.
+- Call `self.memory.build_context(&clean_incoming, &self.prompts.system)` to build enriched context (using the potentially project-enriched system prompt).
 - This includes recent conversation history, relevant facts, and system prompt.
 - If error, abort typing task, send error message, and return.
 

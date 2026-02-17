@@ -230,8 +230,13 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
    - Verifies: config validity, database schema, provider health, channel credentials
    - Bails if any check fails
 
-7. **Start gateway**
-   - Create Gateway instance with provider, channels, memory, auth, channel config
+7. **Load projects**
+   - Call `omega_skills::ensure_projects_dir(&cfg.omega.data_dir)` to create `~/.omega/projects/` if missing.
+   - Call `omega_skills::load_projects(&cfg.omega.data_dir)` to scan and load all projects.
+   - Pass `projects` to `Gateway::new()`.
+
+8. **Start gateway**
+   - Create Gateway instance with provider, channels, memory, auth, channel config, projects
    - Call `gw.run().await?` to enter event loop
    - Blocks indefinitely processing messages from channels
    - Terminates on signal (graceful shutdown) or error

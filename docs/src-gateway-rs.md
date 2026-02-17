@@ -137,6 +137,9 @@ Users expect to see "typing" indicators on messaging platforms. Without them, it
   - Stored facts about the user (name, preferences, etc.).
   - A system prompt guiding the AI to be helpful and safe.
 
+**Project Instructions:**
+If the user has an active project (set via `/project <name>`), the project's instructions are prepended to the system prompt before context building. This allows per-project AI behavior customization.
+
 **Why This Exists:**
 Raw AI models are stateless. They have no memory of previous conversations. The context gives the AI a chance to be conversational and personalized.
 

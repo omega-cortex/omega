@@ -60,6 +60,36 @@ Core skills are embedded at compile time from `skills/` in the repo root via `in
 | `toml` | Parse TOML |
 | `tracing` | Warn on invalid skill files |
 
+## Projects
+
+In addition to skills, this crate also handles project loading. Projects are user-defined instruction scopes stored in `~/.omega/projects/`.
+
+### Public API (Projects)
+
+| Item | Kind | Description |
+|------|------|-------------|
+| `Project` | struct | Loaded project definition (name, instructions, path) |
+| `ensure_projects_dir(data_dir)` | fn | Create `{data_dir}/projects/` directory if missing |
+| `load_projects(data_dir)` | fn | Scan `{data_dir}/projects/*/INSTRUCTIONS.md`, return `Vec<Project>` sorted by name |
+| `get_project_instructions(projects, name)` | fn | Find project by name, return `Option<&str>` of its instructions |
+
+### Project Directory Format
+
+```
+~/.omega/projects/
+├── real-estate/
+│   └── INSTRUCTIONS.md      # "You are a real estate analyst..."
+├── nutrition/
+│   └── INSTRUCTIONS.md      # "You are a nutrition coach..."
+└── stocks/
+    └── INSTRUCTIONS.md      # "You track my portfolio..."
+```
+
+- **Project name** = directory name
+- **Instructions** = contents of `INSTRUCTIONS.md` (trimmed, must be non-empty)
+- Directories without `INSTRUCTIONS.md` or with empty instructions are skipped
+- Projects are loaded at startup (restart to pick up new ones)
+
 ## Tests
 
 - Valid frontmatter parsing
@@ -70,3 +100,8 @@ Core skills are embedded at compile time from `skills/` in the repo root via `in
 - `which` detection for known and unknown tools
 - Missing skills directory returns empty vec
 - Bundled skills deploy to new dir, never overwrite existing files
+- Missing projects directory returns empty vec
+- Valid project with INSTRUCTIONS.md loads correctly
+- Empty INSTRUCTIONS.md is skipped
+- Directory without INSTRUCTIONS.md is skipped
+- `get_project_instructions()` returns correct instructions or None

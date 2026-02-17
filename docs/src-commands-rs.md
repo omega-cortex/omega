@@ -229,6 +229,71 @@ Language set to: French
 
 ---
 
+### `/projects` — List Projects
+
+**What It Does:** Lists all available projects in `~/.omega/projects/`, marking which one is currently active.
+
+**Response Example:**
+```
+Projects
+
+- real-estate (active)
+- nutrition
+- stocks
+
+Use /project <name> to activate, /project off to deactivate.
+```
+
+**Response Example (No Projects):**
+```
+No projects found. Create folders in ~/.omega/projects/ with INSTRUCTIONS.md
+```
+
+**Use Cases:**
+- See what projects are available
+- Check which project is currently active
+- Get the exact project name for activation
+
+---
+
+### `/project` — Manage Active Project
+
+**What It Does:** Shows, activates, or deactivates the current project.
+
+**Usage:**
+- `/project` — Show the current active project
+- `/project <name>` — Activate a project
+- `/project off` — Deactivate the current project
+
+**Response Example (Show Current):**
+```
+Active project: real-estate
+Use /project off to deactivate.
+```
+
+**Response Example (Activate):**
+```
+Project 'real-estate' activated. Conversation cleared.
+```
+
+**Response Example (Deactivate):**
+```
+Project deactivated. Conversation cleared.
+```
+
+**Important Notes:**
+- Switching projects clears your current conversation for a clean context
+- The active project persists across Omega restarts
+- Project instructions are prepended to the system prompt, changing how the AI behaves
+- To add a new project, create a folder in `~/.omega/projects/` with an `INSTRUCTIONS.md` file and restart Omega
+
+**Use Cases:**
+- Scope AI behavior for specific domains (real estate, nutrition, finance)
+- Switch between different "AI personas" on the fly
+- Deactivate when you want the default AI behavior back
+
+---
+
 ### `/help` — Command Help
 
 **What It Does:** Displays a quick reference guide of all available commands with brief descriptions.
@@ -245,6 +310,8 @@ Omega Commands
 /tasks    — List your scheduled tasks
 /cancel   — Cancel a task by ID
 /language — Show or set your language
+/projects — List available projects
+/project  — Show, activate, or deactivate a project
 /help     — This message
 ```
 

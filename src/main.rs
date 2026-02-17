@@ -104,6 +104,10 @@ async fn main() -> anyhow::Result<()> {
                 prompts.system.push_str(&skill_block);
             }
 
+            // Ensure projects dir exists, then load all projects.
+            omega_skills::ensure_projects_dir(&cfg.omega.data_dir);
+            let projects = omega_skills::load_projects(&cfg.omega.data_dir);
+
             // Build provider.
             let provider: Arc<dyn omega_core::traits::Provider> = Arc::from(build_provider(&cfg)?);
 
@@ -160,6 +164,7 @@ async fn main() -> anyhow::Result<()> {
                 prompts,
                 cfg.omega.data_dir.clone(),
                 skills,
+                projects,
             );
             gw.run().await?;
         }

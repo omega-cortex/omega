@@ -240,6 +240,10 @@ Users can interact with their facts through bot commands:
 - **/facts** -- View all stored facts.
 - **/forget** -- Delete specific facts or all facts.
 
+### Project Facts
+
+The projects feature uses the facts system to store which project is active for each user. The fact key is `active_project` and the value is the project directory name (e.g., `"real-estate"`). This fact is managed by the `/project` command — you don't need to interact with it directly.
+
 ### Fact Upsert Behavior
 
 ```rust

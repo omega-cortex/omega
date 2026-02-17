@@ -436,6 +436,50 @@ SELECT key, value FROM facts WHERE sender_id = ? ORDER BY key
 
 ---
 
+#### `async fn get_fact(&self, sender_id: &str, key: &str) -> Result<Option<String>, OmegaError>`
+
+**Purpose:** Get a single fact value by sender and key.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sender_id` | `&str` | The user whose fact to retrieve. |
+| `key` | `&str` | The fact key to look up. |
+
+**Returns:** `Result<Option<String>, OmegaError>` -- `Some(value)` if the fact exists, `None` otherwise.
+
+**SQL:**
+```sql
+SELECT value FROM facts WHERE sender_id = ? AND key = ?
+```
+
+**Called by:** `gateway.rs` for active project lookup, `commands.rs` for `/projects` and `/project` commands.
+
+---
+
+#### `async fn delete_fact(&self, sender_id: &str, key: &str) -> Result<bool, OmegaError>`
+
+**Purpose:** Delete a single fact by sender and key.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sender_id` | `&str` | The user whose fact to delete. |
+| `key` | `&str` | The fact key to delete. |
+
+**Returns:** `Result<bool, OmegaError>` -- `true` if a row was deleted, `false` if the fact did not exist.
+
+**SQL:**
+```sql
+DELETE FROM facts WHERE sender_id = ? AND key = ?
+```
+
+**Called by:** `commands.rs` for `/project off` (deactivate project).
+
+---
+
 #### `async fn get_recent_summaries(&self, channel: &str, sender_id: &str, limit: i64) -> Result<Vec<(String, String)>, OmegaError>`
 
 **Purpose:** Get recent closed conversation summaries for a user on a specific channel.
@@ -1197,6 +1241,8 @@ All errors are wrapped in `OmegaError::Memory(String)` with descriptive messages
 | `complete_task()` | Propagates errors (caller in scheduler loop logs and continues). |
 | `get_tasks_for_sender()` | Propagates errors. |
 | `cancel_task()` | Propagates errors. |
+| `get_fact()` | Propagates errors. |
+| `delete_fact()` | Propagates errors. |
 
 ### Resilience in build_context()
 Facts, summaries, and recalled messages are fetched with `unwrap_or_default()`. This ensures that a failure in retrieving personalization data does not prevent the provider from receiving a valid context. The conversation will still work; it will just lack facts, summaries, or recalled context.
@@ -1230,6 +1276,8 @@ All tests use an in-memory SQLite store (`sqlite::memory:`) with migrations appl
 | `test_complete_recurring` | Creates a daily recurring task with past due_at, completes it, verifies the task still exists with `due_at` advanced by 1 day. |
 | `test_cancel_task` | Creates a task, cancels it by ID prefix, verifies it no longer appears in `get_tasks_for_sender()`. |
 | `test_cancel_task_wrong_sender` | Creates a task for user1, attempts cancellation by user2, verifies it fails (returns `false`) and the task still exists for user1. |
+| `test_get_fact` | Stores a fact, verifies `get_fact()` returns `Some(value)`. Also checks missing fact returns `None`. |
+| `test_delete_fact` | Verifies `delete_fact()` returns `false` for non-existent fact, `true` after storing, and fact is gone after deletion. |
 
 ## Invariants
 

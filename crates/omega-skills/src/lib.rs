@@ -155,6 +155,79 @@ fn parse_skill_file(content: &str) -> Option<SkillFrontmatter> {
     toml::from_str(toml_block).ok()
 }
 
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+/// A loaded project definition.
+#[derive(Debug, Clone)]
+pub struct Project {
+    /// Directory name (e.g. "real-estate").
+    pub name: String,
+    /// Contents of `INSTRUCTIONS.md`.
+    pub instructions: String,
+    /// Absolute path to the project directory.
+    pub path: PathBuf,
+}
+
+/// Create `{data_dir}/projects/` if it doesn't exist.
+pub fn ensure_projects_dir(data_dir: &str) {
+    let dir = Path::new(&expand_tilde(data_dir)).join("projects");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        warn!("projects: failed to create {}: {e}", dir.display());
+    }
+}
+
+/// Scan `{data_dir}/projects/*/INSTRUCTIONS.md` and return all valid projects.
+pub fn load_projects(data_dir: &str) -> Vec<Project> {
+    let dir = Path::new(&expand_tilde(data_dir)).join("projects");
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut projects = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let instructions_path = path.join("INSTRUCTIONS.md");
+        let content = match std::fs::read_to_string(&instructions_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let trimmed = content.trim().to_string();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        if name.is_empty() {
+            continue;
+        }
+        projects.push(Project {
+            name,
+            instructions: trimmed,
+            path,
+        });
+    }
+
+    projects.sort_by(|a, b| a.name.cmp(&b.name));
+    projects
+}
+
+/// Find a project by name and return its instructions.
+pub fn get_project_instructions<'a>(projects: &'a [Project], name: &str) -> Option<&'a str> {
+    projects
+        .iter()
+        .find(|p| p.name == name)
+        .map(|p| p.instructions.as_str())
+}
+
 /// Check whether a CLI tool exists on `$PATH`.
 fn which_exists(tool: &str) -> bool {
     std::process::Command::new("which")
@@ -252,6 +325,74 @@ description = \"No deps.\"
     fn test_load_skills_missing_dir() {
         let skills = load_skills("/tmp/__omega_test_no_such_dir__");
         assert!(skills.is_empty());
+    }
+
+    #[test]
+    fn test_load_projects_missing_dir() {
+        let projects = load_projects("/tmp/__omega_test_no_such_projects_dir__");
+        assert!(projects.is_empty());
+    }
+
+    #[test]
+    fn test_load_projects_valid() {
+        let tmp = std::env::temp_dir().join("__omega_test_projects_valid__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let proj_dir = tmp.join("projects/my-project");
+        std::fs::create_dir_all(&proj_dir).unwrap();
+        std::fs::write(
+            proj_dir.join("INSTRUCTIONS.md"),
+            "You are a helpful assistant.",
+        )
+        .unwrap();
+
+        let projects = load_projects(tmp.to_str().unwrap());
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name, "my-project");
+        assert_eq!(projects[0].instructions, "You are a helpful assistant.");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_load_projects_empty_instructions() {
+        let tmp = std::env::temp_dir().join("__omega_test_projects_empty__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let proj_dir = tmp.join("projects/empty-proj");
+        std::fs::create_dir_all(&proj_dir).unwrap();
+        std::fs::write(proj_dir.join("INSTRUCTIONS.md"), "   \n  ").unwrap();
+
+        let projects = load_projects(tmp.to_str().unwrap());
+        assert!(projects.is_empty(), "empty instructions should be skipped");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_load_projects_no_instructions_file() {
+        let tmp = std::env::temp_dir().join("__omega_test_projects_no_file__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let proj_dir = tmp.join("projects/no-file");
+        std::fs::create_dir_all(&proj_dir).unwrap();
+        // No INSTRUCTIONS.md created.
+
+        let projects = load_projects(tmp.to_str().unwrap());
+        assert!(
+            projects.is_empty(),
+            "dir without INSTRUCTIONS.md should be skipped"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_get_project_instructions() {
+        let projects = vec![Project {
+            name: "stocks".into(),
+            instructions: "Track my portfolio.".into(),
+            path: PathBuf::from("/home/user/.omega/projects/stocks"),
+        }];
+        assert_eq!(
+            get_project_instructions(&projects, "stocks"),
+            Some("Track my portfolio.")
+        );
+        assert!(get_project_instructions(&projects, "unknown").is_none());
     }
 
     #[test]

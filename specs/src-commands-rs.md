@@ -24,6 +24,8 @@ pub enum Command {
     Tasks,
     Cancel,
     Language,
+    Projects,
+    Project,
     Help,
 }
 ```
@@ -38,6 +40,8 @@ pub enum Command {
 | `Tasks` | List pending scheduled tasks for the user |
 | `Cancel` | Cancel a scheduled task by ID prefix |
 | `Language` | Show or set the user's preferred response language |
+| `Projects` | List available projects, marking the active one |
+| `Project` | Show, activate, or deactivate a project |
 | `Help` | Display all available commands |
 
 ---
@@ -63,6 +67,8 @@ pub enum Command {
 - `/tasks` → `Command::Tasks`
 - `/cancel` → `Command::Cancel`
 - `/language` or `/lang` → `Command::Language`
+- `/projects` → `Command::Projects`
+- `/project` → `Command::Project`
 - `/help` → `Command::Help`
 
 **Example Behavior:**
@@ -77,7 +83,7 @@ pub enum Command {
 
 ## Command Handler
 
-### Function: `handle(cmd, store, channel, sender_id, text, uptime, provider_name) -> String`
+### Function: `handle(cmd, store, channel, sender_id, text, uptime, provider_name, projects) -> String`
 
 **Location:** Lines 38–57
 
@@ -91,6 +97,7 @@ pub async fn handle(
     text: &str,
     uptime: &Instant,
     provider_name: &str,
+    projects: &[omega_skills::Project],
 ) -> String
 ```
 
@@ -102,6 +109,7 @@ pub async fn handle(
 - `text`: The full original message text (used by `/cancel` to extract the task ID argument)
 - `uptime`: Process start time (for elapsed duration calculation)
 - `provider_name`: Active AI provider name (e.g., "Claude Code CLI")
+- `projects`: Slice of loaded project definitions (for `/projects` and `/project` commands)
 
 **Return:** Formatted response text to send back to the user
 
@@ -331,6 +339,62 @@ Error: [error description]
 
 ---
 
+### /projects — `handle_projects(store, sender_id, projects)`
+
+**Behavior:**
+- If no projects exist, returns instructions to create folders in `~/.omega/projects/`.
+- Calls `store.get_fact(sender_id, "active_project")` to get the currently active project.
+- Lists all projects with `(active)` marker next to the current one.
+- Appends usage instructions.
+
+**Response Format (With Projects):**
+```
+Projects
+
+- real-estate (active)
+- nutrition
+- stocks
+
+Use /project <name> to activate, /project off to deactivate.
+```
+
+**Response Format (No Projects):**
+```
+No projects found. Create folders in ~/.omega/projects/ with INSTRUCTIONS.md
+```
+
+---
+
+### /project — `handle_project(store, channel, sender_id, text, projects)`
+
+**Behavior:**
+- **No argument** (`/project`): Shows the current active project or instructions.
+- **`/project off`**: Deactivates the current project by deleting the `active_project` fact. Closes current conversation for clean context.
+- **`/project <name>`**: Activates a project by name. Validates the name exists via `get_project_instructions()`. Stores the `active_project` fact. Closes current conversation for clean context.
+
+**Response Format (Show Current):**
+```
+Active project: real-estate
+Use /project off to deactivate.
+```
+
+**Response Format (Activate):**
+```
+Project 'real-estate' activated. Conversation cleared.
+```
+
+**Response Format (Deactivate):**
+```
+Project deactivated. Conversation cleared.
+```
+
+**Response Format (Not Found):**
+```
+Project 'xyz' not found. Use /projects to see available projects.
+```
+
+---
+
 ### /help — `handle_help()`
 
 **Location:** Lines 159–171
@@ -352,6 +416,8 @@ Omega Commands
 /tasks    — List your scheduled tasks
 /cancel   — Cancel a task by ID
 /language — Show or set your language
+/projects — List available projects
+/project  — Show, activate, or deactivate a project
 /help     — This message
 ```
 
@@ -392,6 +458,11 @@ All command handlers interact with the `omega_memory::Store` trait/type:
 | `handle_cancel()` | `store.cancel_task(id_prefix, sender_id)` | `Result<bool>` | Cancel a task by ID prefix |
 | `handle_language()` | `store.get_facts(sender_id)` | `Result<Vec<(String, String)>>` | Look up current preferred_language fact |
 | `handle_language()` | `store.store_fact(sender_id, key, value)` | `Result<()>` | Set preferred_language fact |
+| `handle_projects()` | `store.get_fact(sender_id, "active_project")` | `Result<Option<String>>` | Get current active project |
+| `handle_project()` | `store.get_fact(sender_id, "active_project")` | `Result<Option<String>>` | Get current active project |
+| `handle_project()` | `store.store_fact(sender_id, "active_project", name)` | `Result<()>` | Set active project |
+| `handle_project()` | `store.delete_fact(sender_id, "active_project")` | `Result<bool>` | Deactivate project |
+| `handle_project()` | `store.close_current_conversation(channel, sender_id)` | `Result<bool>` | Clear conversation on project switch |
 
 All store operations are async and return `Result` types with proper error handling.
 

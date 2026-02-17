@@ -52,6 +52,45 @@ Core skills live in `skills/` at the repo root and are embedded into the binary 
 
 To add a new bundled skill: create the `.md` file in `skills/`, then add it to the `BUNDLED_SKILLS` const in `crates/omega-skills/src/lib.rs`.
 
+## Projects
+
+In addition to skills, the `omega-skills` crate also loads **projects** — user-defined instruction scopes.
+
+### How Projects Work
+
+1. Create a folder in `~/.omega/projects/` with any name (e.g., `real-estate`)
+2. Add an `INSTRUCTIONS.md` file with custom instructions
+3. Restart Omega
+4. Use `/project real-estate` to activate it
+
+When a project is active, its instructions are prepended to the system prompt, changing how the AI behaves.
+
+### Project Directory Format
+
+```
+~/.omega/projects/
+├── real-estate/
+│   └── INSTRUCTIONS.md      # "You are a real estate analyst..."
+├── nutrition/
+│   └── INSTRUCTIONS.md      # "You are a nutrition coach..."
+└── stocks/
+    └── INSTRUCTIONS.md      # "You track my portfolio..."
+```
+
+### Bot Commands
+
+- `/projects` — List all available projects, marking the active one
+- `/project <name>` — Activate a project (clears conversation for clean context)
+- `/project off` — Deactivate the current project
+- `/project` — Show the currently active project
+
+### Design Notes (Projects)
+
+- **No frontmatter**: Unlike skills, projects are just plain markdown files. The directory name IS the project name.
+- **Stored as fact**: The active project is stored as a user fact (`active_project`), so it persists across restarts.
+- **Conversation cleared**: Switching projects closes the current conversation for a clean context.
+- **No hot-reload**: Restart Omega to pick up new project folders.
+
 ## Design Notes
 
 - **Lean prompt**: Only name + description go into the system prompt. The AI reads the full file on demand.

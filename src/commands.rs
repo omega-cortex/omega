@@ -14,6 +14,8 @@ pub enum Command {
     Cancel,
     Language,
     Skills,
+    Projects,
+    Project,
     WhatsApp,
     Help,
 }
@@ -33,6 +35,8 @@ impl Command {
             "/cancel" => Some(Self::Cancel),
             "/language" | "/lang" => Some(Self::Language),
             "/skills" => Some(Self::Skills),
+            "/projects" => Some(Self::Projects),
+            "/project" => Some(Self::Project),
             "/whatsapp" => Some(Self::WhatsApp),
             "/help" => Some(Self::Help),
             _ => None,
@@ -51,6 +55,7 @@ pub async fn handle(
     uptime: &Instant,
     provider_name: &str,
     skills: &[omega_skills::Skill],
+    projects: &[omega_skills::Project],
 ) -> String {
     match cmd {
         Command::Status => handle_status(store, uptime, provider_name).await,
@@ -62,6 +67,8 @@ pub async fn handle(
         Command::Cancel => handle_cancel(store, sender_id, text).await,
         Command::Language => handle_language(store, sender_id, text).await,
         Command::Skills => handle_skills(skills),
+        Command::Projects => handle_projects(store, sender_id, projects).await,
+        Command::Project => handle_project(store, channel, sender_id, text, projects).await,
         Command::WhatsApp => handle_whatsapp(),
         Command::Help => handle_help(),
     }
@@ -213,6 +220,84 @@ fn handle_skills(skills: &[omega_skills::Skill]) -> String {
     out
 }
 
+/// Handle /projects — list available projects, marking the active one.
+async fn handle_projects(
+    store: &Store,
+    sender_id: &str,
+    projects: &[omega_skills::Project],
+) -> String {
+    if projects.is_empty() {
+        return "No projects found. Create folders in ~/.omega/projects/ with INSTRUCTIONS.md"
+            .to_string();
+    }
+    let active = store
+        .get_fact(sender_id, "active_project")
+        .await
+        .ok()
+        .flatten();
+    let mut out = String::from("Projects\n");
+    for p in projects {
+        let marker = if active.as_deref() == Some(&p.name) {
+            " (active)"
+        } else {
+            ""
+        };
+        out.push_str(&format!("\n- {}{marker}", p.name));
+    }
+    out.push_str("\n\nUse /project <name> to activate, /project off to deactivate.");
+    out
+}
+
+/// Handle /project — activate, deactivate, or show current project.
+async fn handle_project(
+    store: &Store,
+    channel: &str,
+    sender_id: &str,
+    text: &str,
+    projects: &[omega_skills::Project],
+) -> String {
+    let arg = text
+        .split_whitespace()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if arg.is_empty() {
+        // Show current project.
+        return match store.get_fact(sender_id, "active_project").await {
+            Ok(Some(name)) => format!("Active project: {name}\nUse /project off to deactivate."),
+            Ok(None) => "No active project. Use /project <name> to activate.".to_string(),
+            Err(e) => format!("Error: {e}"),
+        };
+    }
+
+    if arg == "off" {
+        // Deactivate.
+        match store.delete_fact(sender_id, "active_project").await {
+            Ok(true) => {
+                // Close conversation for a clean context.
+                let _ = store.close_current_conversation(channel, sender_id).await;
+                "Project deactivated. Conversation cleared.".to_string()
+            }
+            Ok(false) => "No active project.".to_string(),
+            Err(e) => format!("Error: {e}"),
+        }
+    } else {
+        // Activate a project.
+        if omega_skills::get_project_instructions(projects, &arg).is_none() {
+            return format!("Project '{arg}' not found. Use /projects to see available projects.");
+        }
+        match store.store_fact(sender_id, "active_project", &arg).await {
+            Ok(()) => {
+                // Close conversation for a clean context.
+                let _ = store.close_current_conversation(channel, sender_id).await;
+                format!("Project '{arg}' activated. Conversation cleared.")
+            }
+            Err(e) => format!("Error: {e}"),
+        }
+    }
+}
+
 /// Handle /whatsapp — returns a marker that the gateway intercepts.
 fn handle_whatsapp() -> String {
     "WHATSAPP_QR".to_string()
@@ -230,6 +315,8 @@ Omega Commands\n\n\
 /cancel   — Cancel a task by ID\n\
 /language — Show or set your language\n\
 /skills   — List available skills\n\
+/projects — List available projects\n\
+/project  — Show, activate, or deactivate a project\n\
 /whatsapp — Connect WhatsApp via QR code\n\
 /help     — This message"
         .to_string()

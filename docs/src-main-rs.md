@@ -191,6 +191,10 @@ Load prompts from ~/.omega/
     ↓
 Deploy bundled skills if not present
     ↓
+Ensure projects directory exists (~/.omega/projects/)
+    ↓
+Load all projects from projects/*/INSTRUCTIONS.md
+    ↓
 Build Claude Code provider
     ↓
 Check if Claude CLI available

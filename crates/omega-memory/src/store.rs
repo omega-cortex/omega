@@ -297,6 +297,31 @@ impl Store {
         Ok(())
     }
 
+    /// Get a single fact by sender and key.
+    pub async fn get_fact(&self, sender_id: &str, key: &str) -> Result<Option<String>, OmegaError> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM facts WHERE sender_id = ? AND key = ?")
+                .bind(sender_id)
+                .bind(key)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| OmegaError::Memory(format!("query failed: {e}")))?;
+
+        Ok(row.map(|(v,)| v))
+    }
+
+    /// Delete a single fact by sender and key. Returns `true` if a row was deleted.
+    pub async fn delete_fact(&self, sender_id: &str, key: &str) -> Result<bool, OmegaError> {
+        let result = sqlx::query("DELETE FROM facts WHERE sender_id = ? AND key = ?")
+            .bind(sender_id)
+            .bind(key)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| OmegaError::Memory(format!("delete failed: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Get all facts for a sender.
     pub async fn get_facts(&self, sender_id: &str) -> Result<Vec<(String, String)>, OmegaError> {
         let rows: Vec<(String, String)> =
@@ -1076,6 +1101,30 @@ mod tests {
         // Task still exists.
         let tasks = store.get_tasks_for_sender("user1").await.unwrap();
         assert_eq!(tasks.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_fact() {
+        let store = test_store().await;
+        // Missing fact returns None.
+        assert!(store.get_fact("user1", "color").await.unwrap().is_none());
+
+        store.store_fact("user1", "color", "blue").await.unwrap();
+        assert_eq!(
+            store.get_fact("user1", "color").await.unwrap(),
+            Some("blue".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_delete_fact() {
+        let store = test_store().await;
+        // Delete non-existent returns false.
+        assert!(!store.delete_fact("user1", "color").await.unwrap());
+
+        store.store_fact("user1", "color", "blue").await.unwrap();
+        assert!(store.delete_fact("user1", "color").await.unwrap());
+        assert!(store.get_fact("user1", "color").await.unwrap().is_none());
     }
 
     #[tokio::test]
