@@ -4,7 +4,7 @@
 `/Users/isudoajl/ownCloud/Projects/omega/src/selfcheck.rs`
 
 ## Purpose
-Startup self-check module that verifies all components of the Omega system are operational before the gateway event loop begins. It performs a series of validation checks and produces diagnostic output to confirm system readiness.
+Startup self-check module that verifies all components of the Omega system are operational before the gateway event loop begins. It performs a series of validation checks and produces cliclack-styled diagnostic output to confirm system readiness.
 
 ## Module Type
 Internal async module providing pre-flight verification for the main gateway.
@@ -17,7 +17,7 @@ Internal async module providing pre-flight verification for the main gateway.
   - `config: &Config` — System configuration (provider settings, channel settings)
   - `store: &Store` — Database connection for memory access
 - **Returns**: `bool` — `true` if all checks passed, `false` if any check failed
-- **Output**: Prints formatted check results to stdout with pass/fail indicators
+- **Output**: Prints cliclack-styled check results to stdout with pass/fail indicators
 
 ## Internal Structures
 
@@ -123,25 +123,53 @@ Encapsulates the result of a single check.
 
 ## Diagnostic Output Format
 
-### Console Output
+### Cliclack-Styled Output
+
+Output uses the `cliclack` crate for styled terminal output. Each call is wrapped with `let _ =` to ignore potential write errors while keeping the function's return type as `bool`.
+
+**All checks passed:**
 ```
-Omega Self-Check
-================
-  + Database — accessible (2.5 MB)
-  + Provider — claude-code (available)
-  + Channel — telegram (@omega_bot)
-
+◇  omega self-check
+│
+◇  Database — accessible (2.5 MB)
+◇  Provider — claude-code (available)
+◇  Channel — telegram (@omega_bot)
+│
+◇  All checks passed
 ```
 
-### Pass Indicator
-- `+` — Check passed
+**Some checks failed:**
+```
+◇  omega self-check
+│
+◇  Database — accessible (2.5 MB)
+✗  Provider — claude-code (NOT FOUND — install claude CLI)
+◇  Channel — telegram (@omega_bot)
+│
+◇  Some checks failed
+```
 
-### Fail Indicator
-- `x` — Check failed
+### Output Components
+
+| Component | Cliclack Call | Purpose |
+|-----------|--------------|---------|
+| Header | `cliclack::intro("omega self-check")` | Styled banner at the top of the output |
+| Passed check | `cliclack::log::success(...)` | Displays check name and detail with a success indicator |
+| Failed check | `cliclack::log::error(...)` | Displays check name and detail with an error indicator |
+| Success summary | `cliclack::outro("All checks passed")` | Styled closing banner when all checks pass |
+| Failure summary | `cliclack::outro_cancel("Some checks failed")` | Styled closing banner when any check fails |
+
+### Error Handling in Output
+
+All cliclack calls use `let _ =` to discard `Result` values. This means:
+- If stdout is unavailable or a write error occurs, the self-check silently ignores the output failure
+- The function still returns the correct `bool` based on check results, regardless of whether output succeeded
+- This keeps the return type clean (`bool` instead of `Result<bool, ...>`)
 
 ## Dependency Verification
 
 ### External Crates
+- `cliclack` — Styled terminal output (intro, log, outro)
 - `reqwest` — HTTP client for Telegram API calls
 - `serde_json` — JSON parsing for Telegram API responses
 - `tokio` — Async runtime (implicitly via async functions)
@@ -210,15 +238,23 @@ Omega Self-Check
 - JSON parsing failures silently fall back to "unknown" for bot username
 - Errors do not panic; check completes with failure status
 
+### Cliclack Output Errors
+- All `cliclack` calls (`intro`, `log::success`, `log::error`, `outro`, `outro_cancel`) return `Result` types
+- Every call is wrapped with `let _ =` to discard the result
+- Output failures are silently ignored; they do not affect the returned `bool`
+- This ensures the self-check function remains robust even when stdout is unavailable
+
 ## Overall Flow
 
 1. Initialize results vector
 2. Execute database check (always runs)
 3. Execute provider check (always runs)
 4. Execute Telegram channel check (conditionally, if enabled)
-5. Print formatted results to stdout
-6. Calculate overall pass/fail status
-7. Return boolean status
+5. Print `cliclack::intro("omega self-check")` header
+6. Iterate results: print `cliclack::log::success(...)` for passed checks, `cliclack::log::error(...)` for failed checks
+7. Calculate overall pass/fail status
+8. Print `cliclack::outro("All checks passed")` or `cliclack::outro_cancel("Some checks failed")`
+9. Return boolean status
 
 ## Return Value Semantics
 
@@ -226,9 +262,9 @@ Omega Self-Check
 - **`false`**: One or more checks failed; gateway should not start or should start with reduced functionality
 
 ## Output Destination
-- Stdout only (no file logging)
+- Stdout only via cliclack styled output (no file logging)
 - Printed before gateway initialization
-- Human-readable format
+- Human-readable, terminal-styled format with box-drawing characters
 
 ## Security Considerations
 
@@ -252,6 +288,7 @@ Omega Self-Check
 4. **Network intermittent during Telegram check**: Marked as network error, check fails
 5. **Malformed JSON in Telegram response**: Username extraction fails silently, defaults to "unknown"
 6. **Multiple channels**: Only Telegram is currently checked; other channels (WhatsApp) are not validated
+7. **Stdout unavailable**: cliclack calls fail silently via `let _ =`, function still returns correct boolean
 
 ## Testing Considerations
 

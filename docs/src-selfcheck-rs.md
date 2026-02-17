@@ -11,17 +11,17 @@ Self-Check is an async function that runs during Omega initialization, after con
 - Verifies the SQLite memory database is accessible
 - Confirms the configured AI provider is installed and working
 - Validates enabled messaging channels (Telegram, WhatsApp, etc.)
-- Produces human-readable diagnostic output
+- Produces styled diagnostic output using cliclack
 - Signals overall system readiness (pass/fail)
 
 ## When to Run Self-Check
 
 Self-Check is **automatically executed** during normal Omega startup:
 
-1. **Every time Omega starts** — the gateway calls `selfcheck::run()` before entering the event loop
-2. **During development** — catches configuration issues immediately
-3. **After system changes** — detects if dependencies were uninstalled or tokens revoked
-4. **In production** — confirms system health before handling messages
+1. **Every time Omega starts** -- the gateway calls `selfcheck::run()` before entering the event loop
+2. **During development** -- catches configuration issues immediately
+3. **After system changes** -- detects if dependencies were uninstalled or tokens revoked
+4. **In production** -- confirms system health before handling messages
 
 You can also manually trigger self-check using the `omega selfcheck` command:
 
@@ -31,26 +31,30 @@ omega selfcheck
 
 ## Example Output
 
+Self-check uses [cliclack](https://crates.io/crates/cliclack) for styled terminal output. Results appear with a vertical bar layout, styled markers for pass/fail, and a summary footer.
+
 ### All Checks Pass
 
 ```
-Omega Self-Check
-================
-  + Database — accessible (2.5 MB)
-  + Provider — claude-code (available)
-  + Channel — telegram (@my_omega_bot)
-
+┌  omega self-check
+│
+◇  Database — accessible (2.5 MB)
+◇  Provider — claude-code (available)
+◇  Channel — telegram (@my_omega_bot)
+│
+└  All checks passed
 ```
 
 ### With Failures
 
 ```
-Omega Self-Check
-================
-  + Database — accessible (1.2 MB)
-  x Provider — claude-code (NOT FOUND — install claude CLI)
-  x Channel — telegram (token invalid — HTTP 401)
-
+┌  omega self-check
+│
+◇  Database — accessible (1.2 MB)
+▲  Provider — claude-code (NOT FOUND — install claude CLI)
+▲  Channel — telegram (token invalid — HTTP 401)
+│
+└  Some checks failed
 ```
 
 ## The Three Checks
@@ -67,8 +71,8 @@ Omega Self-Check
 - Configured in: `config.toml` under `[storage]`
 
 **What gets reported:**
-- `+ Database — accessible (2.5 MB)` — Database is healthy
-- `x Database — FAILED: {error}` — Database cannot be accessed
+- `◇  Database — accessible (2.5 MB)` -- Database is healthy
+- `▲  Database — FAILED: {error}` -- Database cannot be accessed
 
 **Why it might fail:**
 - Database file is corrupted
@@ -94,16 +98,16 @@ mv ~/.omega/memory.db ~/.omega/memory.db.backup
 - For claude-code: the `claude` CLI command is installed and in PATH
 
 **Supported providers:**
-- `claude-code` — Claude AI via Anthropic CLI (checked)
-- `anthropic` — Direct Anthropic API (unchecked, requires runtime API key)
-- `openai` — OpenAI API (unchecked, requires runtime API key)
-- `ollama` — Local LLM (unchecked, requires runtime connectivity)
-- `openrouter` — OpenRouter API (unchecked, requires runtime API key)
+- `claude-code` -- Claude AI via Anthropic CLI (checked)
+- `anthropic` -- Direct Anthropic API (unchecked, requires runtime API key)
+- `openai` -- OpenAI API (unchecked, requires runtime API key)
+- `ollama` -- Local LLM (unchecked, requires runtime connectivity)
+- `openrouter` -- OpenRouter API (unchecked, requires runtime API key)
 
 **What gets reported:**
-- `+ Provider — claude-code (available)` — claude CLI is installed
-- `x Provider — claude-code (NOT FOUND — install claude CLI)` — claude CLI not found
-- `+ Provider — anthropic (unchecked)` — non-claude-code providers skip validation
+- `◇  Provider — claude-code (available)` -- claude CLI is installed
+- `▲  Provider — claude-code (NOT FOUND — install claude CLI)` -- claude CLI not found
+- `◇  Provider — anthropic (unchecked)` -- non-claude-code providers skip validation
 
 **Why claude-code gets checked:**
 - It's the default zero-config provider
@@ -144,10 +148,10 @@ This check only runs if:
 If Telegram is not configured or disabled, this check is skipped.
 
 **What gets reported:**
-- `+ Channel — telegram (@my_bot_username)` — Bot token is valid and bot is accessible
-- `x Channel — telegram (missing bot_token)` — No token configured
-- `x Channel — telegram (token invalid — HTTP 401)` — Token rejected by Telegram
-- `x Channel — telegram (network error: connection timeout)` — Cannot reach Telegram servers
+- `◇  Channel — telegram (@my_bot_username)` -- Bot token is valid and bot is accessible
+- `▲  Channel — telegram (missing bot_token)` -- No token configured
+- `▲  Channel — telegram (token invalid — HTTP 401)` -- Token rejected by Telegram
+- `▲  Channel — telegram (network error: connection timeout)` -- Cannot reach Telegram servers
 
 **Why it might fail:**
 - Token is missing from config
@@ -177,24 +181,26 @@ curl "https://api.telegram.org/bot123456789:ABCdefGHijklMNOpqrSTUvwxYZ/getMe"
 
 ## Interpreting Results
 
-### All Checks Pass (✓)
+### All Checks Pass
 
 ```
-Omega Self-Check
-================
-  + Database — accessible (2.5 MB)
-  + Provider — claude-code (available)
-  + Channel — telegram (@my_omega_bot)
+┌  omega self-check
+│
+◇  Database — accessible (2.5 MB)
+◇  Provider — claude-code (available)
+◇  Channel — telegram (@my_omega_bot)
+│
+└  All checks passed
 ```
 
 **Meaning:** System is fully operational. The gateway will start and handle messages normally.
 
 ---
 
-### Database Check Fails (✗)
+### Database Check Fails
 
 ```
-  x Database — FAILED: unable to open database file
+▲  Database — FAILED: unable to open database file
 ```
 
 **Meaning:** Omega cannot access its memory store. Without a working database:
@@ -206,10 +212,10 @@ Omega Self-Check
 
 ---
 
-### Provider Check Fails (✗)
+### Provider Check Fails
 
 ```
-  x Provider — claude-code (NOT FOUND — install claude CLI)
+▲  Provider — claude-code (NOT FOUND — install claude CLI)
 ```
 
 **Meaning:** The Claude Code CLI is not installed. Omega cannot delegate AI reasoning to Claude.
@@ -218,10 +224,10 @@ Omega Self-Check
 
 ---
 
-### Channel Check Fails (✗)
+### Channel Check Fails
 
 ```
-  x Channel — telegram (token invalid — HTTP 401)
+▲  Channel — telegram (token invalid — HTTP 401)
 ```
 
 **Meaning:** The Telegram bot token is invalid. Omega cannot receive or send Telegram messages.
@@ -237,8 +243,8 @@ Omega Self-Check
 ## Return Status
 
 The self-check function returns:
-- **true** — All checks passed, system is ready
-- **false** — One or more checks failed
+- **true** -- All checks passed, system is ready
+- **false** -- One or more checks failed
 
 ### How Omega responds to `false`:
 - During startup: The gateway may refuse to start or start in degraded mode
@@ -363,8 +369,12 @@ default = "claude-code"
 
 **Self-check output:**
 ```
-  + Database — accessible (0.1 MB)
-  + Provider — claude-code (available)
+┌  omega self-check
+│
+◇  Database — accessible (0.1 MB)
+◇  Provider — claude-code (available)
+│
+└  All checks passed
 ```
 
 ### With Telegram
@@ -380,9 +390,13 @@ bot_token = "123456789:ABCdefGHijklMNOpqrSTUvwxYZ"
 
 **Self-check output:**
 ```
-  + Database — accessible (0.1 MB)
-  + Provider — claude-code (available)
-  + Channel — telegram (@my_bot)
+┌  omega self-check
+│
+◇  Database — accessible (0.1 MB)
+◇  Provider — claude-code (available)
+◇  Channel — telegram (@my_bot)
+│
+└  All checks passed
 ```
 
 ### Disabled Telegram
@@ -398,8 +412,12 @@ bot_token = "..."
 
 **Self-check output:** (Telegram check is skipped)
 ```
-  + Database — accessible (0.1 MB)
-  + Provider — claude-code (available)
+┌  omega self-check
+│
+◇  Database — accessible (0.1 MB)
+◇  Provider — claude-code (available)
+│
+└  All checks passed
 ```
 
 ---
@@ -418,13 +436,13 @@ Total self-check time: ~1-2 seconds with Telegram, ~50ms without.
 
 Self-check is a lightweight startup validation. It does NOT check:
 
-- ✗ Whether you have permission to send messages to specific Telegram chats
-- ✗ Whether users in `allowed_users` config are valid Telegram IDs
-- ✗ Whether the Claude API quota has been reached
-- ✗ Whether firewall rules allow Omega to listen on configured ports
-- ✗ Whether the LaunchAgent plist file has correct permissions
-- ✗ Whether message delivery will succeed (only that auth works)
-- ✗ Whether the database schema is up to date
+- Whether you have permission to send messages to specific Telegram chats
+- Whether users in `allowed_users` config are valid Telegram IDs
+- Whether the Claude API quota has been reached
+- Whether firewall rules allow Omega to listen on configured ports
+- Whether the LaunchAgent plist file has correct permissions
+- Whether message delivery will succeed (only that auth works)
+- Whether the database schema is up to date
 
 These are runtime checks that happen as messages flow through the system.
 

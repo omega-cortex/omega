@@ -2,7 +2,9 @@
 
 ## Overview
 
-The init wizard is Omega's **first impression and first-time user experience**. It's a 2-minute interactive setup that transforms Omega from an uninitialized Rust project into a working personal AI agent connected to Telegram.
+The init wizard is Omega's **first impression and first-time user experience**. It's a 2-minute interactive setup that transforms Omega from an uninitialized Rust project into a working personal AI agent connected to your messaging platforms and services.
+
+The wizard uses the **`cliclack`** crate for a polished, styled CLI experience with `◆ ◇ │` visual markers, spinners, confirmation toggles, and structured note blocks — replacing the plain `println!` prompts of earlier versions.
 
 The init wizard solves a critical problem: **new users need a frictionless path from "I cloned this repo" to "my bot works."** Without it, new users would face:
 - Manual directory creation
@@ -26,9 +28,9 @@ omega init
 ### Execution Context
 - **Requires:** Rust environment (user has already built/run Omega)
 - **Runs:** Synchronously in the terminal where user types
-- **Duration:** 1–2 minutes including user input time
-- **Output:** Visual prompts, confirmations, and next-step instructions
-- **Side Effects:** Creates `~/.omega/`, generates `config.toml`, validates Claude CLI
+- **Duration:** 1-3 minutes including user input time
+- **Output:** cliclack-styled prompts, spinners, confirmations, and next-step instructions
+- **Side Effects:** Creates `~/.omega/`, generates `config.toml`, validates Claude CLI, optionally pairs WhatsApp, optionally connects Google Workspace
 
 ### Success Criteria
 User can run `omega start` immediately after and have a working bot.
@@ -37,16 +39,23 @@ User can run `omega start` immediately after and have a working bot.
 
 ## The Onboarding Experience: Step-by-Step
 
-### Step 1: Welcome (Instant)
+### Step 1: Welcome Banner (Instant)
 
 **What the User Sees:**
 ```
-  Omega — Setup Wizard
-  ====================
+               ██████╗ ███╗   ███╗███████╗ ██████╗  █████╗
+              ██╔═══██╗████╗ ████║██╔════╝██╔════╝ ██╔══██╗
+              ██║   ██║██╔████╔██║█████╗  ██║  ███╗███████║
+              ██║   ██║██║╚██╔╝██║██╔══╝  ██║   ██║██╔══██║
+              ╚██████╔╝██║ ╚═╝ ██║███████╗╚██████╔╝██║  ██║
+               ╚═════╝ ╚═╝     ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝
+
+┌  omega init
+│
 ```
 
 **What's Happening:**
-The wizard prints a visual banner to signal that the interactive setup phase has begun. This is important because Omega is command-line based; users need explicit visual cues that something is happening.
+The wizard prints the ASCII OMEGA banner, then calls `cliclack::intro("omega init")` to begin the styled wizard session. The `┌` marker signals the start of the interactive flow.
 
 **User Action:** None. Just read the banner.
 
@@ -58,19 +67,23 @@ The wizard prints a visual banner to signal that the interactive setup phase has
 
 **What the User Sees (Success):**
 ```
-  Created ~/.omega
+◇  ~/.omega — created
 ```
 
 **What the User Sees (If Already Exists):**
 ```
-  ~/.omega already exists
+◇  ~/.omega — exists
 ```
 
 **What's Happening:**
 The wizard creates `~/.omega`, a hidden directory in the user's home directory where Omega will store:
 - SQLite database (`memory.db`) — conversation history and memory
 - Log files (`omega.log`) — runtime logs
-- Future state files (planned)
+- Skills (`skills/*.md`) — loaded at startup
+- WhatsApp session data (if paired)
+- System prompt (`SYSTEM_PROMPT.md`) — optional custom prompt
+- Welcome messages (`WELCOME.toml`) — optional per-language greetings
+- Heartbeat checklist (`HEARTBEAT.md`) — optional self-check items
 
 **Why It Matters:**
 Without this directory, Omega can't persist data between sessions. Creating it upfront ensures the user won't see mysterious "directory not found" errors later.
@@ -81,55 +94,61 @@ Without this directory, Omega can't persist data between sessions. Creating it u
 
 ---
 
-### Step 3: Validate Claude CLI (1–3 seconds)
+### Step 3: Validate Claude CLI (1-3 seconds)
+
+**What the User Sees (While Checking):**
+```
+◒  Checking claude CLI...
+```
 
 **What the User Sees (Success):**
 ```
-  Checking claude CLI... found
+◇  claude CLI — found
 ```
 
 **What the User Sees (Failure):**
 ```
-  Checking claude CLI... NOT FOUND
-
-  Install claude CLI first:
-    npm install -g @anthropic-ai/claude-code
-
-  Then run 'omega init' again.
+▲  claude CLI — NOT FOUND
+│
+│  Install claude CLI
+│
+│  npm install -g @anthropic-ai/claude-code
+│
+│  Then run 'omega init' again.
+│
+└  Setup aborted
 ```
 
 **What's Happening:**
-The wizard runs `claude --version` to verify that the Claude Code CLI is installed and accessible. Claude Code is Omega's default AI backend, so it's **mandatory** for Omega to work.
+A `cliclack::spinner()` animates while the wizard runs `claude --version` to verify that the Claude Code CLI is installed and accessible. Claude Code is Omega's default AI backend, so it's **mandatory** for Omega to work.
 
 **Why It Matters:**
-If Claude CLI is missing, Omega cannot function. Rather than letting the user discover this later during `omega start`, the wizard fails fast with a helpful installation command.
+If Claude CLI is missing, Omega cannot function. Rather than letting the user discover this later during `omega start`, the wizard fails fast with a `cliclack::note` containing the installation command. The session ends with `cliclack::outro_cancel("Setup aborted")`.
 
 **User Action:**
 - If found: Proceed to next step
 - If not found: User must install Claude CLI via npm, then re-run `omega init`
 
-**Time:** 1–3 seconds (includes subprocess execution)
+**Time:** 1-3 seconds (includes subprocess execution)
 
 **Implementation Detail:**
 The wizard uses `.unwrap_or(false)` to gracefully handle execution failures. If the `claude` command can't be found, the check fails safely without panicking, showing the user-friendly error message.
 
 ---
 
-### Step 4: Telegram Bot Setup — Token Collection (< 1 minute)
+### Step 4: Telegram Bot Setup -- Token Collection (< 1 minute)
 
 **What the User Sees:**
 ```
-  Telegram Bot Setup
-  ------------------
-  Create a bot with @BotFather on Telegram, then paste the token.
-
-  Bot token: _
+◆  Telegram bot token
+│  Paste token from @BotFather (or Enter to skip)
+│  _
 ```
 
-The user sees a prompt where `_` represents the blinking cursor waiting for input.
+The `◆` marker indicates an active input prompt waiting for the user.
 
 **What's Happening:**
-The wizard prompts the user to provide a Telegram bot token. This token allows Omega to receive messages from Telegram users and send responses back.
+The wizard uses `cliclack::input()` with a placeholder hint to prompt the user for a Telegram bot token. This token allows Omega to receive messages from Telegram users and send responses back.
 
 **Where Does the Token Come From?**
 New Telegram users who don't have a bot:
@@ -144,25 +163,25 @@ New Telegram users who don't have a bot:
 
 **Option A: User Has Token Ready**
 ```
-  Bot token: 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+◆  Telegram bot token
+│  123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
 ```
-User pastes token, presses Enter → Wizard stores token, proceeds
+User pastes token, presses Enter. Wizard stores the token and proceeds.
 
 **Option B: User Doesn't Have Token Yet**
 ```
-  Bot token:
+◆  Telegram bot token
+│
 ```
-User just presses Enter (leaves blank) → Wizard skips Telegram setup
-
+User just presses Enter (leaves blank). Wizard skips Telegram setup:
 ```
-  Skipping Telegram setup.
-  You can add it later in config.toml.
+◇  Skipping Telegram — you can add it later in config.toml
 ```
 
 **Why Skipping is OK:**
 Telegram integration is powerful but not required. Users might want to:
 - Test Omega locally first without connecting to Telegram
-- Integrate with WhatsApp or other platforms instead
+- Integrate with WhatsApp instead
 - Set up Telegram token manually later
 
 The wizard's philosophy: **Don't block the user on optional features.**
@@ -171,14 +190,13 @@ The wizard's philosophy: **Don't block the user on optional features.**
 
 ---
 
-### Step 5: Telegram User ID — Optional Allowlist (Optional, < 30 seconds)
+### Step 5: Telegram User ID -- Optional Allowlist (Optional, < 30 seconds)
 
 **What the User Sees (Only if Token Was Provided):**
 ```
-  Your Telegram user ID (send /start to @userinfobot to find it).
-  Leave blank to allow all users.
-
-  User ID: _
+◆  Your Telegram user ID
+│  Send /start to @userinfobot (blank = allow all)
+│  _
 ```
 
 **What's Happening:**
@@ -188,15 +206,17 @@ If the user provided a Telegram token, the wizard optionally asks for their Tele
 
 **Scenario 1: User Provides Their ID**
 ```
-  User ID: 123456789
+◆  Your Telegram user ID
+│  123456789
 ```
 The wizard records this ID. Later, the bot will only respond to messages from this specific Telegram user. This is secure; the bot ignores everyone else.
 
 **Scenario 2: User Leaves Blank**
 ```
-  User ID:
+◆  Your Telegram user ID
+│
 ```
-The wizard records `None` (no ID). The bot accepts messages from any Telegram user who knows the bot token. This is useful for:
+The wizard records `None` (no ID). The bot accepts messages from any Telegram user who knows the bot. This is useful for:
 - Testing the bot locally without auth restrictions
 - Shared bots or group deployments
 - Later adding auth via manual config editing
@@ -209,27 +229,186 @@ The wizard records `None` (no ID). The bot accepts messages from any Telegram us
 
 **Important:** This step is skipped entirely if the user didn't provide a bot token in the previous step. If Telegram is disabled, there's no reason to collect user IDs.
 
-**Time:** Optional; 20–30 seconds if performed
+**Time:** Optional; 20-30 seconds if performed
 
 ---
 
-### Step 6: Generate Configuration File (< 1 second)
+### Step 6: WhatsApp Setup (Optional, 1-2 minutes if performed)
+
+**What the User Sees:**
+```
+◆  Connect WhatsApp?
+│  No / Yes
+│
+```
+
+This is a `cliclack::confirm()` toggle with a default of `No`. The user can toggle between Yes and No using arrow keys or type `y`/`n`.
+
+**If User Selects No:**
+The wizard moves on. WhatsApp will be set to `enabled = false` in the config.
+
+**If User Selects Yes:**
+```
+◇  Starting WhatsApp pairing...
+◇  Open WhatsApp on your phone > Linked Devices > Link a Device
+│
+│  Scan this QR code with WhatsApp
+│
+│  ████████████████████████████████
+│  ██ ▄▄▄▄▄ █ ▄▀ ▀█ ▄▀█ ▄▄▄▄▄ ██
+│  ██ █   █ █ █▀ ▀ ▀█▄█ █   █ ██
+│  ...
+│  ████████████████████████████████
+│
+◒  Waiting for scan...
+```
+
+The wizard:
+1. Spins up a temporary tokio runtime for the async pairing flow
+2. Calls `whatsapp::start_pairing("~/.omega")` to begin the pairing process
+3. Waits up to 30 seconds for a QR code to appear
+4. Renders the QR code inside a `cliclack::note` block
+5. Shows a spinner while waiting up to 60 seconds for the user to scan
+6. Reports success or failure
+
+**On Success:**
+```
+◇  WhatsApp linked successfully
+```
+
+**On Failure or Timeout:**
+```
+▲  Pairing did not complete
+◇  You can try again later with /whatsapp.
+```
+
+**Time:** 1-2 minutes if the user pairs; instant if skipped
+
+---
+
+### Step 7: Google Workspace Setup (Optional, 2-3 minutes if performed)
+
+This step **only appears if the `gog` CLI tool is installed** on the system. If `gog` is not found, the wizard silently skips this step -- the user never sees any Google-related prompts.
+
+**Detection Check (Invisible to User):**
+The wizard runs `gog --version` behind the scenes. If it fails, this entire step is skipped.
+
+**What the User Sees (if `gog` is installed):**
+```
+◆  Set up Google Workspace? (Gmail, Calendar, Drive)
+│  No / Yes
+│
+```
+
+This is a `cliclack::confirm()` toggle defaulting to `No`.
+
+**If User Selects No:**
+The wizard moves on. No `[google]` section is added to the config.
+
+**If User Selects Yes:**
+
+**Sub-step 7a: Setup Instructions**
+```
+│
+│  Google Workspace Setup
+│
+│  1. Go to console.cloud.google.com
+│  2. Create a project (or use existing)
+│  3. Enable: Gmail API, Calendar API, Drive API
+│  4. Go to Credentials → Create OAuth Client ID → Desktop app
+│  5. Download the JSON file
+│
+```
+
+The wizard displays step-by-step Google Cloud Console instructions inside a `cliclack::note` block so the user knows how to obtain the credentials file.
+
+**Sub-step 7b: Credentials File Path**
+```
+◆  Path to client_secret.json
+│  ~/Downloads/client_secret_xxxxx.json
+│  _
+```
+
+The user enters the path to their downloaded `client_secret.json` file. This input is **validated** -- the wizard checks that the file exists (after shell expansion of `~`) and will show an error if the path is empty or the file is not found.
+
+**Sub-step 7c: Register Credentials**
+```
+◒  Running: gog auth credentials ...
+◇  Credentials registered
+```
+
+The wizard runs `gog auth credentials <path>` to register the OAuth client credentials with the `gog` tool.
+
+If this fails, the wizard shows the error and skips the rest of Google setup:
+```
+▲  gog auth credentials failed: <error details>
+◇  Skipping Google Workspace setup.
+```
+
+**Sub-step 7d: Gmail Address**
+```
+◆  Your Gmail address
+│  you@gmail.com
+│  _
+```
+
+The user enters their Gmail address. Validated to be non-empty and contain an `@` sign.
+
+**Sub-step 7e: OAuth Approval**
+```
+◒  Waiting for OAuth approval in browser...
+```
+
+The wizard runs `gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets`. This opens the user's default browser for Google OAuth consent. A spinner waits while the user approves in the browser.
+
+**On Success:**
+```
+◇  OAuth approved
+```
+
+**On Failure:**
+```
+▲  gog auth add failed: <error details>
+◇  Google Workspace setup incomplete.
+```
+
+**Sub-step 7f: Verification**
+
+The wizard runs `gog auth list` and checks if the user's email appears in the output.
+
+**On Success:**
+```
+◇  Google Workspace connected!
+```
+
+**On Ambiguous Result:**
+```
+◇  Could not verify Google auth — check manually with 'gog auth list'.
+```
+
+Even if verification is ambiguous, the wizard still records the email in the config (the auth may have worked even if the list command had issues).
+
+**Time:** 2-3 minutes including browser OAuth flow; instant if skipped or if `gog` is not installed
+
+---
+
+### Step 8: Generate Configuration File (< 1 second)
 
 **What the User Sees (Success):**
 ```
-  Generated config.toml
+◇  Generated config.toml
 ```
 
 **What the User Sees (If Config Already Exists):**
 ```
-  config.toml already exists — skipping generation.
-  Delete it and run 'omega init' again to regenerate.
+▲  config.toml already exists — skipping.
+│  Delete it and run 'omega init' again to regenerate.
 ```
 
 **What's Happening:**
-The wizard creates `config.toml`, the main configuration file that Omega reads on startup. The config file is **generated based on the user's inputs** (token, user ID, etc.).
+The wizard creates `config.toml`, the main configuration file that Omega reads on startup. The config file is **generated based on all the user's inputs** (token, user ID, WhatsApp pairing, Google email).
 
-**The Generated Config (Example)**
+**The Generated Config (Full Example)**
 ```toml
 [omega]
 name = "Omega"
@@ -252,10 +431,17 @@ enabled = true
 bot_token = "123456:ABC-DEF1234..."
 allowed_users = [123456789]
 
+[channel.whatsapp]
+enabled = true
+allowed_users = []
+
 [memory]
 backend = "sqlite"
 db_path = "~/.omega/memory.db"
 max_context_messages = 50
+
+[google]
+account = "you@gmail.com"
 ```
 
 **What Each Section Means:**
@@ -267,7 +453,15 @@ max_context_messages = 50
 | `[provider]` | Which AI backend to use (claude-code is default) |
 | `[provider.claude-code]` | Claude Code specific settings (max turns, allowed tools) |
 | `[channel.telegram]` | Telegram integration (token, allowed users) |
+| `[channel.whatsapp]` | WhatsApp integration (enabled/disabled, allowed users) |
 | `[memory]` | Conversation storage (SQLite database settings) |
+| `[google]` | Google Workspace account (only present if configured) |
+
+**Config Generation Logic:**
+- `[channel.telegram] enabled` = `true` if a bot token was provided, `false` otherwise
+- `[channel.whatsapp] enabled` = `true` if WhatsApp was successfully paired, `false` otherwise
+- `[google]` section = only included if Google Workspace was connected (contains the email)
+- `allowed_users` for Telegram = contains the user ID if provided, empty array otherwise
 
 **Why Config is Generated:**
 Rather than making users manually edit a config template, the wizard generates a working config based on their choices. This eliminates errors like:
@@ -285,21 +479,23 @@ Current working directory (typically the project root). The user should run `ome
 
 ---
 
-### Step 7: Success Message and Next Steps (Instant)
+### Step 9: Success Message and Next Steps (Instant)
 
 **What the User Sees:**
 ```
-  Setup Complete
-  ==============
-
-  Next steps:
-    1. Review config.toml
-    2. Run: omega start
-    3. Send a message to your bot on Telegram
+│
+│  Next steps
+│
+│  1. Review config.toml
+│  2. Run: omega start
+│  3. Send a message to your bot
+│  4. WhatsApp is linked and ready!
+│  ★ Google Workspace is connected!
+│
+└  Setup complete — enjoy Omega!
 ```
 
-**What's Happening:**
-The wizard has completed all setup steps successfully. It now provides explicit next actions to guide the user toward a working bot.
+Lines 4 and the Google line only appear if those integrations were set up during the wizard. The `└` marker from `cliclack::outro` signals the end of the wizard session.
 
 **What Should the User Do?**
 
@@ -319,12 +515,12 @@ omega start
 This starts the Omega daemon. It will:
 1. Load `config.toml`
 2. Initialize the SQLite database
-3. Connect to the Telegram bot API
-4. Start listening for incoming Telegram messages
+3. Connect to enabled channels (Telegram, WhatsApp)
+4. Start listening for incoming messages
 5. Log all activity to `~/.omega/omega.log`
 
 **Step 3: Send a Message to the Bot**
-In Telegram, find the bot you created (via @BotFather) and send it a message, e.g.:
+In Telegram or WhatsApp, find the bot and send it a message, e.g.:
 ```
 Hello Omega, what time is it?
 ```
@@ -334,10 +530,82 @@ The bot will:
 2. Check auth (verify your user ID matches)
 3. Delegate to Claude Code CLI
 4. Get Claude's reasoning response
-5. Send response back to Telegram
+5. Send response back to the channel
 6. Store the conversation in memory
 
 **Time:** < 1 second (display)
+
+---
+
+## Complete Session Example
+
+Here is a complete example of what a full wizard session looks like with all integrations enabled:
+
+```
+               ██████╗ ███╗   ███╗███████╗ ██████╗  █████╗
+              ██╔═══██╗████╗ ████║██╔════╝██╔════╝ ██╔══██╗
+              ██║   ██║██╔████╔██║█████╗  ██║  ███╗███████║
+              ██║   ██║██║╚██╔╝██║██╔══╝  ██║   ██║██╔══██║
+              ╚██████╔╝██║ ╚═╝ ██║███████╗╚██████╔╝██║  ██║
+               ╚═════╝ ╚═╝     ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝
+
+┌  omega init
+│
+◇  ~/.omega — created
+◇  claude CLI — found
+│
+◆  Telegram bot token
+│  Paste token from @BotFather (or Enter to skip)
+│  123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11
+│
+◆  Your Telegram user ID
+│  Send /start to @userinfobot (blank = allow all)
+│  987654321
+│
+◆  Connect WhatsApp?
+│  Yes
+│
+◇  Starting WhatsApp pairing...
+◇  Open WhatsApp on your phone > Linked Devices > Link a Device
+│
+│  Scan this QR code with WhatsApp
+│  [QR CODE]
+│
+◇  WhatsApp linked successfully
+│
+◆  Set up Google Workspace? (Gmail, Calendar, Drive)
+│  Yes
+│
+│  Google Workspace Setup
+│  1. Go to console.cloud.google.com
+│  2. Create a project (or use existing)
+│  3. Enable: Gmail API, Calendar API, Drive API
+│  4. Go to Credentials → Create OAuth Client ID → Desktop app
+│  5. Download the JSON file
+│
+◆  Path to client_secret.json
+│  ~/Downloads/client_secret_12345.json
+│
+◇  Credentials registered
+│
+◆  Your Gmail address
+│  user@gmail.com
+│
+◇  OAuth approved
+◇  Google Workspace connected!
+│
+◇  Generated config.toml
+│
+│  Next steps
+│
+│  1. Review config.toml
+│  2. Run: omega start
+│  3. Send a message to your bot
+│  4. WhatsApp is linked and ready!
+│  ★ Google Workspace is connected!
+│
+└  Setup complete — enjoy Omega!
+```
 
 ---
 
@@ -347,39 +615,41 @@ Here's what a new user experiences from start to finish:
 
 ```
 User clones repo
-       ↓
+       |
 User reads README
-       ↓
+       |
 User runs: cargo build --release
-       ↓
+       |
 User runs: omega init
-       ↓
-[WIZARD BEGINS]
-       ↓
-1. Welcome banner displayed
-2. ~/.omega directory created
-3. claude CLI validated ✓
+       |
+[WIZARD BEGINS — cliclack session]
+       |
+1. ASCII OMEGA banner displayed
+2. ~/.omega directory created (or confirmed)
+3. Claude CLI validated via spinner
 4. Telegram token collected (or skipped)
 5. User ID collected (if token provided)
-6. config.toml generated
-7. Success message + next steps
-       ↓
+6. WhatsApp pairing via Yes/No toggle (or skipped)
+7. Google Workspace setup (if gog installed, or skipped)
+8. config.toml generated
+9. Next steps + success outro
+       |
 [WIZARD ENDS]
-       ↓
+       |
 User reviews config.toml
-       ↓
+       |
 User runs: omega start
-       ↓
-Bot is running and listening on Telegram
-       ↓
+       |
+Bot is running and listening on Telegram / WhatsApp
+       |
 User sends first message to bot
-       ↓
+       |
 Bot responds with Claude Code output
-       ↓
-✓ Success: Omega is working
+       |
+Success: Omega is working
 ```
 
-**Total time:** 2–3 minutes (mostly user input time, not waiting)
+**Total time:** 2-5 minutes (mostly user input time, not waiting; longer if setting up Google Workspace)
 
 ---
 
@@ -390,18 +660,23 @@ New users would face:
 - Manual creation of `~/.omega` directory (confusion: "where should I put files?")
 - Manual copy/edit of config file (risk of breaking TOML syntax)
 - Manual lookup of how to create Telegram bot (external documentation required)
+- Manual WhatsApp pairing setup
+- Manual Google Workspace credential configuration
 - Uncertainty: "Did I configure this right?"
 
-**Result:** ~15–30 minutes to get a working bot, high risk of misconfiguration
+**Result:** 15-30 minutes to get a working bot, high risk of misconfiguration
 
 ### With the Wizard
 New users get:
+- Beautiful cliclack-styled prompts (clear visual hierarchy with spinners, toggles, notes)
 - Guided, interactive setup (clear prompts and instructions)
 - Automatic directory and config generation (no manual file editing)
-- Integrated help (links to @BotFather, @userinfobot)
-- Fast validation (Claude CLI check, clear error messages)
+- Integrated help (links to @BotFather, @userinfobot, Google Cloud Console steps)
+- Fast validation (Claude CLI check, credential file check, clear error messages)
+- One-shot WhatsApp QR pairing
+- Guided Google OAuth flow
 
-**Result:** 2 minutes to get a working bot, low risk of misconfiguration
+**Result:** 2-5 minutes to get a fully working bot with all integrations, low risk of misconfiguration
 
 ---
 
@@ -410,17 +685,58 @@ New users get:
 ### Error: Claude CLI Not Found
 **User sees:**
 ```
-  Checking claude CLI... NOT FOUND
-
-  Install claude CLI first:
-    npm install -g @anthropic-ai/claude-code
-
-  Then run 'omega init' again.
+▲  claude CLI — NOT FOUND
+│
+│  Install claude CLI
+│
+│  npm install -g @anthropic-ai/claude-code
+│
+│  Then run 'omega init' again.
+│
+└  Setup aborted
 ```
 
-**Why:** Claude Code is mandatory. Without it, Omega can't function.
+**Why:** Claude Code is mandatory. Without it, Omega can't function. The wizard ends immediately with `outro_cancel`.
 
 **User action:** Install npm package, re-run `omega init`
+
+---
+
+### Error: WhatsApp Pairing Timeout
+**User sees:**
+```
+▲  Pairing did not complete
+◇  You can try again later with /whatsapp.
+```
+
+**Why:** The user didn't scan the QR code within 60 seconds, or the WhatsApp server didn't confirm pairing.
+
+**User action:** Continue with the wizard. WhatsApp will be disabled in config. The user can try again later.
+
+---
+
+### Error: Google Credentials File Not Found
+**User sees:**
+```
+▲  File not found
+```
+
+**Why:** The path entered for `client_secret.json` doesn't exist after shell expansion.
+
+**User action:** Re-enter the correct path. The input is validated and will keep asking until a valid path is provided.
+
+---
+
+### Error: Google OAuth Failed
+**User sees:**
+```
+▲  gog auth add failed: <error details>
+◇  Google Workspace setup incomplete.
+```
+
+**Why:** The OAuth flow in the browser was denied or timed out.
+
+**User action:** Continue with the wizard. Google section will not be added to config. The user can set up Google manually later.
 
 ---
 
@@ -436,7 +752,7 @@ New users get:
 ### Error: Invalid TOML Written (Shouldn't Happen)
 If there's a bug in the template, `config.toml` will be invalid. User would discover this when running `omega start`.
 
-**Prevention:** The TOML template is hard-coded in `init.rs` and tested. Template syntax is validated before shipping.
+**Prevention:** The TOML template is hard-coded in `init.rs` and tested. The `generate_config` function is a pure function with unit tests covering full, minimal, and partial configurations.
 
 ---
 
@@ -470,6 +786,12 @@ default = "anthropic"  # or "openai", "ollama", etc.
 max_context_messages = 100  # Remember more history
 ```
 
+**Add Google Workspace after init:**
+```toml
+[google]
+account = "you@gmail.com"
+```
+
 After editing, restart Omega:
 ```bash
 omega stop   # If running
@@ -493,7 +815,7 @@ rm -rf ~/.omega
 # Re-run setup wizard
 omega init
 
-# Generate new config
+# Start with new config
 omega start
 ```
 
@@ -502,7 +824,7 @@ omega start
 ## Related Commands
 
 ### `omega start`
-Starts the Omega daemon after init is complete. Loads config, initializes database, connects to Telegram.
+Starts the Omega daemon after init is complete. Loads config, initializes database, connects to Telegram and WhatsApp.
 
 ### `omega stop`
 Stops the running Omega daemon. Gracefully shuts down all connections.
@@ -516,6 +838,16 @@ Stops the running Omega daemon. Gracefully shuts down all connections.
 ---
 
 ## Implementation Insights
+
+### Why cliclack?
+
+The wizard uses the `cliclack` crate instead of raw `println!`/`stdin` for several reasons:
+- **Visual hierarchy:** `◆ ◇ │ ┌ └` markers make the flow scannable at a glance
+- **Spinners:** Async operations (CLI checks, WhatsApp pairing, OAuth) show animated feedback
+- **Confirm toggles:** Yes/No prompts are explicit toggles, not ambiguous text input
+- **Input validation:** `cliclack::input().validate()` provides inline error messages without restarting the prompt
+- **Notes:** Multi-line instructions (Google Cloud Console steps) are displayed in styled blocks
+- **Consistent UX:** All Omega CLI interactions feel polished and professional
 
 ### Why Not Auto-Detect Telegram Token?
 The wizard could theoretically:
@@ -532,13 +864,21 @@ The wizard could theoretically:
 ### Why Allow Skipping Telegram?
 Some use cases don't need Telegram:
 - Local CLI-only usage: `omega ask "your question"`
-- Integration with other platforms (planned)
+- WhatsApp-only usage
 - Testing without live bot
 
 **Decision:** Make token optional because:
 - Users can test Omega locally without Telegram complexity
 - Add Telegram to config.toml manually later
 - Reduces setup friction for non-Telegram use cases
+
+### Why Is Google Setup Conditional on `gog` CLI?
+The Google Workspace step only appears if the `gog` CLI tool is already installed. This avoids:
+- Confusing users who have no interest in Google integration
+- Blocking the wizard on a non-essential dependency
+- Unnecessary complexity for users who only want messaging
+
+If `gog` is not installed, the wizard silently skips the entire Google section. The user never sees a question about it.
 
 ### Why Store Token in Config File?
 Concern: Bot token in plaintext is a security risk.
@@ -608,6 +948,22 @@ omega init  # Retry
 2. Edit `config.toml` and update `bot_token = "..."`
 3. Restart: `omega stop && omega start`
 
+### "WhatsApp QR code timed out"
+**Problem:** QR code didn't appear within 30 seconds
+
+**Solution:**
+- Ensure internet connectivity
+- Try again: delete config.toml and re-run `omega init`
+- Or pair manually later via the `/whatsapp` command
+
+### "gog auth credentials failed"
+**Problem:** The client_secret.json file is invalid or the `gog` tool cannot process it
+
+**Solution:**
+1. Re-download credentials from Google Cloud Console
+2. Ensure the file is a valid OAuth client ID JSON (not a service account key)
+3. Re-run `omega init` or configure manually with `gog auth credentials <path>`
+
 ---
 
 ## Design Philosophy
@@ -618,16 +974,19 @@ The init wizard embodies these principles:
 The wizard guides users through necessary steps without forcing opinions on advanced customization. Users can edit `config.toml` afterward.
 
 ### 2. **Fail Fast, Fail Gracefully**
-Critical dependencies (Claude CLI) are checked immediately with helpful error messages. Optional features (Telegram token) can be skipped.
+Critical dependencies (Claude CLI) are checked immediately with helpful error messages. Optional features (Telegram, WhatsApp, Google) can be skipped or fail without blocking the rest of the wizard.
 
 ### 3. **Minimize User Errors**
-By generating config instead of asking users to edit templates, we eliminate syntax errors and misconfiguration.
+By generating config instead of asking users to edit templates, we eliminate syntax errors and misconfiguration. Input validation catches issues inline.
 
 ### 4. **Transparency**
-Every step is visible to the user. No hidden operations. Users know what the wizard created and where.
+Every step is visible to the user. No hidden operations. Users know what the wizard created and where. Spinners show when background work is happening.
 
 ### 5. **Completeness**
 After the wizard, the system is fully functional. No additional setup required; user can immediately use Omega.
+
+### 6. **Progressive Disclosure**
+Optional integrations (Google Workspace) only appear when the prerequisites are met (gog CLI installed). Users are never overwhelmed with options that don't apply to them.
 
 ---
 
@@ -635,16 +994,17 @@ After the wizard, the system is fully functional. No additional setup required; 
 
 The init wizard is successful if:
 
-1. **New User Can Get Working Bot in 2 Minutes** ✓ (Time target met)
-2. **No Surprises or Errors** ✓ (Fast validation catches issues early)
-3. **User Understands What Was Configured** ✓ (Explicit messages and next steps)
-4. **User Can Customize Later** ✓ (Config.toml is documented and editableworking)
-5. **Bad State is Recoverable** ✓ (User can delete and re-run)
+1. **New User Can Get Working Bot in 2-5 Minutes** -- Time target met
+2. **No Surprises or Errors** -- Fast validation catches issues early
+3. **User Understands What Was Configured** -- Explicit messages and next steps
+4. **User Can Customize Later** -- Config.toml is documented and editable
+5. **Bad State is Recoverable** -- User can delete and re-run
+6. **Visual Polish** -- cliclack styling makes the experience professional and scannable
 
 ---
 
 ## Conclusion
 
-The init wizard is the **entry point to Omega**. It transforms a raw codebase into a working personal AI agent in 2 minutes. By combining interactive guidance, automatic generation, and fast validation, the wizard removes friction while maintaining clarity and user control.
+The init wizard is the **entry point to Omega**. It transforms a raw codebase into a working personal AI agent in 2-5 minutes. Using `cliclack` for styled prompts, spinners, and toggles, the wizard provides a polished CLI experience that covers Telegram, WhatsApp, and Google Workspace setup in a single guided flow. By combining interactive guidance, automatic generation, and fast validation, the wizard removes friction while maintaining clarity and user control.
 
-For new users, `omega init` is the bridge between "I found an interesting project" and "I have a working bot."
+For new users, `omega init` is the bridge between "I found an interesting project" and "I have a fully connected AI agent."

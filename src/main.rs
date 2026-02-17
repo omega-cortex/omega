@@ -140,42 +140,42 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Status => {
             let cfg = config::load(&cli.config)?;
-            println!("Ω Omega — Status Check\n");
-            println!("Config: {}", cli.config);
-            println!("Default provider: {}", cfg.provider.default);
-            println!();
+            cliclack::intro(console::style("omega status").bold().to_string())?;
+
+            cliclack::log::info(format!(
+                "Config: {}\nProvider: {}",
+                cli.config, cfg.provider.default
+            ))?;
 
             let available = ClaudeCodeProvider::check_cli().await;
-            println!(
-                "  claude-code: {}",
-                if available { "available" } else { "not found" }
-            );
-            println!();
+            if available {
+                cliclack::log::success("claude-code — available")?;
+            } else {
+                cliclack::log::error("claude-code — not found")?;
+            }
 
             // Check channels.
             if let Some(ref tg) = cfg.channel.telegram {
-                println!(
-                    "  telegram: {}",
-                    if tg.enabled && !tg.bot_token.is_empty() {
-                        "configured"
-                    } else if tg.enabled {
-                        "enabled but missing bot_token"
-                    } else {
-                        "disabled"
-                    }
-                );
+                let status = if tg.enabled && !tg.bot_token.is_empty() {
+                    "configured"
+                } else if tg.enabled {
+                    "enabled but missing bot_token"
+                } else {
+                    "disabled"
+                };
+                cliclack::log::info(format!("telegram — {status}"))?;
             } else {
-                println!("  telegram: not configured");
+                cliclack::log::info("telegram — not configured")?;
             }
 
             if let Some(ref wa) = cfg.channel.whatsapp {
-                println!(
-                    "  whatsapp: {}",
-                    if wa.enabled { "enabled" } else { "disabled" }
-                );
+                let status = if wa.enabled { "enabled" } else { "disabled" };
+                cliclack::log::info(format!("whatsapp — {status}"))?;
             } else {
-                println!("  whatsapp: not configured");
+                cliclack::log::info("whatsapp — not configured")?;
             }
+
+            cliclack::outro("Status check complete")?;
         }
         Commands::Ask { message } => {
             if message.is_empty() {

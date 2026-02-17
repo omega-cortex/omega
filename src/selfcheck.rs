@@ -27,18 +27,23 @@ pub async fn run(config: &Config, store: &Store) -> bool {
         }
     }
 
-    // Print results.
-    println!("\nOmega Self-Check");
-    println!("================");
+    // Print results with cliclack styling.
+    let _ = cliclack::intro("omega self-check");
     let mut all_ok = true;
     for r in &results {
-        let icon = if r.ok { "+" } else { "x" };
-        println!("  {icon} {} — {}", r.name, r.detail);
-        if !r.ok {
+        if r.ok {
+            let _ = cliclack::log::success(format!("{} — {}", r.name, r.detail));
+        } else {
+            let _ = cliclack::log::error(format!("{} — {}", r.name, r.detail));
             all_ok = false;
         }
     }
-    println!();
+
+    if all_ok {
+        let _ = cliclack::outro("All checks passed");
+    } else {
+        let _ = cliclack::outro_cancel("Some checks failed");
+    }
 
     all_ok
 }

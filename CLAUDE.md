@@ -87,6 +87,7 @@ cargo build --release        # Optimized binary
 
 - **No `unwrap()`** — use `?` and proper error types. Never panic in production code.
 - **Tracing, not `println!`** — use `tracing` crate for all logging.
+- **CLI UX uses `cliclack`** — init wizard, self-check, and status command use `cliclack` (styled │ ◆ ◇ prompts) and `console` (terminal styling). No plain `println!` for interactive CLI flows.
 - **No `unsafe`** unless absolutely necessary (the only exception is `libc::geteuid()` for root detection).
 - **Async everywhere** — tokio runtime, all I/O is async.
 - **SQLite for everything** — memory, audit, state. No external database.
@@ -132,4 +133,4 @@ Always consult these before modifying or extending the codebase:
 - **Phase 1** (complete): Workspace, core types, Claude Code provider, CLI (`omega ask`)
 - **Phase 2** (complete): Memory, Telegram channel, gateway, audit log, auth, sanitization, LaunchAgent
 - **Phase 3** (complete): Conversation boundaries, summaries, facts extraction, enriched context, typing indicator, bot commands, system prompt upgrade, self-check, graceful shutdown, exponential backoff, init wizard
-- **Phase 4** (in progress): Scheduler (task queue + heartbeat), alternative providers, skills system, sandbox, WhatsApp
+- **Phase 4** (in progress): Scheduler (task queue + heartbeat), alternative providers, skills system, sandbox, WhatsApp, cliclack CLI UX, Google Workspace init (via `gog` CLI)
