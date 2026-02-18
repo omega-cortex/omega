@@ -1210,7 +1210,7 @@ impl Gateway {
         info!("pre-flight planning: decomposed into {total} steps");
 
         // Announce the plan.
-        let announcement = format!("Breaking this into {total} steps. Starting now.");
+        let announcement = format!("On it — {total} things to work through. I'll keep you posted.");
         self.send_text(incoming, &announcement).await;
 
         let mut completed_summary = String::new();
@@ -1259,7 +1259,7 @@ impl Gateway {
                     completed_summary.push_str(&format!("- Step {step_num}: {step} (done)\n"));
 
                     // Send progress update.
-                    let progress = format!("Step {step_num}/{total} done: {step}");
+                    let progress = format!("✓ {step} ({step_num}/{total})");
                     self.send_text(incoming, &progress).await;
 
                     // Audit each step.
@@ -1281,16 +1281,15 @@ impl Gateway {
                 }
                 None => {
                     completed_summary.push_str(&format!("- Step {step_num}: {step} (FAILED)\n"));
-                    let fail_msg =
-                        format!("Step {step_num}/{total} failed after 3 attempts: {step}");
+                    let fail_msg = format!("✗ Couldn't complete: {step} ({step_num}/{total})");
                     self.send_text(incoming, &fail_msg).await;
                 }
             }
         }
 
         // Send final summary.
-        let final_msg = format!("All {total} steps completed.\n\n{completed_summary}");
-        self.send_text(incoming, final_msg.trim()).await;
+        let final_msg = format!("Done — all {total} wrapped up ✓");
+        self.send_text(incoming, &final_msg).await;
 
         // Cleanup inbox images.
         if !inbox_images.is_empty() {
