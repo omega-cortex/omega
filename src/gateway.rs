@@ -16,7 +16,7 @@ use omega_memory::{
     audit::{AuditEntry, AuditLogger, AuditStatus},
     detect_language, Store,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -870,9 +870,18 @@ impl Gateway {
             }
 
             // --- 8b. SEND NEW WORKSPACE IMAGES ---
+            // Detect files that are new OR were modified (overwritten) since the snapshot.
             let images_after = snapshot_workspace_images(&workspace_path);
-            let new_images: Vec<PathBuf> =
-                images_after.difference(&images_before).cloned().collect();
+            let new_images: Vec<PathBuf> = images_after
+                .iter()
+                .filter(|(path, mtime)| {
+                    match images_before.get(path.as_path()) {
+                        None => true,                          // new file
+                        Some(old_mtime) => mtime > &old_mtime, // overwritten file
+                    }
+                })
+                .map(|(path, _)| path.clone())
+                .collect();
             let target = incoming.reply_target.as_deref().unwrap_or("");
             for image_path in &new_images {
                 let filename = image_path
@@ -1293,11 +1302,13 @@ const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
 
 /// Snapshot top-level image files in the workspace directory.
 ///
-/// Returns an empty set on any error (non-existent dir, permission issues).
-fn snapshot_workspace_images(workspace: &Path) -> HashSet<PathBuf> {
+/// Returns a map of path → modification time. Returns an empty map on any
+/// error (non-existent dir, permission issues). Tracks mtime so we can detect
+/// both new files and overwritten files (same name, newer mtime).
+fn snapshot_workspace_images(workspace: &Path) -> HashMap<PathBuf, std::time::SystemTime> {
     let entries = match std::fs::read_dir(workspace) {
         Ok(e) => e,
-        Err(_) => return HashSet::new(),
+        Err(_) => return HashMap::new(),
     };
     entries
         .filter_map(|entry| entry.ok())
@@ -1310,7 +1321,10 @@ fn snapshot_workspace_images(workspace: &Path) -> HashSet<PathBuf> {
                     .map(|ext| IMAGE_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
                     .unwrap_or(false)
         })
-        .map(|entry| entry.path())
+        .filter_map(|entry| {
+            let mtime = entry.metadata().ok()?.modified().ok()?;
+            Some((entry.path(), mtime))
+        })
         .collect()
 }
 
@@ -1683,8 +1697,8 @@ mod tests {
 
         let result = snapshot_workspace_images(&dir);
         assert_eq!(result.len(), 2);
-        assert!(result.contains(&dir.join("screenshot.png")));
-        assert!(result.contains(&dir.join("photo.jpg")));
+        assert!(result.contains_key(&dir.join("screenshot.png")));
+        assert!(result.contains_key(&dir.join("photo.jpg")));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
