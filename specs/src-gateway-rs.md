@@ -436,6 +436,15 @@ pub struct Gateway {
 - Call `channel.send(response)` to deliver the response.
 - Log error if channel send fails.
 
+**Stage 8b: Send New Workspace Images**
+- After sending the text response, compute a diff of workspace images (before vs. after the provider call).
+- For each new image file (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) found in the top-level workspace directory:
+  - Read the file bytes via `std::fs::read()`.
+  - Call `channel.send_photo(target, &bytes, filename)` to deliver the image.
+  - Delete the file after sending (cleanup).
+  - Log with `tracing`: `info!` on success, `warn!` on failure.
+- Uses `snapshot_workspace_images()` to collect top-level image files before and after the provider call, then computes the set difference.
+
 **Async Patterns:**
 - All stages are awaited sequentially.
 - Typing task runs concurrently via `tokio::spawn()`.
@@ -570,6 +579,22 @@ pub struct Gateway {
 4. For each `Remove(item)`: remove all non-comment lines whose content contains the item (case-insensitive partial match). Comment lines (starting with `#`) are never removed.
 5. Ensure `~/.omega/` directory exists.
 6. Write the updated lines back to the file.
+
+### `const IMAGE_EXTENSIONS: &[&str]`
+**Purpose:** List of image file extensions recognized for workspace diff: `["png", "jpg", "jpeg", "gif", "webp"]`.
+
+### `fn snapshot_workspace_images(workspace: &Path) -> HashSet<PathBuf>`
+**Purpose:** Snapshot top-level image files in the workspace directory.
+
+**Parameters:**
+- `workspace: &Path` - Path to the workspace directory.
+
+**Returns:** `HashSet<PathBuf>` containing paths to image files. Returns empty set on any error (non-existent dir, permission issues).
+
+**Logic:**
+1. Read the workspace directory via `std::fs::read_dir()`. Return empty set on error.
+2. Filter to regular files whose extension (case-insensitive) matches `IMAGE_EXTENSIONS`.
+3. Collect into a `HashSet<PathBuf>`.
 
 ### `fn status_messages(lang: &str) -> (&'static str, &'static str)`
 **Purpose:** Return localized status messages for the delayed provider nudge.
@@ -865,6 +890,7 @@ All interactions are logged to SQLite with:
 22. The current heartbeat checklist is injected into the system prompt so the provider knows what is already monitored.
 23. When `sandbox_prompt` is `Some`, the sandbox constraint text is prepended to the system prompt before context building.
 24. The startup log includes the active sandbox mode for operational visibility.
+25. After sending the text response, new image files created in the workspace by the provider are delivered via `channel.send_photo()` and then deleted from the workspace.
 
 ## Tests
 
@@ -963,3 +989,27 @@ Verifies that `apply_heartbeat_changes()` adds new items to `~/.omega/HEARTBEAT.
 **Type:** Synchronous unit test (`#[test]`)
 
 Verifies that `apply_heartbeat_changes()` removes matching items from `~/.omega/HEARTBEAT.md` using case-insensitive partial matching, preserves comment lines, and keeps non-matching items. Uses a temporary directory with overridden `$HOME`.
+
+### `test_snapshot_workspace_images_finds_images`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `snapshot_workspace_images()` finds `.png` and `.jpg` files but ignores `.txt` files.
+
+### `test_snapshot_workspace_images_empty_dir`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `snapshot_workspace_images()` returns an empty set for an empty directory.
+
+### `test_snapshot_workspace_images_nonexistent_dir`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `snapshot_workspace_images()` returns an empty set gracefully for a non-existent directory.
+
+### `test_snapshot_workspace_images_all_extensions`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `snapshot_workspace_images()` detects all 5 supported image extensions (png, jpg, jpeg, gif, webp).

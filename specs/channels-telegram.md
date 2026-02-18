@@ -132,6 +132,12 @@ async fn send_chat_action(&self, chat_id: i64, action: &str) -> Result<(), Omega
 
 Sends a chat action (e.g., `"typing"`) to the specified chat via the `sendChatAction` API endpoint.
 
+```rust
+async fn send_photo_bytes(&self, chat_id: i64, image: &[u8], caption: &str) -> Result<(), OmegaError>
+```
+
+Sends a photo (image bytes) with a caption to a chat via the `sendPhoto` API endpoint. Uses multipart form upload with a generic `photo.png` filename. Telegram auto-detects the actual image format from the bytes.
+
 ### Free Functions
 
 ```rust

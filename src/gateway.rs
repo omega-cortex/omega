@@ -16,7 +16,8 @@ use omega_memory::{
     audit::{AuditEntry, AuditLogger, AuditStatus},
     detect_language, Store,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -660,6 +661,10 @@ impl Gateway {
 
         // --- 5. GET RESPONSE FROM PROVIDER (async with status updates) ---
 
+        // Snapshot workspace images before provider call.
+        let workspace_path = PathBuf::from(&self.data_dir).join("workspace");
+        let images_before = snapshot_workspace_images(&workspace_path);
+
         // Spawn provider call as background task.
         let provider = self.provider.clone();
         let ctx = context.clone();
@@ -862,6 +867,34 @@ impl Gateway {
         if let Some(channel) = self.channels.get(&incoming.channel) {
             if let Err(e) = channel.send(response).await {
                 error!("failed to send response via {}: {e}", incoming.channel);
+            }
+
+            // --- 8b. SEND NEW WORKSPACE IMAGES ---
+            let images_after = snapshot_workspace_images(&workspace_path);
+            let new_images: Vec<PathBuf> =
+                images_after.difference(&images_before).cloned().collect();
+            let target = incoming.reply_target.as_deref().unwrap_or("");
+            for image_path in &new_images {
+                let filename = image_path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("image.png");
+                match std::fs::read(image_path) {
+                    Ok(bytes) => {
+                        if let Err(e) = channel.send_photo(target, &bytes, filename).await {
+                            warn!("failed to send workspace image {filename}: {e}");
+                        } else {
+                            info!("sent workspace image: {filename}");
+                        }
+                    }
+                    Err(e) => {
+                        warn!("failed to read workspace image {filename}: {e}");
+                    }
+                }
+                // Clean up the file after sending.
+                if let Err(e) = std::fs::remove_file(image_path) {
+                    warn!("failed to remove workspace image {filename}: {e}");
+                }
             }
         } else {
             error!("no channel found for '{}'", incoming.channel);
@@ -1255,6 +1288,32 @@ fn friendly_provider_error(raw: &str) -> String {
     }
 }
 
+/// Image file extensions recognized for workspace diff.
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
+
+/// Snapshot top-level image files in the workspace directory.
+///
+/// Returns an empty set on any error (non-existent dir, permission issues).
+fn snapshot_workspace_images(workspace: &Path) -> HashSet<PathBuf> {
+    let entries = match std::fs::read_dir(workspace) {
+        Ok(e) => e,
+        Err(_) => return HashSet::new(),
+    };
+    entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry.file_type().map(|ft| ft.is_file()).unwrap_or(false)
+                && entry
+                    .path()
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| IMAGE_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
+                    .unwrap_or(false)
+        })
+        .map(|entry| entry.path())
+        .collect()
+}
+
 /// Check if the current local time is within the active hours window.
 fn is_within_active_hours(start: &str, end: &str) -> bool {
     let now = chrono::Local::now().format("%H:%M").to_string();
@@ -1609,5 +1668,60 @@ mod tests {
         // Restore HOME and clean up.
         std::env::set_var("HOME", &original_home);
         let _ = std::fs::remove_dir_all(&fake_home);
+    }
+
+    // --- Workspace image snapshot tests ---
+
+    #[test]
+    fn test_snapshot_workspace_images_finds_images() {
+        let dir = std::env::temp_dir().join("omega_test_snap_images");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("screenshot.png"), b"fake png").unwrap();
+        std::fs::write(dir.join("photo.jpg"), b"fake jpg").unwrap();
+        std::fs::write(dir.join("readme.txt"), b"not an image").unwrap();
+
+        let result = snapshot_workspace_images(&dir);
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&dir.join("screenshot.png")));
+        assert!(result.contains(&dir.join("photo.jpg")));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_snapshot_workspace_images_empty_dir() {
+        let dir = std::env::temp_dir().join("omega_test_snap_empty");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let result = snapshot_workspace_images(&dir);
+        assert!(result.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_snapshot_workspace_images_nonexistent_dir() {
+        let dir = std::env::temp_dir().join("omega_test_snap_nonexistent");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let result = snapshot_workspace_images(&dir);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_snapshot_workspace_images_all_extensions() {
+        let dir = std::env::temp_dir().join("omega_test_snap_all_ext");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for ext in IMAGE_EXTENSIONS {
+            std::fs::write(dir.join(format!("test.{ext}")), b"fake").unwrap();
+        }
+
+        let result = snapshot_workspace_images(&dir);
+        assert_eq!(result.len(), IMAGE_EXTENSIONS.len());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

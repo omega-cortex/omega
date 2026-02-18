@@ -149,7 +149,7 @@ impl TelegramChannel {
         let url = format!("{}/sendPhoto", self.base_url);
 
         let part = reqwest::multipart::Part::bytes(image.to_vec())
-            .file_name("qr.png")
+            .file_name("photo.png")
             .mime_str("image/png")
             .map_err(|e| OmegaError::Channel(format!("mime error: {e}")))?;
 

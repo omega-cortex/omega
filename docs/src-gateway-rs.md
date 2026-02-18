@@ -398,6 +398,27 @@ The message must be delivered to the user. If the channel fails (e.g., Telegram 
 **Error Handling:**
 Send errors are logged but do not cause a retry or escalation. The assumption is that the channel will handle retries internally if needed.
 
+### Stage 9b: Workspace Image Diff
+
+**What happens:** After sending the text response, the gateway checks if the provider created any new image files in the workspace and sends them to the user.
+
+**Implementation:**
+- Before the provider call, the gateway snapshots all top-level image files in `~/.omega/workspace/` (extensions: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`).
+- After sending the text response, it takes another snapshot and computes the difference (new files).
+- For each new image:
+  - Reads the file bytes.
+  - Calls `channel.send_photo(target, &bytes, filename)` to deliver the image.
+  - Deletes the file from the workspace after sending.
+  - Logs success at INFO level, failures at WARN level.
+
+**Why This Exists:**
+When the provider uses MCP tools like Playwright to take screenshots, the image files are created in the workspace but never delivered to the user. The workspace diff bridges this gap: the user asks for a screenshot, the AI creates it, and the gateway automatically sends it as a photo message.
+
+**Error Handling:**
+- If reading the image file fails, the error is logged and the file is skipped.
+- If sending the photo fails, the error is logged but the file is still cleaned up.
+- A non-existent or unreadable workspace directory returns an empty snapshot (no error).
+
 ## Full Pipeline Diagram
 
 ```
@@ -488,6 +509,11 @@ User sends message on Telegram
 │ Stage 9: channel.send()                 │
 │  • Send response via Telegram/WhatsApp  │
 │  • Abort typing repeater task           │
+│                                          │
+│ Stage 9b: Workspace image diff          │
+│  • Snapshot images after provider call  │
+│  • Send new images via send_photo()     │
+│  • Delete sent images from workspace    │
 │                                          │
 └─────────────────────────────────────────┘
          ↓
