@@ -228,7 +228,7 @@ default = "claude-code"
 
 [provider.claude-code]
 enabled = true
-max_turns = 10
+max_turns = 100
 allowed_tools = ["Bash", "Read", "Write", "Edit"]
 
 [channel.telegram]

@@ -89,7 +89,7 @@ impl Default for ClaudeCodeConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            max_turns: 10,
+            max_turns: 100,
             allowed_tools: default_allowed_tools(),
             timeout_secs: default_timeout_secs(),
         }
@@ -322,7 +322,7 @@ fn default_deny_message() -> String {
     "Access denied. You are not authorized to use this agent.".to_string()
 }
 fn default_max_turns() -> u32 {
-    10
+    100
 }
 fn default_allowed_tools() -> Vec<String> {
     vec!["Bash".into(), "Read".into(), "Write".into(), "Edit".into()]

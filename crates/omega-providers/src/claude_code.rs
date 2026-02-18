@@ -68,7 +68,7 @@ impl ClaudeCodeProvider {
     pub fn new() -> Self {
         Self {
             session_id: None,
-            max_turns: 10,
+            max_turns: 100,
             allowed_tools: vec![
                 "Bash".to_string(),
                 "Read".to_string(),
@@ -377,7 +377,7 @@ mod tests {
         let provider = ClaudeCodeProvider::new();
         assert_eq!(provider.name(), "claude-code");
         assert!(!provider.requires_api_key());
-        assert_eq!(provider.max_turns, 10);
+        assert_eq!(provider.max_turns, 100);
         assert_eq!(provider.allowed_tools.len(), 4);
         assert_eq!(provider.timeout, Duration::from_secs(600));
         assert!(provider.working_dir.is_none());
