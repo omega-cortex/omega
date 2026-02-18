@@ -108,10 +108,11 @@ When the config file is absent, the `load()` function explicitly constructs a `P
 | `enabled` | `bool` | `default_true()` | `true` |
 | `max_turns` | `u32` | `default_max_turns()` | `10` |
 | `allowed_tools` | `Vec<String>` | `default_allowed_tools()` | `["Bash", "Read", "Write", "Edit"]` |
-| `timeout_secs` | `u64` | `default_timeout_secs()` | `600` |
+| `timeout_secs` | `u64` | `default_timeout_secs()` | `3600` |
+| `max_resume_attempts` | `u32` | `default_max_resume_attempts()` | `5` |
 
 Derives: `Debug, Clone, Serialize, Deserialize`
-Implements: `Default` (manual, sets `enabled` to `true`, `max_turns` to `default_max_turns()`, `allowed_tools` to `default_allowed_tools()`, `timeout_secs` to `default_timeout_secs()`).
+Implements: `Default` (manual, sets `enabled` to `true`, `max_turns` to `default_max_turns()`, `allowed_tools` to `default_allowed_tools()`, `timeout_secs` to `default_timeout_secs()`, `max_resume_attempts` to `default_max_resume_attempts()`).
 
 ### `AnthropicConfig`
 
@@ -292,7 +293,8 @@ All private functions in the module that supply serde defaults:
 | `default_memory_backend()` | `String` | `"sqlite"` |
 | `default_db_path()` | `String` | `"~/.omega/memory.db"` |
 | `default_max_context()` | `usize` | `50` |
-| `default_timeout_secs()` | `u64` | `600` |
+| `default_timeout_secs()` | `u64` | `3600` |
+| `default_max_resume_attempts()` | `u32` | `5` |
 | `default_heartbeat_interval()` | `u64` | `30` |
 | `default_poll_interval()` | `u64` | `60` |
 
@@ -453,7 +455,7 @@ Follows the same pattern as `omega_skills::install_bundled_skills()`.
 
 **Type:** Synchronous unit test (`#[test]`)
 
-Verifies that `ClaudeCodeConfig::default()` sets `timeout_secs` to `600`.
+Verifies that `ClaudeCodeConfig::default()` sets `timeout_secs` to `3600`.
 
 ### `test_timeout_config_from_toml`
 
@@ -465,7 +467,7 @@ Verifies that a TOML config with an explicit `timeout_secs` value (e.g., `300`) 
 
 **Type:** Synchronous unit test (`#[test]`)
 
-Verifies that when `timeout_secs` is omitted from the TOML, the serde default function `default_timeout_secs()` supplies `600`.
+Verifies that when `timeout_secs` is omitted from the TOML, the serde default function `default_timeout_secs()` supplies `3600`.
 
 ### `test_parse_identity_soul_system_sections`
 

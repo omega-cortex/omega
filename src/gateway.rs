@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info, warn};
 
 /// The central gateway that routes messages between channels and providers.
@@ -40,6 +40,8 @@ pub struct Gateway {
     uptime: Instant,
     sandbox_mode: String,
     sandbox_prompt: Option<String>,
+    /// Tracks senders with active provider calls. New messages are buffered here.
+    active_senders: Mutex<HashMap<String, Vec<IncomingMessage>>>,
 }
 
 impl Gateway {
@@ -77,11 +79,12 @@ impl Gateway {
             uptime: Instant::now(),
             sandbox_mode,
             sandbox_prompt,
+            active_senders: Mutex::new(HashMap::new()),
         }
     }
 
     /// Run the main event loop.
-    pub async fn run(&mut self) -> anyhow::Result<()> {
+    pub async fn run(self: Arc<Self>) -> anyhow::Result<()> {
         info!(
             "Omega gateway running | provider: {} | channels: {} | auth: {} | sandbox: {}",
             self.provider.name(),
@@ -164,7 +167,10 @@ impl Gateway {
         loop {
             tokio::select! {
                 Some(incoming) = rx.recv() => {
-                    self.handle_message(incoming).await;
+                    let gw = self.clone();
+                    tokio::spawn(async move {
+                        gw.dispatch_message(incoming).await;
+                    });
                 }
                 _ = tokio::signal::ctrl_c() => {
                     info!("Received shutdown signal");
@@ -176,6 +182,55 @@ impl Gateway {
         // Graceful shutdown.
         self.shutdown(&bg_handle, &sched_handle, &hb_handle).await;
         Ok(())
+    }
+
+    /// Dispatch a message: buffer if sender is busy, otherwise process.
+    async fn dispatch_message(self: Arc<Self>, incoming: IncomingMessage) {
+        let sender_key = format!("{}:{}", incoming.channel, incoming.sender_id);
+
+        {
+            let mut active = self.active_senders.lock().await;
+            if active.contains_key(&sender_key) {
+                // Sender already has an active call — buffer this message.
+                active.get_mut(&sender_key).unwrap().push(incoming.clone());
+                info!(
+                    "buffered message from {} (active call in progress)",
+                    sender_key
+                );
+                self.send_text(&incoming, "Got it, I'll get to this next.")
+                    .await;
+                return;
+            }
+            // Mark sender as active (empty buffer).
+            active.insert(sender_key.clone(), Vec::new());
+        }
+
+        // Process the message.
+        self.handle_message(incoming).await;
+
+        // Drain any buffered messages for this sender.
+        loop {
+            let next = {
+                let mut active = self.active_senders.lock().await;
+                let buffer = active.get_mut(&sender_key);
+                match buffer {
+                    Some(buf) if !buf.is_empty() => Some(buf.remove(0)),
+                    _ => {
+                        // No more buffered messages — remove sender from active.
+                        active.remove(&sender_key);
+                        None
+                    }
+                }
+            };
+
+            match next {
+                Some(buffered_msg) => {
+                    info!("processing buffered message from {}", sender_key);
+                    self.handle_message(buffered_msg).await;
+                }
+                None => break,
+            }
+        }
     }
 
     /// Background task: periodically find and summarize idle conversations.
@@ -676,7 +731,29 @@ impl Gateway {
         let mut context = context;
         context.mcp_servers = mcp_servers;
 
-        // --- 5. GET RESPONSE FROM PROVIDER (async with status updates) ---
+        // --- 5. PRE-FLIGHT PLANNING ---
+        // For complex messages (>15 words), ask a dedicated planning call whether to
+        // decompose into steps. Short messages skip planning entirely.
+        if needs_planning(&clean_incoming.text) {
+            if let Some(steps) = self.plan_task(&clean_incoming.text).await {
+                self.execute_steps(
+                    &incoming,
+                    &clean_incoming.text,
+                    &context,
+                    &steps,
+                    &inbox_images,
+                )
+                .await;
+
+                // Stop typing indicator and return — skip normal send flow.
+                if let Some(h) = typing_handle {
+                    h.abort();
+                }
+                return;
+            }
+        }
+
+        // --- 5b. GET RESPONSE FROM PROVIDER (async with status updates) ---
 
         // Snapshot workspace images before provider call.
         let workspace_path = PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
@@ -1063,6 +1140,131 @@ impl Gateway {
         }
     }
 
+    /// Send a dedicated planning call to decompose a complex task into steps.
+    ///
+    /// Uses a minimal prompt with no system prompt, no history, no MCP — just the
+    /// raw message. Returns parsed steps or `None` (for DIRECT responses, errors,
+    /// or single-step plans).
+    async fn plan_task(&self, message: &str) -> Option<Vec<String>> {
+        let planning_prompt = format!(
+            "Analyze this request. If it's a simple question, greeting, or single-action request, \
+             respond with exactly: DIRECT\n\
+             If it requires multiple independent steps, respond with ONLY a numbered list of \
+             small self-contained steps. Nothing else.\n\n\
+             Request: {message}"
+        );
+
+        let ctx = Context::new(&planning_prompt);
+        match self.provider.complete(&ctx).await {
+            Ok(resp) => parse_plan_response(&resp.text),
+            Err(e) => {
+                warn!("planning call failed, falling back to direct: {e}");
+                None
+            }
+        }
+    }
+
+    /// Execute a list of steps autonomously, with progress updates and retry.
+    async fn execute_steps(
+        &self,
+        incoming: &IncomingMessage,
+        original_task: &str,
+        context: &Context,
+        steps: &[String],
+        inbox_images: &[PathBuf],
+    ) {
+        let total = steps.len();
+        info!("pre-flight planning: decomposed into {total} steps");
+
+        // Announce the plan.
+        let announcement = format!("Breaking this into {total} steps. Starting now.");
+        self.send_text(incoming, &announcement).await;
+
+        let mut completed_summary = String::new();
+
+        for (i, step) in steps.iter().enumerate() {
+            let step_num = i + 1;
+            info!("planning: executing step {step_num}/{total}: {step}");
+
+            // Build step prompt with context.
+            let step_prompt = if completed_summary.is_empty() {
+                format!(
+                    "Original task: {original_task}\n\n\
+                     Execute step {step_num}/{total}: {step}"
+                )
+            } else {
+                format!(
+                    "Original task: {original_task}\n\n\
+                     Completed so far:\n{completed_summary}\n\n\
+                     Now execute step {step_num}/{total}: {step}"
+                )
+            };
+
+            let mut step_ctx = Context::new(&step_prompt);
+            step_ctx.system_prompt = context.system_prompt.clone();
+            step_ctx.mcp_servers = context.mcp_servers.clone();
+
+            // Retry loop for each step (up to 3 attempts).
+            let mut step_result = None;
+            for attempt in 1..=3u32 {
+                match self.provider.complete(&step_ctx).await {
+                    Ok(resp) => {
+                        step_result = Some(resp);
+                        break;
+                    }
+                    Err(e) => {
+                        warn!("planning: step {step_num} attempt {attempt}/3 failed: {e}");
+                        if attempt < 3 {
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        }
+                    }
+                }
+            }
+
+            match step_result {
+                Some(step_resp) => {
+                    completed_summary.push_str(&format!("- Step {step_num}: {step} (done)\n"));
+
+                    // Send progress update.
+                    let progress = format!("Step {step_num}/{total} done: {step}");
+                    self.send_text(incoming, &progress).await;
+
+                    // Audit each step.
+                    let _ = self
+                        .audit
+                        .log(&AuditEntry {
+                            channel: incoming.channel.clone(),
+                            sender_id: incoming.sender_id.clone(),
+                            sender_name: incoming.sender_name.clone(),
+                            input_text: format!("[Step {step_num}/{total}] {step}"),
+                            output_text: Some(step_resp.text.clone()),
+                            provider_used: Some(step_resp.metadata.provider_used.clone()),
+                            model: step_resp.metadata.model.clone(),
+                            processing_ms: Some(step_resp.metadata.processing_time_ms as i64),
+                            status: AuditStatus::Ok,
+                            denial_reason: None,
+                        })
+                        .await;
+                }
+                None => {
+                    completed_summary.push_str(&format!("- Step {step_num}: {step} (FAILED)\n"));
+                    let fail_msg =
+                        format!("Step {step_num}/{total} failed after 3 attempts: {step}");
+                    self.send_text(incoming, &fail_msg).await;
+                }
+            }
+        }
+
+        // Send final summary.
+        let final_msg = format!("All {total} steps completed.\n\n{completed_summary}");
+        self.send_text(incoming, final_msg.trim()).await;
+
+        // Cleanup inbox images.
+        if !inbox_images.is_empty() {
+            cleanup_inbox_images(inbox_images);
+        }
+    }
+
     /// Send a plain text message back to the sender.
     async fn send_text(&self, incoming: &IncomingMessage, text: &str) {
         let msg = OutgoingMessage {
@@ -1119,6 +1321,53 @@ fn cleanup_inbox_images(paths: &[PathBuf]) {
             warn!("failed to remove inbox image {}: {e}", path.display());
         }
     }
+}
+
+/// Check if a message is complex enough to warrant a pre-flight planning call.
+///
+/// Messages with more than 15 words are considered potentially complex.
+/// Short messages (greetings, quick questions) skip planning entirely.
+fn needs_planning(text: &str) -> bool {
+    text.split_whitespace().count() > 15
+}
+
+/// Parse a planning response into a list of steps.
+///
+/// Returns `None` for:
+/// - "DIRECT" responses (simple task, no decomposition needed)
+/// - Single-step plans (no benefit to decomposition)
+/// - Unparseable responses (fall back to direct execution)
+///
+/// Returns `Some(steps)` for multi-step numbered lists.
+fn parse_plan_response(text: &str) -> Option<Vec<String>> {
+    let trimmed = text.trim();
+
+    // Check for DIRECT marker (case-insensitive, may have surrounding text).
+    if trimmed
+        .lines()
+        .any(|line| line.trim().eq_ignore_ascii_case("DIRECT"))
+    {
+        return None;
+    }
+
+    // Extract numbered steps: "1. Step description", "2) Step description", etc.
+    let steps: Vec<String> = trimmed
+        .lines()
+        .filter_map(|line| {
+            let t = line.trim();
+            t.strip_prefix(|c: char| c.is_ascii_digit())
+                .and_then(|s| s.strip_prefix(". ").or_else(|| s.strip_prefix(") ")))
+                .map(|rest| rest.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .collect();
+
+    // Single-step plans have no benefit — treat as direct.
+    if steps.len() <= 1 {
+        return None;
+    }
+
+    Some(steps)
 }
 
 /// Extract the first `SCHEDULE:` line from response text.
@@ -1871,5 +2120,62 @@ mod tests {
         assert_eq!(result.len(), IMAGE_EXTENSIONS.len());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- Pre-flight planning tests ---
+
+    #[test]
+    fn test_needs_planning_short_message() {
+        assert!(!needs_planning("Hello, how are you?"));
+        assert!(!needs_planning("What time is it?"));
+        assert!(!needs_planning("Hi"));
+    }
+
+    #[test]
+    fn test_needs_planning_long_message() {
+        assert!(needs_planning(
+            "I need you to set up a new project with a database, \
+             create the API endpoints, write tests, and deploy it to production"
+        ));
+        assert!(needs_planning(
+            "Please review the codebase and find all the places where we use \
+             unwrap and replace them with proper error handling"
+        ));
+    }
+
+    #[test]
+    fn test_parse_plan_response_direct() {
+        assert!(parse_plan_response("DIRECT").is_none());
+        assert!(parse_plan_response("  DIRECT  ").is_none());
+        assert!(parse_plan_response("direct").is_none());
+    }
+
+    #[test]
+    fn test_parse_plan_response_numbered_list() {
+        let text = "1. Set up the database schema\n\
+                    2. Create the API endpoint\n\
+                    3. Write integration tests";
+        let steps = parse_plan_response(text).unwrap();
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0], "Set up the database schema");
+        assert_eq!(steps[1], "Create the API endpoint");
+        assert_eq!(steps[2], "Write integration tests");
+    }
+
+    #[test]
+    fn test_parse_plan_response_single_step() {
+        let text = "1. Just do the thing";
+        assert!(parse_plan_response(text).is_none());
+    }
+
+    #[test]
+    fn test_parse_plan_response_with_preamble() {
+        let text = "Here are the steps:\n\
+                    1. First step\n\
+                    2. Second step\n\
+                    3. Third step";
+        let steps = parse_plan_response(text).unwrap();
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0], "First step");
     }
 }

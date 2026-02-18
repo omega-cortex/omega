@@ -80,9 +80,12 @@ pub struct ClaudeCodeConfig {
     pub max_turns: u32,
     #[serde(default = "default_allowed_tools")]
     pub allowed_tools: Vec<String>,
-    /// Subprocess timeout in seconds (default: 600 = 10 minutes).
+    /// Subprocess timeout in seconds (default: 3600 = 60 minutes).
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
+    /// Max auto-resume attempts when Claude hits max_turns (default: 5).
+    #[serde(default = "default_max_resume_attempts")]
+    pub max_resume_attempts: u32,
 }
 
 impl Default for ClaudeCodeConfig {
@@ -92,6 +95,7 @@ impl Default for ClaudeCodeConfig {
             max_turns: 100,
             allowed_tools: default_allowed_tools(),
             timeout_secs: default_timeout_secs(),
+            max_resume_attempts: default_max_resume_attempts(),
         }
     }
 }
@@ -358,7 +362,10 @@ fn default_poll_interval() -> u64 {
     60
 }
 fn default_timeout_secs() -> u64 {
-    600
+    3600
+}
+fn default_max_resume_attempts() -> u32 {
+    5
 }
 
 /// Expand `~` to home directory.
@@ -612,7 +619,8 @@ mod tests {
     #[test]
     fn test_timeout_config_default() {
         let cc = ClaudeCodeConfig::default();
-        assert_eq!(cc.timeout_secs, 600);
+        assert_eq!(cc.timeout_secs, 3600);
+        assert_eq!(cc.max_resume_attempts, 5);
     }
 
     #[test]
@@ -633,7 +641,8 @@ mod tests {
             max_turns = 10
         "#;
         let cc: ClaudeCodeConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(cc.timeout_secs, 600);
+        assert_eq!(cc.timeout_secs, 3600);
+        assert_eq!(cc.max_resume_attempts, 5);
     }
 
     #[test]

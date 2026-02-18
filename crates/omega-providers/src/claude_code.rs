@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tracing::{debug, error, info, warn};
 
-/// Default timeout for Claude Code CLI subprocess (10 minutes).
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
+/// Default timeout for Claude Code CLI subprocess (60 minutes).
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(3600);
 
 /// Claude Code CLI provider configuration.
 pub struct ClaudeCodeProvider {
@@ -34,6 +34,8 @@ pub struct ClaudeCodeProvider {
     working_dir: Option<PathBuf>,
     /// Sandbox mode for OS-level filesystem enforcement.
     sandbox_mode: SandboxMode,
+    /// Max auto-resume attempts when Claude hits max_turns.
+    max_resume_attempts: u32,
 }
 
 /// JSON response from `claude -p --output-format json`.
@@ -78,6 +80,7 @@ impl ClaudeCodeProvider {
             timeout: DEFAULT_TIMEOUT,
             working_dir: None,
             sandbox_mode: SandboxMode::default(),
+            max_resume_attempts: 5,
         }
     }
 
@@ -88,6 +91,7 @@ impl ClaudeCodeProvider {
         timeout_secs: u64,
         working_dir: Option<PathBuf>,
         sandbox_mode: SandboxMode,
+        max_resume_attempts: u32,
     ) -> Self {
         Self {
             session_id: None,
@@ -96,6 +100,7 @@ impl ClaudeCodeProvider {
             timeout: Duration::from_secs(timeout_secs),
             working_dir,
             sandbox_mode,
+            max_resume_attempts,
         }
     }
 
@@ -148,6 +153,8 @@ impl Provider for ClaudeCodeProvider {
         };
 
         let extra_tools = mcp_tool_patterns(&context.mcp_servers);
+
+        // First call with original prompt.
         let result = self.run_cli(&prompt, &extra_tools).await;
 
         // Always cleanup MCP settings, regardless of success or failure.
@@ -156,10 +163,71 @@ impl Provider for ClaudeCodeProvider {
         }
 
         let output = result?;
-        let elapsed_ms = start.elapsed().as_millis() as u64;
-
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let (text, model) = self.parse_response(&stdout);
+        let (mut text, mut model) = self.parse_response(&stdout);
+
+        // Auto-resume: if Claude hit max_turns and returned a session_id, retry.
+        let parsed: Option<ClaudeCliResponse> = serde_json::from_str(&stdout).ok();
+        if let Some(ref resp) = parsed {
+            if resp.subtype.as_deref() == Some("error_max_turns") {
+                if let Some(ref session_id) = resp.session_id {
+                    let mut accumulated = text.clone();
+                    let mut resume_session = session_id.clone();
+
+                    for attempt in 1..=self.max_resume_attempts {
+                        info!(
+                            "auto-resume: attempt {}/{} with session {}",
+                            attempt, self.max_resume_attempts, resume_session
+                        );
+
+                        let resume_result = self
+                            .run_cli_with_session(
+                                "Continue where you left off. Complete the remaining work.",
+                                &extra_tools,
+                                &resume_session,
+                            )
+                            .await;
+
+                        match resume_result {
+                            Ok(resume_output) => {
+                                let resume_stdout = String::from_utf8_lossy(&resume_output.stdout);
+                                let (resume_text, resume_model) =
+                                    self.parse_response(&resume_stdout);
+                                accumulated = format!("{accumulated}\n\n---\n\n{resume_text}");
+
+                                if resume_model.is_some() {
+                                    model = resume_model;
+                                }
+
+                                // Check if this resume also hit max_turns.
+                                let resume_parsed: Option<ClaudeCliResponse> =
+                                    serde_json::from_str(&resume_stdout).ok();
+                                match resume_parsed {
+                                    Some(ref rr)
+                                        if rr.subtype.as_deref() == Some("error_max_turns") =>
+                                    {
+                                        if let Some(ref new_sid) = rr.session_id {
+                                            resume_session = new_sid.clone();
+                                            continue;
+                                        }
+                                        break;
+                                    }
+                                    _ => break,
+                                }
+                            }
+                            Err(e) => {
+                                warn!("auto-resume attempt {} failed: {e}", attempt);
+                                break;
+                            }
+                        }
+                    }
+
+                    text = accumulated;
+                }
+            }
+        }
+
+        let elapsed_ms = start.elapsed().as_millis() as u64;
 
         Ok(OutgoingMessage {
             text,
@@ -233,6 +301,62 @@ impl ClaudeCodeProvider {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(OmegaError::Provider(format!(
                 "claude CLI exited with {}: {stderr}",
+                output.status
+            )));
+        }
+
+        Ok(output)
+    }
+
+    /// Run the claude CLI subprocess with a specific session ID (for auto-resume).
+    async fn run_cli_with_session(
+        &self,
+        prompt: &str,
+        extra_allowed_tools: &[String],
+        session_id: &str,
+    ) -> Result<std::process::Output, OmegaError> {
+        let mut cmd = match self.working_dir {
+            Some(ref dir) => {
+                let mut c = omega_sandbox::sandboxed_command("claude", self.sandbox_mode, dir);
+                c.current_dir(dir);
+                c
+            }
+            None => Command::new("claude"),
+        };
+        cmd.env_remove("CLAUDECODE");
+
+        cmd.arg("-p")
+            .arg(prompt)
+            .arg("--output-format")
+            .arg("json")
+            .arg("--max-turns")
+            .arg(self.max_turns.to_string())
+            .arg("--session-id")
+            .arg(session_id);
+
+        for tool in &self.allowed_tools {
+            cmd.arg("--allowedTools").arg(tool);
+        }
+        for tool in extra_allowed_tools {
+            cmd.arg("--allowedTools").arg(tool);
+        }
+
+        debug!("executing: claude -p <resume> --session-id {session_id}");
+
+        let output = tokio::time::timeout(self.timeout, cmd.output())
+            .await
+            .map_err(|_| {
+                OmegaError::Provider(format!(
+                    "claude CLI resume timed out after {}s",
+                    self.timeout.as_secs()
+                ))
+            })?
+            .map_err(|e| OmegaError::Provider(format!("failed to run claude CLI resume: {e}")))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(OmegaError::Provider(format!(
+                "claude CLI resume exited with {}: {stderr}",
                 output.status
             )));
         }
@@ -379,9 +503,10 @@ mod tests {
         assert!(!provider.requires_api_key());
         assert_eq!(provider.max_turns, 100);
         assert_eq!(provider.allowed_tools.len(), 4);
-        assert_eq!(provider.timeout, Duration::from_secs(600));
+        assert_eq!(provider.timeout, Duration::from_secs(3600));
         assert!(provider.working_dir.is_none());
         assert_eq!(provider.sandbox_mode, SandboxMode::Sandbox);
+        assert_eq!(provider.max_resume_attempts, 5);
     }
 
     #[test]
@@ -392,10 +517,12 @@ mod tests {
             300,
             None,
             SandboxMode::default(),
+            3,
         );
         assert_eq!(provider.max_turns, 5);
         assert_eq!(provider.timeout, Duration::from_secs(300));
         assert!(provider.working_dir.is_none());
+        assert_eq!(provider.max_resume_attempts, 3);
     }
 
     #[test]
@@ -407,6 +534,7 @@ mod tests {
             600,
             Some(dir.clone()),
             SandboxMode::Sandbox,
+            5,
         );
         assert_eq!(provider.working_dir, Some(dir));
     }
@@ -420,8 +548,27 @@ mod tests {
             600,
             Some(dir),
             SandboxMode::Rx,
+            5,
         );
         assert_eq!(provider.sandbox_mode, SandboxMode::Rx);
+    }
+
+    #[test]
+    fn test_parse_response_max_turns_with_session() {
+        let provider = ClaudeCodeProvider::new();
+        let json = r#"{"type":"result","subtype":"error_max_turns","result":"partial work done","session_id":"sess-123","model":"claude-sonnet-4-20250514"}"#;
+        let (text, model) = provider.parse_response(json);
+        assert_eq!(text, "partial work done");
+        assert_eq!(model, Some("claude-sonnet-4-20250514".to_string()));
+    }
+
+    #[test]
+    fn test_parse_response_success() {
+        let provider = ClaudeCodeProvider::new();
+        let json = r#"{"type":"result","subtype":"success","result":"all done","model":"claude-sonnet-4-20250514"}"#;
+        let (text, model) = provider.parse_response(json);
+        assert_eq!(text, "all done");
+        assert_eq!(model, Some("claude-sonnet-4-20250514".to_string()));
     }
 
     // --- MCP tests ---

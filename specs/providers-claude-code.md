@@ -36,8 +36,9 @@ Public struct. The provider that wraps the Claude Code CLI.
 | `session_id` | `Option<String>` | Private | Optional session ID passed to the CLI for conversation continuity across invocations. |
 | `max_turns` | `u32` | Private | Maximum number of agentic turns the CLI is allowed per single invocation. Default: `10`. |
 | `allowed_tools` | `Vec<String>` | Private | List of tool names the CLI is permitted to use. Default: `["Bash", "Read", "Write", "Edit"]`. |
-| `timeout` | `Duration` | Private | Maximum time to wait for the CLI subprocess to complete. Constructed from `Duration::from_secs(timeout_secs)`. Default: `600` seconds (10 minutes). |
+| `timeout` | `Duration` | Private | Maximum time to wait for the CLI subprocess to complete. Constructed from `Duration::from_secs(timeout_secs)`. Default: `3600` seconds (60 minutes). |
 | `working_dir` | `Option<PathBuf>` | Private | Optional working directory for the CLI subprocess. When `Some`, sets the `current_dir` on the subprocess `Command`. Used by sandbox mode to confine the provider to a workspace directory (e.g., `~/.omega/workspace/`). Default: `None`. |
+| `max_resume_attempts` | `u32` | Private | Maximum number of auto-resume attempts when the CLI hits `error_max_turns` with a `session_id`. Default: `5`. |
 
 ### `ClaudeCliResponse`
 
@@ -70,21 +71,22 @@ Constructs a new `ClaudeCodeProvider` with default settings:
 - `session_id`: `None`
 - `max_turns`: `10`
 - `allowed_tools`: `["Bash", "Read", "Write", "Edit"]`
-- `timeout`: `Duration::from_secs(600)` (10 minutes)
+- `timeout`: `Duration::from_secs(3600)` (60 minutes)
 - `working_dir`: `None`
+- `max_resume_attempts`: `5`
 
 ```rust
 pub fn new() -> Self
 ```
 
-### `ClaudeCodeProvider::from_config(max_turns: u32, allowed_tools: Vec<String>, timeout_secs: u64, working_dir: Option<PathBuf>) -> Self`
+### `ClaudeCodeProvider::from_config(max_turns: u32, allowed_tools: Vec<String>, timeout_secs: u64, working_dir: Option<PathBuf>, max_resume_attempts: u32) -> Self`
 
 **Visibility:** Public
 
-Constructs a `ClaudeCodeProvider` from explicit configuration values. Sets `session_id` to `None`, `timeout` to `Duration::from_secs(timeout_secs)`, and `working_dir` to the provided value.
+Constructs a `ClaudeCodeProvider` from explicit configuration values. Sets `session_id` to `None`, `timeout` to `Duration::from_secs(timeout_secs)`, `working_dir` to the provided value, and `max_resume_attempts` to the provided value.
 
 ```rust
-pub fn from_config(max_turns: u32, allowed_tools: Vec<String>, timeout_secs: u64, working_dir: Option<PathBuf>) -> Self
+pub fn from_config(max_turns: u32, allowed_tools: Vec<String>, timeout_secs: u64, working_dir: Option<PathBuf>, max_resume_attempts: u32) -> Self
 ```
 
 ### `ClaudeCodeProvider::check_cli() -> bool` (async)
@@ -200,12 +202,15 @@ The core method. Invokes the Claude Code CLI as a subprocess and parses the resu
 9. **JSON parsing:** Attempts `serde_json::from_str::<ClaudeCliResponse>(&stdout)`.
 
 10. **Response extraction** (on successful parse):
-    - If `subtype == "error_max_turns"`: logs a warning but continues to extract whatever result exists.
+    - If `subtype == "error_max_turns"` and `session_id` is present: enters auto-resume loop (see below).
+    - If `subtype == "error_max_turns"` without `session_id`: logs a warning and continues to extract whatever result exists.
     - If `result` is `Some` and non-empty: uses it as the response text.
     - If `result` is `None` or empty:
       - If `is_error == true`: returns `"Error from Claude: <subtype>"`.
       - Otherwise: returns `"(No response text returned)"`.
     - Extracts `model` from the response.
+
+10b. **Auto-resume loop:** When `subtype == "error_max_turns"` and `session_id` is present in the response, the provider automatically retries using `run_cli_with_session()`, passing the same prompt and the returned `session_id` via `--session-id`. This continues up to `max_resume_attempts` times. If the resumed call also hits `error_max_turns` with a `session_id`, it loops again. The loop breaks when the response has `subtype != "error_max_turns"`, when no `session_id` is returned, or when the attempt limit is reached. The final accumulated result text is used as the response.
 
 11. **JSON parse failure fallback:** If serde fails, logs a warning and uses the raw stdout (trimmed) as the response text. `model` is set to `None`.
 
@@ -237,6 +242,10 @@ Delegates to `Self::check_cli()`. Returns `true` if the `claude` binary is insta
 ### `run_cli(prompt, extra_allowed_tools)` (private, async)
 
 Private helper that assembles and executes the `claude` CLI subprocess. Called by `complete()`.
+
+### `run_cli_with_session(prompt, extra_allowed_tools, session_id)` (private, async)
+
+Private helper that assembles and executes the `claude` CLI subprocess with an explicit `--session-id` argument. Called by the auto-resume loop in `complete()` when a previous invocation returned `error_max_turns` with a `session_id`. Behaves identically to `run_cli()` except it always includes `--session-id <session_id>` in the CLI arguments, overriding `self.session_id`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -303,7 +312,8 @@ stdout from CLI
 | CLI binary not found / spawn failure | `OmegaError::Provider` | `"failed to run claude CLI: {io_error}"` |
 | CLI exits with non-zero status | `OmegaError::Provider` | `"claude CLI exited with {status}: {stderr}"` |
 | JSON parse failure | No error (graceful degradation) | Warning logged, raw stdout used |
-| `error_max_turns` subtype | No error (graceful degradation) | Warning logged, result extracted if available |
+| `error_max_turns` subtype with `session_id` | No error (auto-resume) | Warning logged, auto-resume loop retries with `--session-id` up to `max_resume_attempts` times |
+| `error_max_turns` subtype without `session_id` | No error (graceful degradation) | Warning logged, result extracted if available |
 | Empty result + `is_error == true` | No error (fallback text) | `"Error from Claude: {subtype}"` |
 | Empty result + no error | No error (fallback text) | `"(No response text returned)"` |
 
@@ -329,8 +339,9 @@ Verifies the default constructor:
 - `requires_api_key()` returns `false`
 - `max_turns` is `10`
 - `allowed_tools` has 4 entries
-- `timeout` is `Duration::from_secs(600)`
+- `timeout` is `Duration::from_secs(3600)`
 - `working_dir` is `None`
+- `max_resume_attempts` is `5`
 
 ```rust
 #[test]
@@ -340,8 +351,9 @@ fn test_default_provider() {
     assert!(!provider.requires_api_key());
     assert_eq!(provider.max_turns, 10);
     assert_eq!(provider.allowed_tools.len(), 4);
-    assert_eq!(provider.timeout, Duration::from_secs(600));
+    assert_eq!(provider.timeout, Duration::from_secs(3600));
     assert!(provider.working_dir.is_none());
+    assert_eq!(provider.max_resume_attempts, 5);
 }
 ```
 
@@ -351,13 +363,13 @@ fn test_default_provider() {
 
 Verifies that `from_config()` correctly sets the `timeout` field from the provided `timeout_secs` parameter:
 
-- Constructs a provider with `timeout_secs = 300` and `working_dir = None`.
+- Constructs a provider with `timeout_secs = 300`, `working_dir = None`, and `max_resume_attempts = 5`.
 - Asserts `timeout` is `Duration::from_secs(300)`.
 
 ```rust
 #[test]
 fn test_from_config_with_timeout() {
-    let provider = ClaudeCodeProvider::from_config(5, vec!["Bash".into()], 300, None);
+    let provider = ClaudeCodeProvider::from_config(5, vec!["Bash".into()], 300, None, 5);
     assert_eq!(provider.timeout, Duration::from_secs(300));
 }
 ```
@@ -379,6 +391,7 @@ fn test_from_config_with_working_dir() {
         vec!["Bash".into()],
         600,
         Some(PathBuf::from("/tmp/workspace")),
+        5,
     );
     assert_eq!(provider.working_dir, Some(PathBuf::from("/tmp/workspace")));
 }

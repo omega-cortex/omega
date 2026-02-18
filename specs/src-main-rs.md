@@ -79,7 +79,7 @@ The main entry point for the Omega binary. Orchestrates CLI argument parsing, ro
 3. **Root Guard:** Check if running as root via `unsafe { libc::geteuid() } == 0`
    - If root, bail with error message directing user to LaunchAgent setup
 4. Match on `cli.command`:
-   - **Start:** Load config → deploy bundled prompts → load prompts → deploy bundled skills → build provider → verify availability → build channels → initialize memory → run self-checks → start gateway
+   - **Start:** Load config → deploy bundled prompts → load prompts → deploy bundled skills → build provider → verify availability → build channels → initialize memory → run self-checks → start gateway (wrapped in `Arc::new()`)
    - **Status:** Load config → print provider and channel status information
    - **Ask:** Parse message → load config → build provider → create context → invoke provider → print response
    - **Init:** Run interactive setup wizard
@@ -115,8 +115,8 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
 1. Match on `cfg.provider.default` (string key from config)
 2. **"claude-code" case:**
    - Clone Claude Code provider config (or use defaults)
-   - Extract `max_turns`, `allowed_tools`, and `timeout_secs` settings
-   - Construct `ClaudeCodeProvider::from_config(cc.max_turns, cc.allowed_tools, cc.timeout_secs, workspace_path)`
+   - Extract `max_turns`, `allowed_tools`, `timeout_secs`, and `max_resume_attempts` settings
+   - Construct `ClaudeCodeProvider::from_config(cc.max_turns, cc.allowed_tools, cc.timeout_secs, workspace_path, cc.max_resume_attempts)`
    - Return boxed trait object
 3. **Any other provider name:** bail with "unsupported provider" error
 
@@ -185,7 +185,7 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
 - Provider availability checks: `provider.is_available().await`
 - Memory initialization: `Store::new(&cfg.memory).await?`
 - Self-checks: `selfcheck::run(&cfg, &memory).await`
-- Gateway event loop: `gw.run().await?`
+- Gateway event loop: `Arc::new(gw).run().await?`
 - Provider completion: `provider.complete(&context).await?`
 - Claude Code CLI check: `ClaudeCodeProvider::check_cli().await`
 
@@ -249,7 +249,8 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
 
 8. **Start gateway**
    - Create Gateway instance with provider, channels, memory, auth, channel config, projects, sandbox mode display name, and sandbox prompt
-   - Call `gw.run().await?` to enter event loop
+   - Wrap gateway in `Arc::new()` for shared ownership across spawned tasks
+   - Call `gw.run().await?` to enter event loop (method takes `self: Arc<Self>`)
    - Blocks indefinitely processing messages from channels
    - Terminates on signal (graceful shutdown) or error
 
@@ -319,9 +320,9 @@ Loads TOML from file, merges environment variable overrides.
 ### Provider Config
 ```rust
 let cc = cfg.provider.claude_code.as_ref().cloned().unwrap_or_default();
-ClaudeCodeProvider::from_config(cc.max_turns, cc.allowed_tools, cc.timeout_secs, workspace_path)
+ClaudeCodeProvider::from_config(cc.max_turns, cc.allowed_tools, cc.timeout_secs, workspace_path, cc.max_resume_attempts)
 ```
-Extracts provider-specific settings (including `timeout_secs`) and passes the workspace path for sandbox confinement; provides defaults if not specified.
+Extracts provider-specific settings (including `timeout_secs` and `max_resume_attempts`) and passes the workspace path for sandbox confinement; provides defaults if not specified.
 
 ### Channel Config
 ```rust

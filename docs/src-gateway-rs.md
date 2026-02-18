@@ -254,6 +254,36 @@ MCP servers extend Claude Code with tools like browser automation (Playwright). 
 **What happens downstream:**
 The Claude Code provider reads `context.mcp_servers` and, if non-empty, writes a temporary `{workspace}/.claude/settings.local.json` with the MCP server configuration and adds `mcp__<name>__*` patterns to `--allowedTools`. The settings file is cleaned up after the CLI completes.
 
+### Stage 5c: Pre-flight Planning
+
+**What happens:** Before calling the provider, the gateway checks if the user's message is complex enough to warrant autonomous task decomposition. If so, a dedicated planning call decides whether to break the task into steps.
+
+**Implementation:**
+1. `needs_planning(&text)` checks if the message has more than 15 words. Short messages (greetings, quick questions) skip planning entirely and fall through to the normal provider call.
+2. If planning is needed, `plan_task(&text)` makes a lightweight provider call with a strict, tiny prompt — no system prompt, no conversation history, no MCP servers. Just the raw message and instructions to either respond with "DIRECT" or produce a numbered list of steps.
+3. `parse_plan_response(&response)` interprets the result:
+   - **"DIRECT"** (case-insensitive) → Returns `None`. The message falls through to the normal provider call (Stage 6).
+   - **Single-step list** → Returns `None`. No benefit to decomposition.
+   - **Multi-step numbered list** (2+ steps) → Returns `Some(steps)`.
+4. If steps are returned, `execute_steps()` runs them autonomously:
+   - Announces the plan: "Breaking this into N steps. Starting now."
+   - Executes each step in a fresh provider call with the full system prompt, MCP servers, and accumulated context from previous steps.
+   - Reports progress after each step: "Step 1/N done: description".
+   - Retries failed steps up to 3 times with a 2-second delay between attempts.
+   - Sends a final summary when all steps complete.
+   - Audits each step individually.
+   - Cleans up inbox images and aborts the typing indicator.
+   - **Returns immediately** — the normal provider call (Stage 6) is skipped entirely.
+
+**Why This Exists:**
+Complex tasks benefit from decomposition, but relying on the AI to voluntarily output a special marker in its response is hope-based and unreliable. Pre-flight planning is *forced* — Omega makes the decomposition decision before the main provider call, using a dedicated call with a strict prompt that can only produce two outputs: "DIRECT" or a numbered list. This moves task decomposition from a post-hoc response parsing hack to a deliberate architectural decision.
+
+**Design Characteristics:**
+- The planning call is cheap: no system prompt, no history, no MCP — just the raw message.
+- Short messages (15 words or fewer) never trigger a planning call, so greetings and quick questions have zero overhead.
+- If the planning call fails for any reason, it falls back to direct execution (same as "DIRECT").
+- Single-step plans are treated as direct — there is no benefit to wrapping one step in the autonomous execution machinery.
+
 ### Stage 6: Provider Call
 
 **What happens:** The gateway sends the enriched context to the AI provider and gets a response, while keeping the user informed about progress.
@@ -506,6 +536,11 @@ User sends message on Telegram
 │  • Fetch history + facts                │
 │  ✓ Success? → Continue                  │
 │  ✗ Error? → Send error, audit, return   │
+│                                          │
+│ Stage 5c: Pre-flight planning           │
+│  • >15 words? → planning call           │
+│  ✓ Steps? → execute autonomously, return│
+│  ✗ DIRECT? → Continue to provider       │
 │                                          │
 │ Stage 6: provider.complete()            │
 │  • Spawn provider call as background    │

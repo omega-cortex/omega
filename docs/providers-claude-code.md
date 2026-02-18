@@ -38,8 +38,9 @@ let provider = ClaudeCodeProvider::new();
 let provider = ClaudeCodeProvider::from_config(
     20,                                                   // allow up to 20 agentic turns
     vec!["Bash".into(), "Read".into()],                   // restrict to just Bash and Read
-    600,                                                  // timeout in seconds (10 minutes)
+    3600,                                                 // timeout in seconds (60 minutes)
     Some(PathBuf::from("/home/user/.omega/workspace")),   // working directory
+    5,                                                    // max auto-resume attempts
 );
 ```
 
@@ -47,7 +48,7 @@ let provider = ClaudeCodeProvider::from_config(
 
 Controls how many agentic turns the Claude CLI is allowed to take in a single invocation. An "agentic turn" is one cycle of the CLI using a tool (running a command, reading a file, etc.) and then deciding what to do next. The default of `10` is a reasonable balance between capability and cost.
 
-If Claude hits the max turns limit, Omega still extracts whatever partial response was generated. It does not treat this as a fatal error -- you will get back whatever Claude managed to produce, plus a warning in the logs.
+If Claude hits the max turns limit and the response includes a `session_id`, Omega automatically resumes the session by retrying with `--session-id`, up to `max_resume_attempts` times (default: 5). This allows complex multi-turn tasks to continue seamlessly across turn limits. If no `session_id` is returned or the retry limit is reached, Omega extracts whatever partial response was generated.
 
 ### `allowed_tools`
 
@@ -70,16 +71,27 @@ In practice this is always set to `~/.omega/workspace/` (the sandbox workspace).
 
 ### `timeout_secs`
 
-Controls how long Omega will wait for the Claude Code CLI to finish before aborting the subprocess. The default is `600` seconds (10 minutes), which serves as a ceiling to prevent runaway invocations from blocking the gateway indefinitely.
+Controls how long Omega will wait for the Claude Code CLI to finish before aborting the subprocess. The default is `3600` seconds (60 minutes), which serves as a ceiling to prevent runaway invocations from blocking the gateway indefinitely.
 
 This timeout is configurable via the `[provider.claude-code]` section in `config.toml`:
 
 ```toml
 [provider.claude-code]
-timeout_secs = 600
+timeout_secs = 3600
 ```
 
-If the CLI does not produce a response within the configured timeout, the subprocess is killed and Omega returns a friendly error message to the user. The 10-minute default is generous enough for complex multi-turn agentic tasks while still protecting against hangs.
+If the CLI does not produce a response within the configured timeout, the subprocess is killed and Omega returns a friendly error message to the user. The 60-minute default is generous enough for complex multi-turn agentic tasks (especially with auto-resume) while still protecting against hangs.
+
+### `max_resume_attempts`
+
+Controls how many times Omega will automatically retry a Claude Code CLI invocation when it hits the max turns limit (`error_max_turns`) and returns a `session_id`. The default is `5`.
+
+When the CLI hits max turns, Omega uses the returned `session_id` to resume the session with `--session-id`, allowing work to continue seamlessly. This loop repeats until the work completes, no `session_id` is returned, or the attempt limit is reached.
+
+```toml
+[provider.claude-code]
+max_resume_attempts = 5
+```
 
 ---
 
@@ -208,7 +220,7 @@ OmegaError::Provider("claude CLI exited with exit status: 1: <stderr content>")
 
 ### Max turns exceeded
 
-Not treated as an error. Omega logs a warning and extracts whatever partial result was returned. The user gets a response -- it just might be incomplete.
+When the CLI hits the max turns limit and returns a `session_id`, Omega automatically resumes the session using `--session-id`, up to `max_resume_attempts` times (default: 5). This allows complex tasks to continue across turn boundaries. If no `session_id` is returned or the resume limit is reached, Omega extracts whatever partial result was returned. The user gets a response -- it just might be incomplete if the resume loop was exhausted.
 
 ### Malformed JSON output
 
@@ -225,9 +237,9 @@ If the JSON parses correctly but `result` is empty or missing:
 
 ## Session Continuity
 
-The `session_id` field exists on the provider struct but is not currently populated by the constructors (it is always `None`). When set, it would be passed as `--session-id <id>` to the CLI, allowing multiple invocations to share the same conversation context inside Claude.
+The `session_id` field exists on the provider struct and is not populated by the constructors (it is always `None` initially). However, session IDs are actively used by the auto-resume feature: when the CLI returns `error_max_turns` with a `session_id`, the provider automatically retries using `run_cli_with_session()` which passes `--session-id <id>` to continue the same CLI session.
 
-This is separate from Omega's own memory system (which handles conversation history via SQLite and the `Context` struct). Session continuity at the CLI level would allow Claude to maintain its own internal state across calls. This is reserved for future use.
+This is separate from Omega's own memory system (which handles conversation history via SQLite and the `Context` struct). Session continuity at the CLI level allows Claude to maintain its own internal state across resumed calls within a single user request.
 
 ---
 
@@ -258,16 +270,17 @@ If you see errors about nested sessions or `CLAUDECODE`, the env var removal mig
 
 Claude Code CLI invocations can take anywhere from a few seconds to several minutes, depending on the complexity of the prompt and how many agentic turns are needed. The `processing_time_ms` field in the response metadata tells you exactly how long each invocation took.
 
-The default timeout is 600 seconds (10 minutes). If the CLI exceeds this limit, the subprocess is killed and the user receives a friendly error message. You can tune the timeout via `timeout_secs` in `[provider.claude-code]`:
+The default timeout is 3600 seconds (60 minutes). If the CLI exceeds this limit, the subprocess is killed and the user receives a friendly error message. You can tune the timeout via `timeout_secs` in `[provider.claude-code]`:
 
 ```toml
 [provider.claude-code]
-timeout_secs = 300   # 5-minute ceiling instead of 10
+timeout_secs = 1800   # 30-minute ceiling instead of 60
 ```
 
 If responses are consistently slow, consider:
 
 - Reducing `max_turns` to limit how much work Claude does per invocation.
+- Reducing `max_resume_attempts` to limit the auto-resume loop.
 - Simplifying the system prompt or reducing conversation history length.
 - Lowering `timeout_secs` to fail fast on runaway invocations.
 

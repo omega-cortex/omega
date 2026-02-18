@@ -195,7 +195,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Build and run gateway.
             println!("OMEGA Ω — Starting agent...");
-            let mut gw = gateway::Gateway::new(
+            let gw = Arc::new(gateway::Gateway::new(
                 provider,
                 channels,
                 memory,
@@ -209,7 +209,7 @@ async fn main() -> anyhow::Result<()> {
                 projects,
                 sandbox_mode.display_name().to_string(),
                 sandbox_prompt,
-            );
+            ));
             gw.run().await?;
         }
         Commands::Status => {
@@ -328,6 +328,7 @@ fn build_provider(
                 cc.timeout_secs,
                 Some(workspace_path.to_path_buf()),
                 cfg.sandbox.mode,
+                cc.max_resume_attempts,
             )))
         }
         other => anyhow::bail!("unsupported provider: {other}"),
