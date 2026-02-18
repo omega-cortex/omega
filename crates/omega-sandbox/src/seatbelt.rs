@@ -1,7 +1,7 @@
 //! macOS Seatbelt (sandbox-exec) enforcement.
 //!
 //! Wraps a command with `sandbox-exec -p <profile>` to restrict file writes
-//! to the Omega data directory (`~/.omega/`), `/tmp`, and `~/.claude`.
+//! to the Omega data directory (`~/.omega/`), `/tmp`, `~/.claude`, and `~/.cargo`.
 
 use std::path::Path;
 use tokio::process::Command;
@@ -25,6 +25,7 @@ fn build_profile(data_dir: &Path) -> String {
   (subpath "/private/tmp")
   (subpath "/private/var/folders")
   (subpath "{home}/.claude")
+  (subpath "{home}/.cargo")
 )"#
     )
 }
@@ -33,6 +34,7 @@ fn build_profile(data_dir: &Path) -> String {
 ///
 /// `data_dir` is the Omega data directory (e.g. `~/.omega/`) — writes are
 /// allowed to the entire tree (workspace, skills, projects, etc.).
+/// Also allows writes to `~/.cargo` for cargo registry cache.
 ///
 /// If `/usr/bin/sandbox-exec` does not exist, logs a warning and returns
 /// a plain command without OS-level enforcement.
@@ -75,6 +77,13 @@ mod tests {
         let ws = PathBuf::from("/tmp/ws");
         let profile = build_profile(&ws);
         assert!(profile.contains(".claude"));
+    }
+
+    #[test]
+    fn test_profile_allows_cargo_dir() {
+        let ws = PathBuf::from("/tmp/ws");
+        let profile = build_profile(&ws);
+        assert!(profile.contains(".cargo"));
     }
 
     #[test]

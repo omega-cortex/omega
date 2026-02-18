@@ -56,8 +56,8 @@ The **workspace** subdirectory (`~/.omega/workspace/`) is:
 
 | Mode | OS Write Restriction | Prompt Read Restriction | Use Case |
 |------|---------------------|------------------------|----------|
-| `Sandbox` | Writes only to ~/.omega/ + /tmp + ~/.claude | Reads only in workspace | Default. Maximum isolation. |
-| `Rx` | Writes only to ~/.omega/ + /tmp + ~/.claude | Reads anywhere | System inspection. |
+| `Sandbox` | Writes only to ~/.omega/ + /tmp + ~/.claude + ~/.cargo | Reads only in workspace | Default. Maximum isolation. |
+| `Rx` | Writes only to ~/.omega/ + /tmp + ~/.claude + ~/.cargo | Reads anywhere | System inspection. |
 | `Rwx` | None (unrestricted) | None (unrestricted) | Power users. |
 
 ### Permitted Write Directories (Sandbox and Rx modes)
@@ -68,6 +68,7 @@ The **workspace** subdirectory (`~/.omega/workspace/`) is:
 | `/tmp` | Temporary files |
 | `/private/var/folders` (macOS) | macOS temp directories |
 | `~/.claude` | Claude CLI session data |
+| `~/.cargo` | Cargo registry cache and build artifacts |
 
 ### Dependency Installation
 

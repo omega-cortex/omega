@@ -3,7 +3,7 @@
 //! Uses the `landlock` crate to restrict file writes in the child process
 //! via a `pre_exec` hook. Requires Linux kernel 5.13+ with Landlock enabled.
 //! Writes are allowed to the Omega data directory (`~/.omega/`), `/tmp`,
-//! and `~/.claude`.
+//! `~/.claude`, and `~/.cargo`.
 
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -28,7 +28,7 @@ fn full_access() -> AccessFs {
 ///
 /// The child process will be allowed to:
 /// - Read and execute from the entire filesystem (`/`)
-/// - Read, write, and create files in `data_dir` (`~/.omega/`), `/tmp`, and `~/.claude`
+/// - Read, write, and create files in `data_dir` (`~/.omega/`), `/tmp`, `~/.claude`, and `~/.cargo`
 ///
 /// If the kernel does not support Landlock, logs a warning and falls back
 /// to a plain command.
@@ -36,6 +36,7 @@ pub(crate) fn sandboxed_command(program: &str, data_dir: &Path) -> Command {
     let data_dir = data_dir.to_path_buf();
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let claude_dir = PathBuf::from(&home).join(".claude");
+    let cargo_dir = PathBuf::from(&home).join(".cargo");
 
     let mut cmd = Command::new(program);
 
@@ -43,7 +44,7 @@ pub(crate) fn sandboxed_command(program: &str, data_dir: &Path) -> Command {
     // the landlock crate (which uses syscalls), no async or allocator abuse.
     unsafe {
         cmd.pre_exec(move || {
-            apply_landlock(&data_dir, &claude_dir).map_err(|e| {
+            apply_landlock(&data_dir, &claude_dir, &cargo_dir).map_err(|e| {
                 std::io::Error::new(std::io::ErrorKind::PermissionDenied, e.to_string())
             })
         });
@@ -53,7 +54,11 @@ pub(crate) fn sandboxed_command(program: &str, data_dir: &Path) -> Command {
 }
 
 /// Apply Landlock restrictions to the current process.
-fn apply_landlock(data_dir: &Path, claude_dir: &Path) -> Result<(), anyhow::Error> {
+fn apply_landlock(
+    data_dir: &Path,
+    claude_dir: &Path,
+    cargo_dir: &Path,
+) -> Result<(), anyhow::Error> {
     let abi = ABI::V5;
     let status = Ruleset::default()
         .handle_access(full_access())?
@@ -66,6 +71,8 @@ fn apply_landlock(data_dir: &Path, claude_dir: &Path) -> Result<(), anyhow::Erro
         .add_rules(path_beneath_rules(&[PathBuf::from("/tmp")], full_access()))?
         // Full access to ~/.claude.
         .add_rules(path_beneath_rules(&[claude_dir], full_access()))?
+        // Full access to ~/.cargo (cargo registry cache, build artifacts).
+        .add_rules(path_beneath_rules(&[cargo_dir], full_access()))?
         .restrict_self()?;
 
     if !status.ruleset.is_fully_enforced() {

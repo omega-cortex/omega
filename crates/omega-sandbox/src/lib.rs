@@ -4,7 +4,7 @@
 //!
 //! Provides [`sandboxed_command`] which wraps a program in platform-native
 //! write restrictions. Writes are allowed to the Omega data directory
-//! (`~/.omega/`), `/tmp`, and `~/.claude`.
+//! (`~/.omega/`), `/tmp`, `~/.claude`, and `~/.cargo`.
 //!
 //! - **macOS**: Apple Seatbelt via `sandbox-exec -p <profile>`
 //! - **Linux**: Landlock LSM via `pre_exec` hook (kernel 5.13+)
@@ -30,7 +30,7 @@ mod landlock_sandbox;
 ///   `data_dir` (`~/.omega/`), `/tmp`, `~/.claude`)
 ///
 /// `data_dir` is the Omega data directory — writes are allowed to the entire
-/// tree (workspace, skills, projects, etc.).
+/// tree (workspace, skills, projects, etc.). Also allows writes to `~/.cargo`.
 ///
 /// On unsupported platforms, logs a warning and returns a plain command.
 pub fn sandboxed_command(program: &str, mode: SandboxMode, data_dir: &Path) -> Command {
