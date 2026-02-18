@@ -405,26 +405,47 @@ If this fails, the wizard shows the error and skips the rest of Google setup:
 
 The user enters their Gmail address. Validated to be non-empty and contain an `@` sign.
 
-**Sub-step 7e: OAuth Tips**
+**Sub-step 7e: Incognito Browser Offer**
+
+The wizard automatically detects installed browsers that support incognito/private mode (Google Chrome, Brave, Firefox, Microsoft Edge) by checking `/Applications/*.app`.
+
+If at least one is found:
+```
+◆  Open OAuth URL in incognito/private window? (recommended)
+│  Yes / No
+```
+
+If the user selects Yes and multiple browsers are available:
+```
+◆  Which browser?
+│  ● Google Chrome
+│  ○ Firefox
+```
+
+The wizard creates a temporary shell script at `$TMPDIR/omega_incognito_browser.sh` that opens URLs in the selected browser's private mode (e.g., `open -na 'Google Chrome' --args --incognito "$1"`), then passes it via the `BROWSER` environment variable when invoking `gog auth add`.
+
+If no browsers are detected, this step is silently skipped and the default browser is used.
+
+**Sub-step 7f: OAuth Tips**
 ```
 │
 │  OAuth Tips
 │
-│  Open the browser link that appears
-│  Use an incognito/private window if you have trouble
-│  Ensure your app is published in OAuth consent screen
-│  Add yourself as a test user if not using a published app
+│  A browser will open for Google sign-in.
+│  • Click 'Advanced' → 'Go to gog (unsafe)' → Allow
+│  • If 'Access blocked: not verified', go to OAuth consent screen →
+│    Audience → Publish app (or add yourself as a test user)
 │
 ```
 
-The wizard displays troubleshooting guidance before the OAuth flow begins, helping the user avoid common issues.
+The wizard displays troubleshooting guidance before the OAuth flow begins.
 
-**Sub-step 7f: OAuth Approval**
+**Sub-step 7g: OAuth Approval**
 ```
 ◒  Waiting for OAuth approval in browser...
 ```
 
-The wizard runs `gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets`. This opens the user's default browser for Google OAuth consent. A spinner waits while the user approves in the browser.
+The wizard runs `gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets` with the `BROWSER` env var set if incognito was selected. This opens the browser for Google OAuth consent. A spinner waits while the user approves in the browser. The temporary incognito script is cleaned up after the command completes.
 
 **On Success:**
 ```
@@ -434,10 +455,11 @@ The wizard runs `gog auth add <email> --services gmail,calendar,drive,contacts,d
 **On Failure:**
 ```
 ▲  gog auth add failed: <error details>
-◇  Try again in an incognito/private browser window and ensure your app is published.
+◇  If your browser showed an error, try manually in an incognito window:
+    gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets
 ```
 
-**Sub-step 7g: Verification**
+**Sub-step 7h: Verification**
 
 The wizard runs `gog auth list` and checks if the user's email appears in the output.
 

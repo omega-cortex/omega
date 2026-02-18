@@ -5,6 +5,67 @@ use omega_channels::whatsapp;
 use omega_core::shellexpand;
 use std::path::Path;
 
+/// Browser that supports private/incognito mode from the command line.
+struct PrivateBrowser {
+    label: &'static str,
+    app: &'static str,
+    flag: &'static str,
+}
+
+/// Known browsers with incognito/private mode support on macOS.
+const PRIVATE_BROWSERS: &[PrivateBrowser] = &[
+    PrivateBrowser {
+        label: "Google Chrome",
+        app: "Google Chrome",
+        flag: "--incognito",
+    },
+    PrivateBrowser {
+        label: "Brave",
+        app: "Brave Browser",
+        flag: "--incognito",
+    },
+    PrivateBrowser {
+        label: "Firefox",
+        app: "Firefox",
+        flag: "--private-window",
+    },
+    PrivateBrowser {
+        label: "Microsoft Edge",
+        app: "Microsoft Edge",
+        flag: "--inprivate",
+    },
+];
+
+/// Detect installed browsers that support incognito/private mode (macOS).
+///
+/// Returns indices into `PRIVATE_BROWSERS` for browsers found in `/Applications`.
+fn detect_private_browsers() -> Vec<usize> {
+    PRIVATE_BROWSERS
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| Path::new(&format!("/Applications/{}.app", b.app)).exists())
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// Create a temporary shell script that opens a URL in incognito/private mode.
+///
+/// Returns the path to the script on success.
+fn create_incognito_script(browser: &PrivateBrowser) -> anyhow::Result<std::path::PathBuf> {
+    let script_path = std::env::temp_dir().join("omega_incognito_browser.sh");
+    let script = format!(
+        "#!/bin/sh\nopen -na '{}' --args {} \"$1\"\n",
+        browser.app, browser.flag
+    );
+    std::fs::write(&script_path, script)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755))?;
+    }
+    Ok(script_path)
+}
+
 const LOGO: &str = r#"
               ██████╗ ███╗   ███╗███████╗ ██████╗  █████╗        █████╗
              ██╔═══██╗████╗ ████║██╔════╝██╔════╝ ██╔══██╗      ██╔══██╗
@@ -484,13 +545,47 @@ fn run_google_setup() -> anyhow::Result<Option<String>> {
         })
         .interact()?;
 
+    // Offer incognito browser for OAuth (avoids cached session issues).
+    let browsers = detect_private_browsers();
+    let incognito_script = if !browsers.is_empty() {
+        let use_incognito: bool =
+            cliclack::confirm("Open OAuth URL in incognito/private window? (recommended)")
+                .initial_value(true)
+                .interact()?;
+
+        if use_incognito {
+            let browser_idx = if browsers.len() == 1 {
+                browsers[0]
+            } else {
+                let mut select = cliclack::select("Which browser?");
+                for &idx in &browsers {
+                    let b = &PRIVATE_BROWSERS[idx];
+                    select = select.item(idx, b.label, "");
+                }
+                select.interact()?
+            };
+
+            match create_incognito_script(&PRIVATE_BROWSERS[browser_idx]) {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    cliclack::log::warning(format!(
+                        "Could not set up incognito browser: {e} — using default browser"
+                    ))?;
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // Show OAuth troubleshooting tips before starting the flow.
     cliclack::note(
         "OAuth Tips",
         "A browser will open for Google sign-in.\n\
          • Click 'Advanced' → 'Go to gog (unsafe)' → Allow\n\
-         • If you see 'Something went wrong', try in an incognito window:\n\
-           gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets\n\
          • If 'Access blocked: not verified', go to OAuth consent screen →\n\
            Audience → Publish app (or add yourself as a test user)",
     )?;
@@ -498,15 +593,23 @@ fn run_google_setup() -> anyhow::Result<Option<String>> {
     // Run: gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets
     let spinner = cliclack::spinner();
     spinner.start("Waiting for OAuth approval in browser...");
-    let auth_result = std::process::Command::new("gog")
-        .args([
-            "auth",
-            "add",
-            &email,
-            "--services",
-            "gmail,calendar,drive,contacts,docs,sheets",
-        ])
-        .output();
+    let mut cmd = std::process::Command::new("gog");
+    cmd.args([
+        "auth",
+        "add",
+        &email,
+        "--services",
+        "gmail,calendar,drive,contacts,docs,sheets",
+    ]);
+    if let Some(ref script_path) = incognito_script {
+        cmd.env("BROWSER", script_path);
+    }
+    let auth_result = cmd.output();
+
+    // Clean up temp script.
+    if let Some(script_path) = incognito_script {
+        let _ = std::fs::remove_file(script_path);
+    }
 
     match auth_result {
         Ok(output) if output.status.success() => {
@@ -516,7 +619,7 @@ fn run_google_setup() -> anyhow::Result<Option<String>> {
             let stderr = String::from_utf8_lossy(&output.stderr);
             spinner.error(format!("gog auth add failed: {stderr}"));
             cliclack::log::warning(
-                "If your browser showed an error, try in an incognito window:\n\
+                "If your browser showed an error, try manually in an incognito window:\n\
                  gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets",
             )?;
             return Ok(None);
@@ -628,5 +731,59 @@ mod tests {
         let config = generate_config("tok:EN", Some(42), None, false, None, "sandbox");
         assert!(config.contains("# whisper_api_key"));
         assert!(config.contains("OPENAI_API_KEY"));
+    }
+
+    #[test]
+    fn test_private_browsers_constant_has_entries() {
+        assert!(
+            !PRIVATE_BROWSERS.is_empty(),
+            "should have at least one browser defined"
+        );
+        for b in PRIVATE_BROWSERS {
+            assert!(!b.label.is_empty(), "label must not be empty");
+            assert!(!b.app.is_empty(), "app must not be empty");
+            assert!(!b.flag.is_empty(), "flag must not be empty");
+        }
+    }
+
+    #[test]
+    fn test_detect_private_browsers_returns_valid_indices() {
+        let indices = detect_private_browsers();
+        for &idx in &indices {
+            assert!(
+                idx < PRIVATE_BROWSERS.len(),
+                "index {idx} out of bounds for PRIVATE_BROWSERS"
+            );
+        }
+    }
+
+    #[test]
+    fn test_create_incognito_script() {
+        let browser = &PRIVATE_BROWSERS[0]; // Google Chrome
+        let path = create_incognito_script(browser).expect("should create script");
+        assert!(path.exists(), "script file should exist");
+
+        let content = std::fs::read_to_string(&path).expect("should read script");
+        assert!(content.starts_with("#!/bin/sh\n"), "should have shebang");
+        assert!(
+            content.contains(browser.app),
+            "should contain browser app name"
+        );
+        assert!(
+            content.contains(browser.flag),
+            "should contain browser flag"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::metadata(&path)
+                .expect("should get metadata")
+                .permissions();
+            assert_eq!(perms.mode() & 0o755, 0o755, "script should be executable");
+        }
+
+        // Cleanup.
+        let _ = std::fs::remove_file(path);
     }
 }

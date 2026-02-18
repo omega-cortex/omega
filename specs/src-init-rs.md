@@ -13,6 +13,10 @@ The `init.rs` module contains:
 - `run_anthropic_auth()` — Private function that handles Anthropic authentication (setup-token flow)
 - `run_whatsapp_setup()` — Private function that handles WhatsApp QR-code pairing
 - `run_google_setup()` — Private function that handles Google Workspace OAuth setup via `gog` CLI
+- `detect_private_browsers()` — Private function that detects installed browsers with incognito/private mode support (macOS)
+- `create_incognito_script(browser)` — Private function that creates a temp shell script for opening URLs in incognito mode
+- `PrivateBrowser` — Private struct holding browser label, app name, and incognito flag
+- `PRIVATE_BROWSERS` — Constant array of known browsers with incognito support (Chrome, Brave, Firefox, Edge)
 - Uses `omega_core::shellexpand()` for home directory expansion (imported, not local)
 - Uses `omega_channels::whatsapp` for WhatsApp pairing flow
 
@@ -373,21 +377,29 @@ fn run_google_setup() -> anyhow::Result<Option<String>>
    - `.validate(...)` closure that rejects empty input or input without `@` with `"Please enter a valid email address"`
    - `.interact()?`
 
-**Step 7: Display OAuth Tips**
-1. Before starting the OAuth flow, display `cliclack::note("OAuth Tips", ...)` with troubleshooting guidance:
-   - Open the browser link that appears
-   - Use an incognito/private window if you have trouble
-   - Ensure your app is published in OAuth consent screen
-   - Add yourself as a test user if not using a published app
+**Step 7: Incognito browser offer**
+1. Call `detect_private_browsers()` to find installed browsers with incognito support (Chrome, Brave, Firefox, Edge)
+2. If browsers found: prompt `cliclack::confirm("Open OAuth URL in incognito/private window? (recommended)")` (default: `true`)
+3. If user accepts and multiple browsers found: prompt `cliclack::select("Which browser?")` to choose
+4. If user accepts: call `create_incognito_script(browser)` to write a temp shell script at `$TMPDIR/omega_incognito_browser.sh` that opens URLs in private mode
+5. If no browsers found or user declines: use default browser (no BROWSER env var set)
 
-**Step 8: OAuth authorization**
+**Step 8: Display OAuth Tips**
+1. Display `cliclack::note("OAuth Tips", ...)` with troubleshooting guidance:
+   - Click 'Advanced' → 'Go to gog (unsafe)' → Allow
+   - If 'Access blocked: not verified', publish app or add test user
+
+**Step 9: OAuth authorization**
 1. Start spinner: `"Waiting for OAuth approval in browser..."`
-2. Execute `gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets` as subprocess
-3. On success: stop spinner with `"OAuth approved"`
-4. On failure (non-zero exit): stop spinner with error, log warning, display incognito retry suggestion, return `Ok(None)`
-5. On execution error: stop spinner with error, log warning, display incognito retry suggestion, return `Ok(None)`
+2. Build `gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets` command
+3. If incognito script was created: set `BROWSER` env var on the subprocess to the temp script path
+4. Execute the command
+5. Clean up temp script (regardless of outcome)
+6. On success: stop spinner with `"OAuth approved"`
+7. On failure (non-zero exit): stop spinner with error, log warning, display manual incognito retry suggestion, return `Ok(None)`
+8. On execution error: stop spinner with error, log warning, return `Ok(None)`
 
-**Step 9: Verify with `gog auth list`**
+**Step 10: Verify with `gog auth list`**
 1. Execute `gog auth list` as subprocess
 2. Check if stdout contains the email address
 3. If verified: log success `"Google Workspace connected!"`, return `Ok(Some(email))`
@@ -396,7 +408,9 @@ fn run_google_setup() -> anyhow::Result<Option<String>>
 ### Error Handling
 - Missing `gog` CLI: silently skipped, user is never prompted
 - All `gog` subprocess failures produce warnings and return `Ok(None)` -- never fatal to the wizard
-- Failed OAuth now shows incognito retry suggestion to help users troubleshoot browser-related issues
+- Failed OAuth shows manual incognito retry suggestion to help users troubleshoot browser-related issues
+- Incognito script creation failure is non-fatal: falls back to default browser with a warning
+- Temp incognito script is always cleaned up after the `gog auth add` command completes
 - Verification failure is non-fatal; returns the email optimistically
 
 ---
@@ -487,9 +501,9 @@ account = "{email}"
 
 ## Unit Tests
 
-### Test Suite: `tests` (6 tests)
+### Test Suite: `tests` (11 tests)
 
-All tests exercise the `generate_config()` pure function. No I/O mocking required.
+Tests exercise `generate_config()`, `detect_private_browsers()`, and `create_incognito_script()`. No I/O mocking required.
 
 | Test | Parameters | Assertions |
 |------|-----------|------------|
@@ -499,6 +513,11 @@ All tests exercise the `generate_config()` pure function. No I/O mocking require
 | `test_generate_config_google_only` | `("", None, false, Some("test@example.com"), "sandbox")` | Telegram disabled, google section present with email |
 | `test_generate_config_whatsapp_only` | `("", None, true, None, "sandbox")` | Whatsapp enabled, telegram disabled, no google section |
 | `test_generate_config_sandbox_modes` | rx and rwx modes | Verifies `mode = "rx"` and `mode = "rwx"` appear correctly |
+| `test_generate_config_with_whisper` | `("tok:EN", Some(42), Some("sk-abc"), ...)` | Whisper API key present in config |
+| `test_generate_config_without_whisper` | `("tok:EN", Some(42), None, ...)` | Commented whisper_api_key with OPENAI_API_KEY hint |
+| `test_private_browsers_constant_has_entries` | — | PRIVATE_BROWSERS has entries with non-empty label/app/flag |
+| `test_detect_private_browsers_returns_valid_indices` | — | All returned indices are within PRIVATE_BROWSERS bounds |
+| `test_create_incognito_script` | Chrome browser | Script file created, has shebang, contains app name and flag, is executable (0o755), cleaned up after |
 
 ---
 
