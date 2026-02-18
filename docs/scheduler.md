@@ -25,7 +25,7 @@ You can request tasks explicitly:
 - "Remind me every Monday to submit the weekly report"
 - "Remind me on weekdays at 8:30am to check email"
 
-But Omega also schedules proactively. When it takes an action that logically requires follow-up — placing a trade, starting a long-running process, sending something that needs a reply — it schedules the check itself without being asked. An autonomous agent anticipates what comes next.
+But Omega also schedules proactively. After every action it takes, it asks itself: "Does this need follow-up?" If yes, it schedules the check itself without being asked. This applies universally — any action that could need a later check, verification, or status update gets scheduled automatically. An autonomous agent closes its own loops.
 
 ### Step 2: The Provider Translates
 

@@ -81,7 +81,7 @@ Background loops (spawned in `gateway::run()`):
 - **Scheduler**: polls `scheduled_tasks` table every 60s, delivers due reminders via channel
 - **Heartbeat**: periodic context-aware provider check-in (default 30min), enriched with user facts + recent summaries, skips when no `~/.omega/HEARTBEAT.md` checklist is configured, suppresses `HEARTBEAT_OK`, alerts otherwise
 
-Proactive self-scheduling: The AI is instructed to use SCHEDULE and HEARTBEAT_ADD markers not only when the user explicitly asks, but also autonomously when it takes actions that require follow-up or ongoing monitoring (e.g., placing a trade → schedule position checks, starting a process → schedule status check). The system prompt Identity section and the injected marker instructions both reinforce this autonomous behavior.
+Proactive self-scheduling: After every action it takes, the AI evaluates: "Does this need follow-up?" If yes, it uses SCHEDULE (for time-based checks) or HEARTBEAT_ADD (for ongoing monitoring) autonomously — no user request needed. This applies universally to any context, not just specific domains. The Identity section and injected marker instructions both reinforce this: an autonomous agent closes its own loops.
 
 Bot commands (`src/commands.rs`): `/help`, `/forget`, `/tasks`, `/cancel <id>`, `/language`, `/personality`, `/skills`, `/projects`, `/project` — dispatched via `commands::handle(cmd, &CommandContext)` where `CommandContext` groups store, channel, sender, text, uptime, provider name, skills, projects, and sandbox mode into a single struct.
 
