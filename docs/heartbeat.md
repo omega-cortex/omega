@@ -98,6 +98,8 @@ Ask Omega to monitor something:
 - "Monitor whether I'm drinking enough water"
 - "Add disk usage checks to your watchlist"
 
+Omega also adds items proactively. When it takes an action that needs ongoing monitoring — opening a trading position, managing something over time, starting a process that could fail — it adds the item to its watchlist without being asked.
+
 Omega will emit a `HEARTBEAT_ADD:` marker in its response, which the gateway intercepts to add the item to `~/.omega/HEARTBEAT.md`. The marker is stripped before the response reaches you.
 
 ### Removing Items

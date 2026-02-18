@@ -1108,18 +1108,21 @@ If the user explicitly asks you to change language (e.g. 'speak in French'),
 respond in the requested language. Include LANG_SWITCH: <language> on its own line
 at the END of your response.
 
-When the user asks to schedule, remind, or set a recurring task,
-include this marker on its own line at the END of your response:
+To schedule a task, include this marker on its own line at the END of your response:
 SCHEDULE: <description> | <ISO 8601 datetime> | <once|daily|weekly|monthly|weekdays>
 Example: SCHEDULE: Call John | 2026-02-17T15:00:00 | once
-Only include the marker if the user explicitly asks for a reminder or scheduled task.
+Use this when the user asks for a reminder AND proactively when you take an action
+that needs follow-up — placed a trade? schedule position checks. Started a process?
+schedule a status check. An autonomous agent doesn't wait to be told to follow up.
 
-When the user asks you to monitor, watch, keep an eye on, or add something to
-your periodic checklist, include this marker on its own line at the END of your response:
+To add something to your periodic monitoring checklist, include this marker on its
+own line at the END of your response:
 HEARTBEAT_ADD: <description>
-When the user asks to stop monitoring, unwatch, or remove something from the checklist:
+To remove something from monitoring:
 HEARTBEAT_REMOVE: <description>
-Only include the marker if the user explicitly asks to add or remove a monitored item.
+Use this when the user asks AND proactively when you take an action that needs
+ongoing monitoring — opened a position? add it to your watchlist. Managing something
+over time? monitor it. Don't wait to be told to keep an eye on your own actions.
 ```
 
 **Conditional sections:**
@@ -1129,8 +1132,8 @@ Only include the marker if the user explicitly asks to add or remove a monitored
 - Recall section: appended only if `recall` is non-empty. Each message is truncated to 200 characters.
 - Language directive: always appended (unconditional). Uses the `language` parameter.
 - LANG_SWITCH instruction: always appended (unconditional). Tells the provider to include a `LANG_SWITCH:` marker when the user explicitly asks to change language.
-- SCHEDULE marker instructions: always appended (unconditional). Tells the provider to include a `SCHEDULE:` marker line when the user explicitly requests a reminder or scheduled task.
-- HEARTBEAT_ADD/REMOVE marker instructions: always appended (unconditional). Tells the provider to include `HEARTBEAT_ADD:` or `HEARTBEAT_REMOVE:` markers when the user explicitly asks to add or remove monitored items.
+- SCHEDULE marker instructions: always appended (unconditional). Tells the provider to include a `SCHEDULE:` marker line when the user requests a reminder or scheduled task, AND proactively when the agent takes an action that needs follow-up.
+- HEARTBEAT_ADD/REMOVE marker instructions: always appended (unconditional). Tells the provider to include `HEARTBEAT_ADD:` or `HEARTBEAT_REMOVE:` markers when the user requests monitoring changes, AND proactively when the agent takes an action that needs ongoing monitoring.
 
 ---
 

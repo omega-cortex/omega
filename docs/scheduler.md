@@ -17,13 +17,15 @@ The scheduler runs as a background loop inside the gateway, polling the database
 
 ## How Scheduling Works
 
-### Step 1: You Ask in Natural Language
+### Step 1: You Ask — Or Omega Decides On Its Own
 
-Send a message like any of these:
+You can request tasks explicitly:
 - "Remind me to call John at 3pm"
 - "Set a daily standup reminder at 9am"
 - "Remind me every Monday to submit the weekly report"
 - "Remind me on weekdays at 8:30am to check email"
+
+But Omega also schedules proactively. When it takes an action that logically requires follow-up — placing a trade, starting a long-running process, sending something that needs a reply — it schedules the check itself without being asked. An autonomous agent anticipates what comes next.
 
 ### Step 2: The Provider Translates
 

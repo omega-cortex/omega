@@ -934,20 +934,23 @@ fn build_system_prompt(
     );
 
     prompt.push_str(
-        "\n\nWhen the user asks to schedule, remind, or set a recurring task, \
-         include this marker on its own line at the END of your response:\n\
+        "\n\nTo schedule a task, include this marker on its own line at the END of your response:\n\
          SCHEDULE: <description> | <ISO 8601 datetime> | <once|daily|weekly|monthly|weekdays>\n\
          Example: SCHEDULE: Call John | 2026-02-17T15:00:00 | once\n\
-         Only include the marker if the user explicitly asks for a reminder or scheduled task.",
+         Use this when the user asks for a reminder AND proactively when you take an action \
+         that needs follow-up — placed a trade? schedule position checks. Started a process? \
+         schedule a status check. An autonomous agent doesn't wait to be told to follow up.",
     );
 
     prompt.push_str(
-        "\n\nWhen the user asks you to monitor, watch, keep an eye on, or add something to \
-         your periodic checklist, include this marker on its own line at the END of your response:\n\
+        "\n\nTo add something to your periodic monitoring checklist, include this marker on its \
+         own line at the END of your response:\n\
          HEARTBEAT_ADD: <description>\n\
-         When the user asks to stop monitoring, unwatch, or remove something from the checklist:\n\
+         To remove something from monitoring:\n\
          HEARTBEAT_REMOVE: <description>\n\
-         Only include the marker if the user explicitly asks to add or remove a monitored item.",
+         Use this when the user asks AND proactively when you take an action that needs \
+         ongoing monitoring — opened a position? add it to your watchlist. Managing something \
+         over time? monitor it. Don't wait to be told to keep an eye on your own actions.",
     );
 
     prompt
