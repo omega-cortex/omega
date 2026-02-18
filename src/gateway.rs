@@ -6,7 +6,7 @@
 use crate::commands;
 use omega_channels::whatsapp;
 use omega_core::{
-    config::{AuthConfig, ChannelConfig, HeartbeatConfig, Prompts, SchedulerConfig},
+    config::{shellexpand, AuthConfig, ChannelConfig, HeartbeatConfig, Prompts, SchedulerConfig},
     context::Context,
     message::{IncomingMessage, MessageMetadata, OutgoingMessage},
     sanitize,
@@ -662,7 +662,7 @@ impl Gateway {
         // --- 5. GET RESPONSE FROM PROVIDER (async with status updates) ---
 
         // Snapshot workspace images before provider call.
-        let workspace_path = PathBuf::from(&self.data_dir).join("workspace");
+        let workspace_path = PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
         let images_before = snapshot_workspace_images(&workspace_path);
 
         // Spawn provider call as background task.
