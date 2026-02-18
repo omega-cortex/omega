@@ -147,7 +147,7 @@ In addition to skills, the `omega-skills` crate also loads **projects** — user
 ### How Projects Work
 
 1. Create a folder in `~/.omega/projects/` with any name (e.g., `real-estate`)
-2. Add an `INSTRUCTIONS.md` file with custom instructions
+2. Add an `ROLE.md` file with custom instructions
 3. Restart Omega
 4. Use `/project real-estate` to activate it
 
@@ -158,11 +158,11 @@ When a project is active, its instructions are prepended to the system prompt, c
 ```
 ~/.omega/projects/
 ├── real-estate/
-│   └── INSTRUCTIONS.md      # "You are a real estate analyst..."
+│   └── ROLE.md      # "You are a real estate analyst..."
 ├── nutrition/
-│   └── INSTRUCTIONS.md      # "You are a nutrition coach..."
+│   └── ROLE.md      # "You are a nutrition coach..."
 └── stocks/
-    └── INSTRUCTIONS.md      # "You track my portfolio..."
+    └── ROLE.md      # "You track my portfolio..."
 ```
 
 ### Bot Commands

@@ -421,7 +421,7 @@ Use /project <name> to activate, /project off to deactivate.
 
 **Response Format (No Projects):**
 ```
-No projects found. Create folders in ~/.omega/projects/ with INSTRUCTIONS.md
+No projects found. Create folders in ~/.omega/projects/ with ROLE.md
 ```
 
 ---

@@ -248,7 +248,7 @@ Use /project <name> to activate, /project off to deactivate.
 
 **Response Example (No Projects):**
 ```
-No projects found. Create folders in ~/.omega/projects/ with INSTRUCTIONS.md
+No projects found. Create folders in ~/.omega/projects/ with ROLE.md
 ```
 
 **Use Cases:**
@@ -287,7 +287,7 @@ Project deactivated. Conversation cleared.
 - Switching projects clears your current conversation for a clean context
 - The active project persists across Omega restarts
 - Project instructions are prepended to the system prompt, changing how the AI behaves
-- To add a new project, create a folder in `~/.omega/projects/` with an `INSTRUCTIONS.md` file and restart Omega
+- To add a new project, create a folder in `~/.omega/projects/` with an `ROLE.md` file and restart Omega
 
 **Use Cases:**
 - Scope AI behavior for specific domains (real estate, nutrition, finance)

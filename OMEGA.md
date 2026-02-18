@@ -248,8 +248,8 @@ Skills are markdown files with TOML frontmatter that teach Omega new capabilitie
 Projects are directories with instruction files that give Omega context about what you're working on:
 
 ```
-~/.omega/projects/my-app/INSTRUCTIONS.md
-~/.omega/projects/website/INSTRUCTIONS.md
+~/.omega/projects/my-app/ROLE.md
+~/.omega/projects/website/ROLE.md
 ```
 
 When you say `/project my-app`, those instructions are prepended to the system prompt — Omega now understands your project's architecture, conventions, and goals.
@@ -422,7 +422,7 @@ Omega is also a CLI tool. Entry point: `main.rs`.
 │       └── SKILL.md           ← Bundled skill (auto-deployed)
 └── projects/
     └── my-app/
-        └── INSTRUCTIONS.md  ← Project context (user-created)
+        └── ROLE.md  ← Project context (user-created)
 ```
 
 ```

@@ -57,7 +57,7 @@ Cargo workspace with 6 crates:
 | `omega-providers` | AI backends (Claude Code CLI, Anthropic, OpenAI, Ollama, OpenRouter) |
 | `omega-channels` | Messaging platforms (Telegram with voice transcription via Whisper + photo reception, WhatsApp with image reception) |
 | `omega-memory` | SQLite storage, conversation history, audit log, scheduled tasks, structured user profile formatting |
-| `omega-skills` | Skill loader + project loader — skills from `~/.omega/skills/*/SKILL.md` (TOML or YAML frontmatter), projects from `~/.omega/projects/*/INSTRUCTIONS.md`, trigger-based MCP server activation |
+| `omega-skills` | Skill loader + project loader — skills from `~/.omega/skills/*/SKILL.md` (TOML or YAML frontmatter), projects from `~/.omega/projects/*/ROLE.md`, trigger-based MCP server activation |
 | `omega-sandbox` | OS-level filesystem enforcement — Seatbelt (macOS), Landlock (Linux) — restricts writes to data dir (`~/.omega/`) + /tmp + ~/.claude in sandbox/rx modes |
 
 Gateway event loop (`src/gateway.rs`):
@@ -127,7 +127,7 @@ cargo build --release        # Optimized binary
 - Prompts: `~/.omega/SYSTEM_PROMPT.md` (auto-deployed on first run, `## Identity` + `## Soul` + `## System` sections, read at startup)
 - Welcome messages: `~/.omega/WELCOME.toml` (auto-deployed on first run, `[messages]` table keyed by language, read at startup)
 - Skills: `~/.omega/skills/*/SKILL.md` (auto-deployed on first run, TOML or YAML frontmatter + instructions, scanned at startup)
-- Projects: `~/.omega/projects/*/INSTRUCTIONS.md` (user-created, directory name = project name, scanned at startup)
+- Projects: `~/.omega/projects/*/ROLE.md` (user-created, directory name = project name, scanned at startup)
 - Workspace: `~/.omega/workspace/` (sandbox working directory, created on startup)
 - Inbox: `~/.omega/workspace/inbox/` (temporary storage for incoming image attachments, auto-cleaned after provider response)
 - Heartbeat checklist: `~/.omega/HEARTBEAT.md` (optional, read by heartbeat loop)

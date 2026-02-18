@@ -193,7 +193,7 @@ Deploy bundled skills if not present
     ↓
 Ensure projects directory exists (~/.omega/projects/)
     ↓
-Load all projects from projects/*/INSTRUCTIONS.md
+Load all projects from projects/*/ROLE.md
     ↓
 Create workspace directory (~/.omega/workspace/) if not present
     ↓

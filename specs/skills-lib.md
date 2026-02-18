@@ -123,7 +123,7 @@ In addition to skills, this crate also handles project loading. Projects are use
 |------|------|-------------|
 | `Project` | struct | Loaded project definition (name, instructions, path) |
 | `ensure_projects_dir(data_dir)` | fn | Create `{data_dir}/projects/` directory if missing |
-| `load_projects(data_dir)` | fn | Scan `{data_dir}/projects/*/INSTRUCTIONS.md`, return `Vec<Project>` sorted by name |
+| `load_projects(data_dir)` | fn | Scan `{data_dir}/projects/*/ROLE.md`, return `Vec<Project>` sorted by name |
 | `get_project_instructions(projects, name)` | fn | Find project by name, return `Option<&str>` of its instructions |
 
 ### Project Directory Format
@@ -131,16 +131,16 @@ In addition to skills, this crate also handles project loading. Projects are use
 ```
 ~/.omega/projects/
 ├── real-estate/
-│   └── INSTRUCTIONS.md      # "You are a real estate analyst..."
+│   └── ROLE.md      # "You are a real estate analyst..."
 ├── nutrition/
-│   └── INSTRUCTIONS.md      # "You are a nutrition coach..."
+│   └── ROLE.md      # "You are a nutrition coach..."
 └── stocks/
-    └── INSTRUCTIONS.md      # "You track my portfolio..."
+    └── ROLE.md      # "You track my portfolio..."
 ```
 
 - **Project name** = directory name
-- **Instructions** = contents of `INSTRUCTIONS.md` (trimmed, must be non-empty)
-- Directories without `INSTRUCTIONS.md` or with empty instructions are skipped
+- **Instructions** = contents of `ROLE.md` (trimmed, must be non-empty)
+- Directories without `ROLE.md` or with empty instructions are skipped
 - Projects are loaded at startup (restart to pick up new ones)
 
 ## Tests
@@ -171,7 +171,7 @@ In addition to skills, this crate also handles project loading. Projects are use
 - Trigger matching: no MCP servers returns empty
 - Load skills with trigger and MCP from filesystem
 - Missing projects directory returns empty vec
-- Valid project with INSTRUCTIONS.md loads correctly
-- Empty INSTRUCTIONS.md is skipped
-- Directory without INSTRUCTIONS.md is skipped
+- Valid project with ROLE.md loads correctly
+- Empty ROLE.md is skipped
+- Directory without ROLE.md is skipped
 - `get_project_instructions()` returns correct instructions or None

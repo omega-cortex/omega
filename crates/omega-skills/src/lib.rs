@@ -418,7 +418,7 @@ pub fn match_skill_triggers(skills: &[Skill], message: &str) -> Vec<McpServer> {
 pub struct Project {
     /// Directory name (e.g. "real-estate").
     pub name: String,
-    /// Contents of `INSTRUCTIONS.md`.
+    /// Contents of `ROLE.md`.
     pub instructions: String,
     /// Absolute path to the project directory.
     pub path: PathBuf,
@@ -432,7 +432,7 @@ pub fn ensure_projects_dir(data_dir: &str) {
     }
 }
 
-/// Scan `{data_dir}/projects/*/INSTRUCTIONS.md` and return all valid projects.
+/// Scan `{data_dir}/projects/*/ROLE.md` and return all valid projects.
 pub fn load_projects(data_dir: &str) -> Vec<Project> {
     let dir = Path::new(&expand_tilde(data_dir)).join("projects");
     let entries = match std::fs::read_dir(&dir) {
@@ -446,7 +446,7 @@ pub fn load_projects(data_dir: &str) -> Vec<Project> {
         if !path.is_dir() {
             continue;
         }
-        let instructions_path = path.join("INSTRUCTIONS.md");
+        let instructions_path = path.join("ROLE.md");
         let content = match std::fs::read_to_string(&instructions_path) {
             Ok(c) => c,
             Err(_) => continue,
@@ -722,7 +722,7 @@ description = \"No deps.\"
         let proj_dir = tmp.join("projects/my-project");
         std::fs::create_dir_all(&proj_dir).unwrap();
         std::fs::write(
-            proj_dir.join("INSTRUCTIONS.md"),
+            proj_dir.join("ROLE.md"),
             "You are a helpful assistant.",
         )
         .unwrap();
@@ -740,7 +740,7 @@ description = \"No deps.\"
         let _ = std::fs::remove_dir_all(&tmp);
         let proj_dir = tmp.join("projects/empty-proj");
         std::fs::create_dir_all(&proj_dir).unwrap();
-        std::fs::write(proj_dir.join("INSTRUCTIONS.md"), "   \n  ").unwrap();
+        std::fs::write(proj_dir.join("ROLE.md"), "   \n  ").unwrap();
 
         let projects = load_projects(tmp.to_str().unwrap());
         assert!(projects.is_empty(), "empty instructions should be skipped");
@@ -753,12 +753,12 @@ description = \"No deps.\"
         let _ = std::fs::remove_dir_all(&tmp);
         let proj_dir = tmp.join("projects/no-file");
         std::fs::create_dir_all(&proj_dir).unwrap();
-        // No INSTRUCTIONS.md created.
+        // No ROLE.md created.
 
         let projects = load_projects(tmp.to_str().unwrap());
         assert!(
             projects.is_empty(),
-            "dir without INSTRUCTIONS.md should be skipped"
+            "dir without ROLE.md should be skipped"
         );
         let _ = std::fs::remove_dir_all(&tmp);
     }
