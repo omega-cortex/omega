@@ -440,7 +440,7 @@ pub struct Gateway {
 
 **Stage 5: Classify and Route (Model Selection)**
 - After SILENT suppression check:
-- Call `self.classify_and_route(&incoming.text)` unconditionally (no word-count gate). This sends a dedicated classification prompt to the provider (no system prompt, no history, no MCP servers) with `ctx.model = Some(self.model_fast.clone())` (classification always uses the fast model).
+- Call `self.classify_and_route()` unconditionally (no word-count gate). This sends a classification prompt enriched with lightweight context (active project name, last 3 history messages truncated to 80 chars, available skill names) to the provider (no system prompt, no MCP servers) with `ctx.model = Some(self.model_fast.clone())` (classification always uses the fast model).
   - The classification response is parsed by `parse_plan_response()`:
     - If the response contains "DIRECT" (any case) → returns `None`.
     - If the response contains only a single step → returns `None`.
@@ -578,20 +578,34 @@ pub struct Gateway {
 **Error Handling:**
 - Send errors are logged but do not return an error code.
 
-#### `async fn classify_and_route(&self, message: &str) -> Option<Vec<String>>`
-**Purpose:** Send a dedicated classification call to the provider to determine if the message requires multi-step execution. Always runs (no word-count gate). Uses the fast model for classification.
+#### `async fn classify_and_route(&self, message: &str, active_project: Option<&str>, recent_history: &[ContextEntry], skill_names: &[&str]) -> Option<Vec<String>>`
+**Purpose:** Send a context-enriched classification call to the provider to determine if the message requires multi-step execution. Always runs (no word-count gate). Uses the fast model for classification.
 
 **Parameters:**
 - `message: &str` - The user's original message text.
+- `active_project: Option<&str>` - The user's currently active project (if any).
+- `recent_history: &[ContextEntry]` - Conversation history entries (last 3 used).
+- `skill_names: &[&str]` - Names of available skills.
 
 **Returns:** `Option<Vec<String>>` — `Some(steps)` if the classifier identifies a multi-step task, `None` if the response is "DIRECT", single-step, or on error.
 
 **Logic:**
-1. Build a tiny classification prompt containing the user's message (no system prompt, no conversation history, no MCP servers).
-2. Set `ctx.model = Some(self.model_fast.clone())` so classification uses the fast model.
-3. Call `provider.complete()` with this minimal context.
-4. On success, pass the response text to `parse_plan_response()`.
-5. On error, log the error and return `None` (falls through to normal single provider call).
+1. Call `build_classification_context()` to produce a lightweight context block (~90 tokens) from the active project, last 3 history messages (truncated to 80 chars each), and skill names. Empty inputs produce an empty block (identical to previous behavior).
+2. Build the classification prompt with the context block injected between the instructions and the user's request.
+3. Set `ctx.model = Some(self.model_fast.clone())` so classification uses the fast model.
+4. Call `provider.complete()` with this minimal context (no system prompt, no MCP servers).
+5. On success, pass the response text to `parse_plan_response()`.
+6. On error, log the error and return `None` (falls through to normal single provider call).
+
+#### `fn build_classification_context(active_project: Option<&str>, recent_history: &[ContextEntry], skill_names: &[&str]) -> String`
+**Purpose:** Build a lightweight context string for the classification prompt. Pure function, no async.
+
+**Parameters:**
+- `active_project: Option<&str>` - Active project name (if any).
+- `recent_history: &[ContextEntry]` - Conversation history (last 3 entries used, each truncated to 80 chars).
+- `skill_names: &[&str]` - Available skill names.
+
+**Returns:** A context string with sections separated by newlines. Empty sections are omitted. Returns empty string when all inputs are empty.
 
 #### `async fn execute_steps(&self, incoming: &IncomingMessage, original_task: &str, context: &Context, steps: Vec<String>, inbox_images: Vec<PathBuf>)`
 **Purpose:** Execute a multi-step plan autonomously, reporting progress to the user after each step.
@@ -1073,7 +1087,7 @@ All interactions are logged to SQLite with:
 26. Incoming image attachments are saved to `{data_dir}/workspace/inbox/` before the provider call (Stage 2a) and cleaned up after the response is sent (Stage 9).
 27. Messages for different senders are dispatched concurrently via `tokio::spawn()`. Messages for the same sender are serialized: only one provider call per sender at a time, with additional messages buffered and processed in order.
 28. When a message arrives for a busy sender, a "Got it, I'll get to this next." acknowledgment is sent immediately.
-29. Classify-and-route: every message triggers a classification call (using the fast model); DIRECT messages use `model_fast`, multi-step plans use `model_complex`. Multi-step plans are executed autonomously with per-step progress, retry (up to 3 attempts), and a final summary.
+29. Classify-and-route: every message triggers a context-enriched classification call (using the fast model with active project, last 3 messages, and skill names); DIRECT messages use `model_fast`, multi-step plans use `model_complex`. Multi-step plans are executed autonomously with per-step progress, retry (up to 3 attempts), and a final summary.
 30. Planning steps are tracked in-memory (ephemeral) and are not persisted to the database.
 31. Model routing: `context.model` is set by classify-and-route before the provider call. The provider resolves the effective model via `context.model.as_deref().unwrap_or(&self.model)`.
 

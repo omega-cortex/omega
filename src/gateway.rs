@@ -7,7 +7,7 @@ use crate::commands;
 use omega_channels::whatsapp;
 use omega_core::{
     config::{shellexpand, AuthConfig, ChannelConfig, HeartbeatConfig, Prompts, SchedulerConfig},
-    context::Context,
+    context::{Context, ContextEntry},
     message::{AttachmentType, IncomingMessage, MessageMetadata, OutgoingMessage},
     sanitize,
     traits::{Channel, Provider},
@@ -917,6 +917,13 @@ impl Gateway {
 
         // --- 4. BUILD CONTEXT FROM MEMORY ---
         // Inject active project instructions, platform hint, and group chat rules.
+        let active_project: Option<String> = self
+            .memory
+            .get_fact(&incoming.sender_id, "active_project")
+            .await
+            .ok()
+            .flatten();
+
         let system_prompt = {
             let mut prompt = format!(
                 "{}\n\n{}\n\n{}",
@@ -944,13 +951,9 @@ impl Gateway {
                 );
             }
 
-            if let Ok(Some(project_name)) = self
-                .memory
-                .get_fact(&incoming.sender_id, "active_project")
-                .await
-            {
+            if let Some(ref project_name) = active_project {
                 if let Some(instructions) =
-                    omega_skills::get_project_instructions(&projects, &project_name)
+                    omega_skills::get_project_instructions(&projects, project_name)
                 {
                     prompt = format!("{instructions}\n\n---\n\n{prompt}");
                 }
@@ -998,8 +1001,23 @@ impl Gateway {
         // --- 5. AUTONOMOUS CLASSIFICATION & MODEL ROUTING ---
         // Every message gets a fast Sonnet classification call that determines
         // whether to handle directly or decompose into steps.
-        if let Some(steps) = self.classify_and_route(&clean_incoming.text).await {
+        let skill_names: Vec<&str> = self.skills.iter().map(|s| s.name.as_str()).collect();
+        if let Some(steps) = self
+            .classify_and_route(
+                &clean_incoming.text,
+                active_project.as_deref(),
+                &context.history,
+                &skill_names,
+            )
+            .await
+        {
             // Complex task → Opus executes each step.
+            info!(
+                "[{}] classification: {} steps → model {}",
+                incoming.channel,
+                steps.len(),
+                self.model_complex
+            );
             context.model = Some(self.model_complex.clone());
             self.execute_steps(
                 &incoming,
@@ -1018,6 +1036,10 @@ impl Gateway {
         }
 
         // Direct response → Sonnet handles it.
+        info!(
+            "[{}] classification: DIRECT → model {}",
+            incoming.channel, self.model_fast
+        );
         context.model = Some(self.model_fast.clone());
 
         // --- 5b. GET RESPONSE FROM PROVIDER (async with status updates) ---
@@ -1074,6 +1096,12 @@ impl Gateway {
         let response = match provider_task.await {
             Ok(Ok(mut resp)) => {
                 status_handle.abort();
+                info!(
+                    "[{}] provider responded | model: {} | {}ms",
+                    incoming.channel,
+                    resp.metadata.model.as_deref().unwrap_or("unknown"),
+                    resp.metadata.processing_time_ms
+                );
                 resp.reply_target = incoming.reply_target.clone();
                 resp
             }
@@ -1330,6 +1358,11 @@ impl Gateway {
             })
             .await;
 
+        info!(
+            "[{}] audit logged | sender: {}",
+            incoming.channel, incoming.sender_id
+        );
+
         // --- 8. SEND RESPONSE ---
         if let Some(channel) = self.channels.get(&incoming.channel) {
             if let Err(e) = channel.send(response).await {
@@ -1517,13 +1550,28 @@ impl Gateway {
     ///
     /// Always runs a fast Sonnet classification call. Returns parsed steps for
     /// complex tasks or `None` for simple/direct responses.
-    async fn classify_and_route(&self, message: &str) -> Option<Vec<String>> {
+    async fn classify_and_route(
+        &self,
+        message: &str,
+        active_project: Option<&str>,
+        recent_history: &[ContextEntry],
+        skill_names: &[&str],
+    ) -> Option<Vec<String>> {
+        let context_block =
+            build_classification_context(active_project, recent_history, skill_names);
+        let context_section = if context_block.is_empty() {
+            String::new()
+        } else {
+            format!("Context:\n{context_block}\n\n")
+        };
+
         let planning_prompt = format!(
             "You are a task classifier. Do NOT use any tools — respond with text only.\n\n\
              If this request is a simple question, greeting, or single-action task, respond \
              with exactly: DIRECT\n\
              If it requires multiple independent steps, respond with ONLY a numbered list of \
              small self-contained steps. Nothing else.\n\n\
+             {context_section}\
              Request: {message}"
         );
 
@@ -1695,6 +1743,52 @@ fn cleanup_inbox_images(paths: &[PathBuf]) {
         if let Err(e) = std::fs::remove_file(path) {
             warn!("failed to remove inbox image {}: {e}", path.display());
         }
+    }
+}
+
+/// Build a lightweight context block for the classification prompt.
+///
+/// Includes active project name, last 3 messages (truncated to 80 chars),
+/// and available skill names. Empty sections are omitted. Returns an empty
+/// string when all inputs are empty, preserving identical prompt behavior.
+fn build_classification_context(
+    active_project: Option<&str>,
+    recent_history: &[ContextEntry],
+    skill_names: &[&str],
+) -> String {
+    let mut parts = Vec::new();
+
+    if let Some(project) = active_project {
+        parts.push(format!("Active project: {project}"));
+    }
+
+    let recent: Vec<&ContextEntry> = recent_history.iter().rev().take(3).collect();
+    if !recent.is_empty() {
+        let mut history_block = String::from("Recent conversation:");
+        for entry in recent.iter().rev() {
+            let role = if entry.role == "user" {
+                "User"
+            } else {
+                "Assistant"
+            };
+            let truncated = if entry.content.len() > 80 {
+                format!("{}...", &entry.content[..80])
+            } else {
+                entry.content.clone()
+            };
+            history_block.push_str(&format!("\n  {role}: {truncated}"));
+        }
+        parts.push(history_block);
+    }
+
+    if !skill_names.is_empty() {
+        parts.push(format!("Available skills: {}", skill_names.join(", ")));
+    }
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        parts.join("\n")
     }
 }
 
@@ -2772,5 +2866,62 @@ mod tests {
             !result.contains("SCHEDULE_ACTION:"),
             "should strip SCHEDULE_ACTION lines"
         );
+    }
+
+    #[test]
+    fn test_classification_context_full() {
+        let history = vec![
+            ContextEntry {
+                role: "user".into(),
+                content: "Check BTC price".into(),
+            },
+            ContextEntry {
+                role: "assistant".into(),
+                content: "BTC is at $45,000".into(),
+            },
+            ContextEntry {
+                role: "user".into(),
+                content: "Set up a trailing stop".into(),
+            },
+        ];
+        let result = build_classification_context(
+            Some("trader"),
+            &history,
+            &["claude-code", "playwright-mcp"],
+        );
+        assert!(result.contains("Active project: trader"));
+        assert!(result.contains("Recent conversation:"));
+        assert!(result.contains("User: Check BTC price"));
+        assert!(result.contains("Assistant: BTC is at $45,000"));
+        assert!(result.contains("User: Set up a trailing stop"));
+        assert!(result.contains("Available skills: claude-code, playwright-mcp"));
+    }
+
+    #[test]
+    fn test_classification_context_empty() {
+        let result = build_classification_context(None, &[], &[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_classification_context_truncation() {
+        let long_msg = "a".repeat(120);
+        let history = vec![ContextEntry {
+            role: "user".into(),
+            content: long_msg,
+        }];
+        let result = build_classification_context(None, &history, &[]);
+        assert!(result.contains("..."));
+        // 80 chars + "..." = line should be truncated
+        assert!(!result.contains(&"a".repeat(120)));
+        assert!(result.contains(&"a".repeat(80)));
+    }
+
+    #[test]
+    fn test_classification_context_partial() {
+        let result = build_classification_context(Some("trader"), &[], &[]);
+        assert!(result.contains("Active project: trader"));
+        assert!(!result.contains("Recent conversation:"));
+        assert!(!result.contains("Available skills:"));
     }
 }

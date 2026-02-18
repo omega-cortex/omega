@@ -186,6 +186,10 @@ impl Provider for ClaudeCodeProvider {
         let output = result?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         let (mut text, mut model) = self.parse_response(&stdout);
+        // CLI doesn't always echo the model back — fall back to what we requested.
+        if model.is_none() && !effective_model.is_empty() {
+            model = Some(effective_model.to_string());
+        }
 
         // Auto-resume: if Claude hit max_turns and returned a session_id, retry.
         // Skip auto-resume when max_turns was explicitly set by the caller (e.g., planning calls).

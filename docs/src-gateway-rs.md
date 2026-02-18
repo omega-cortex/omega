@@ -256,10 +256,10 @@ The Claude Code provider reads `context.mcp_servers` and, if non-empty, writes a
 
 ### Stage 5c: Autonomous Model Routing (Classify & Route)
 
-**What happens:** Before calling the provider, the gateway always runs a fast classification call to determine complexity. The classifier decides whether the message should be handled directly by the fast model (Sonnet) or decomposed into steps for the complex model (Opus).
+**What happens:** Before calling the provider, the gateway always runs a fast context-enriched classification call to determine complexity. The classifier receives the user's message along with lightweight context (active project, last 3 messages, available skills) and decides whether the message should be handled directly by the fast model (Sonnet) or decomposed into steps for the complex model (Opus).
 
 **Implementation:**
-1. `classify_and_route(&text)` always runs a fast Sonnet classification call — a lightweight provider call with a strict, tiny prompt, no system prompt, no conversation history, no MCP servers. Just the raw message and instructions to either respond with "DIRECT" or produce a numbered list of steps.
+1. `classify_and_route()` always runs a fast Sonnet classification call — a lightweight provider call with a strict, tiny prompt enriched with ~90 tokens of context (active project name, last 3 conversation messages truncated to 80 chars, available skill names). No system prompt, no MCP servers. The context helps Sonnet make informed routing decisions even on vague messages like "proceed as you see fit" when the user is in a specific project.
 2. The classification result is parsed:
    - **"DIRECT"** (case-insensitive) → Sonnet handles the response. The context's `model` field is set to the fast model, and the message falls through to the normal provider call (Stage 6).
    - **Single-step list** → Treated as DIRECT. No benefit to decomposition.
@@ -276,7 +276,7 @@ The Claude Code provider reads `context.mcp_servers` and, if non-empty, writes a
    - **Returns immediately** — the normal provider call (Stage 6) is skipped entirely.
 
 **Why This Exists:**
-Not all messages need the most powerful (and expensive) model. Simple questions, greetings, and direct requests are handled quickly and cheaply by Sonnet. Complex multi-step tasks are routed to Opus, which excels at deep reasoning. The classification call itself is fast and cheap — it uses Sonnet with no system prompt, no history, and no MCP overhead.
+Not all messages need the most powerful (and expensive) model. Simple questions, greetings, and direct requests are handled quickly and cheaply by Sonnet. Complex multi-step tasks are routed to Opus, which excels at deep reasoning. The classification call itself is fast and cheap — it uses Sonnet with ~90 tokens of context but no system prompt and no MCP overhead. The injected context (active project, recent messages, skills) prevents misclassification of vague messages that depend on conversational state.
 
 **Design Characteristics:**
 - The classification call always runs (the old `needs_planning()` word-count threshold is removed).
@@ -539,7 +539,7 @@ User sends message on Telegram
 │  ✗ Error? → Send error, audit, return   │
 │                                          │
 │ Stage 5c: Classify & route              │
-│  • Fast Sonnet classification call      │
+│  • Context-enriched Sonnet classif.     │
 │  ✓ Steps? → Opus executes, return       │
 │  ✗ DIRECT? → Sonnet handles, continue   │
 │                                          │
