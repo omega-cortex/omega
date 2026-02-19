@@ -18,6 +18,7 @@ use omega_memory::{
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, Mutex};
@@ -47,6 +48,8 @@ pub struct Gateway {
     active_senders: Mutex<HashMap<String, Vec<IncomingMessage>>>,
     /// Quantitative trading engine (advisory signals injected into system prompt).
     quant_engine: Option<Arc<Mutex<omega_quant::QuantEngine>>>,
+    /// Shared heartbeat interval (minutes) — updated at runtime via `HEARTBEAT_INTERVAL:` marker.
+    heartbeat_interval: Arc<AtomicU64>,
 }
 
 impl Gateway {
@@ -70,6 +73,7 @@ impl Gateway {
         quant_engine: Option<Arc<Mutex<omega_quant::QuantEngine>>>,
     ) -> Self {
         let audit = AuditLogger::new(memory.pool().clone());
+        let heartbeat_interval = Arc::new(AtomicU64::new(heartbeat_config.interval_minutes));
         Self {
             provider,
             channels,
@@ -89,6 +93,7 @@ impl Gateway {
             model_complex,
             active_senders: Mutex::new(HashMap::new()),
             quant_engine,
+            heartbeat_interval,
         }
     }
 
@@ -150,6 +155,7 @@ impl Gateway {
             let sched_model = self.model_complex.clone();
             let sched_sandbox = self.sandbox_prompt.clone();
             let sched_hb_config = self.heartbeat_config.clone();
+            let sched_hb_interval = self.heartbeat_interval.clone();
             Some(tokio::spawn(async move {
                 Self::scheduler_loop(
                     sched_store,
@@ -161,6 +167,7 @@ impl Gateway {
                     sched_model,
                     sched_sandbox,
                     sched_hb_config,
+                    sched_hb_interval,
                 )
                 .await;
             }))
@@ -175,6 +182,7 @@ impl Gateway {
             let hb_config = self.heartbeat_config.clone();
             let hb_prompt_checklist = self.prompts.heartbeat_checklist.clone();
             let hb_memory = self.memory.clone();
+            let hb_interval = self.heartbeat_interval.clone();
             Some(tokio::spawn(async move {
                 Self::heartbeat_loop(
                     hb_provider,
@@ -182,6 +190,7 @@ impl Gateway {
                     hb_config,
                     hb_prompt_checklist,
                     hb_memory,
+                    hb_interval,
                 )
                 .await;
             }))
@@ -337,6 +346,7 @@ impl Gateway {
         model_complex: String,
         sandbox_prompt: Option<String>,
         heartbeat_config: HeartbeatConfig,
+        heartbeat_interval: Arc<AtomicU64>,
     ) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(poll_secs)).await;
@@ -441,6 +451,14 @@ impl Gateway {
                                     let hb_actions = extract_heartbeat_markers(&text);
                                     if !hb_actions.is_empty() {
                                         apply_heartbeat_changes(&hb_actions);
+                                        for action in &hb_actions {
+                                            if let HeartbeatAction::SetInterval(mins) = action {
+                                                heartbeat_interval.store(*mins, Ordering::Relaxed);
+                                                info!(
+                                                    "heartbeat: interval changed to {mins} minutes (via scheduler)"
+                                                );
+                                            }
+                                        }
                                         text = strip_heartbeat_markers(&text);
                                     }
 
@@ -700,9 +718,11 @@ impl Gateway {
         config: HeartbeatConfig,
         heartbeat_checklist_prompt: String,
         memory: Store,
+        interval: Arc<AtomicU64>,
     ) {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(config.interval_minutes * 60)).await;
+            let mins = interval.load(Ordering::Relaxed);
+            tokio::time::sleep(std::time::Duration::from_secs(mins * 60)).await;
 
             // Check active hours.
             if !config.active_start.is_empty()
@@ -1817,7 +1837,7 @@ impl Gateway {
             *text = strip_lang_switch(text);
         }
 
-        // HEARTBEAT_ADD / HEARTBEAT_REMOVE
+        // HEARTBEAT_ADD / HEARTBEAT_REMOVE / HEARTBEAT_INTERVAL
         let heartbeat_actions = extract_heartbeat_markers(text);
         if !heartbeat_actions.is_empty() {
             apply_heartbeat_changes(&heartbeat_actions);
@@ -1826,6 +1846,21 @@ impl Gateway {
                     HeartbeatAction::Add(item) => info!("heartbeat: added '{item}' to checklist"),
                     HeartbeatAction::Remove(item) => {
                         info!("heartbeat: removed '{item}' from checklist")
+                    }
+                    HeartbeatAction::SetInterval(mins) => {
+                        self.heartbeat_interval.store(*mins, Ordering::Relaxed);
+                        info!("heartbeat: interval changed to {mins} minutes");
+                        // Notify owner via heartbeat channel.
+                        if let Some(ch) = self.channels.get(&self.heartbeat_config.channel) {
+                            let msg = OutgoingMessage {
+                                text: format!("⏱️ Heartbeat interval updated to {mins} minutes."),
+                                metadata: MessageMetadata::default(),
+                                reply_target: Some(self.heartbeat_config.reply_target.clone()),
+                            };
+                            if let Err(e) = ch.send(msg).await {
+                                warn!("heartbeat interval notify failed: {e}");
+                            }
+                        }
                     }
                 }
             }
@@ -2282,14 +2317,16 @@ fn read_heartbeat_file() -> Option<String> {
     }
 }
 
-/// Action extracted from a `HEARTBEAT_ADD:` or `HEARTBEAT_REMOVE:` marker.
+/// Action extracted from a `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, or `HEARTBEAT_INTERVAL:` marker.
 #[derive(Debug, Clone, PartialEq)]
 enum HeartbeatAction {
     Add(String),
     Remove(String),
+    /// Dynamically change the heartbeat interval (in minutes, 1–1440).
+    SetInterval(u64),
 }
 
-/// Extract all `HEARTBEAT_ADD:` and `HEARTBEAT_REMOVE:` markers from response text.
+/// Extract all `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, and `HEARTBEAT_INTERVAL:` markers from response text.
 fn extract_heartbeat_markers(text: &str) -> Vec<HeartbeatAction> {
     text.lines()
         .filter_map(|line| {
@@ -2308,6 +2345,12 @@ fn extract_heartbeat_markers(text: &str) -> Vec<HeartbeatAction> {
                 } else {
                     Some(HeartbeatAction::Remove(item.to_string()))
                 }
+            } else if let Some(val) = trimmed.strip_prefix("HEARTBEAT_INTERVAL:") {
+                val.trim()
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|m| (1..=1440).contains(m))
+                    .map(HeartbeatAction::SetInterval)
             } else {
                 None
             }
@@ -2315,12 +2358,14 @@ fn extract_heartbeat_markers(text: &str) -> Vec<HeartbeatAction> {
         .collect()
 }
 
-/// Strip all `HEARTBEAT_ADD:` and `HEARTBEAT_REMOVE:` lines from response text.
+/// Strip all `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, and `HEARTBEAT_INTERVAL:` lines from response text.
 fn strip_heartbeat_markers(text: &str) -> String {
     text.lines()
         .filter(|line| {
             let trimmed = line.trim();
-            !trimmed.starts_with("HEARTBEAT_ADD:") && !trimmed.starts_with("HEARTBEAT_REMOVE:")
+            !trimmed.starts_with("HEARTBEAT_ADD:")
+                && !trimmed.starts_with("HEARTBEAT_REMOVE:")
+                && !trimmed.starts_with("HEARTBEAT_INTERVAL:")
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -2372,6 +2417,8 @@ fn apply_heartbeat_changes(actions: &[HeartbeatAction]) {
                     !content.contains(&needle)
                 });
             }
+            // SetInterval is handled by process_markers / scheduler_loop, not here.
+            HeartbeatAction::SetInterval(_) => {}
         }
     }
 
@@ -2940,6 +2987,62 @@ mod tests {
         let text = "Response.\nHEARTBEAT_ADD: new item\nHEARTBEAT_REMOVE: old item\nEnd.";
         let result = strip_heartbeat_markers(text);
         assert_eq!(result, "Response.\nEnd.");
+    }
+
+    #[test]
+    fn test_extract_heartbeat_interval() {
+        let text = "Updating interval.\nHEARTBEAT_INTERVAL: 15\nDone.";
+        let actions = extract_heartbeat_markers(text);
+        assert_eq!(actions, vec![HeartbeatAction::SetInterval(15)]);
+    }
+
+    #[test]
+    fn test_extract_heartbeat_interval_invalid() {
+        // Zero is rejected (min 1).
+        let text = "HEARTBEAT_INTERVAL: 0";
+        assert!(extract_heartbeat_markers(text).is_empty());
+        // Negative / non-numeric are rejected.
+        let text = "HEARTBEAT_INTERVAL: -5";
+        assert!(extract_heartbeat_markers(text).is_empty());
+        let text = "HEARTBEAT_INTERVAL: abc";
+        assert!(extract_heartbeat_markers(text).is_empty());
+        // Above 1440 (24h) is rejected.
+        let text = "HEARTBEAT_INTERVAL: 1441";
+        assert!(extract_heartbeat_markers(text).is_empty());
+        // Boundary: 1440 is accepted.
+        let text = "HEARTBEAT_INTERVAL: 1440";
+        assert_eq!(
+            extract_heartbeat_markers(text),
+            vec![HeartbeatAction::SetInterval(1440)]
+        );
+        // Boundary: 1 is accepted.
+        let text = "HEARTBEAT_INTERVAL: 1";
+        assert_eq!(
+            extract_heartbeat_markers(text),
+            vec![HeartbeatAction::SetInterval(1)]
+        );
+    }
+
+    #[test]
+    fn test_strip_heartbeat_interval() {
+        let text = "Updated.\nHEARTBEAT_INTERVAL: 10\nDone.";
+        let result = strip_heartbeat_markers(text);
+        assert_eq!(result, "Updated.\nDone.");
+    }
+
+    #[test]
+    fn test_extract_heartbeat_mixed() {
+        let text =
+            "Ok.\nHEARTBEAT_INTERVAL: 20\nHEARTBEAT_ADD: new check\nHEARTBEAT_REMOVE: old\nEnd.";
+        let actions = extract_heartbeat_markers(text);
+        assert_eq!(
+            actions,
+            vec![
+                HeartbeatAction::SetInterval(20),
+                HeartbeatAction::Add("new check".to_string()),
+                HeartbeatAction::Remove("old".to_string()),
+            ]
+        );
     }
 
     #[test]

@@ -108,6 +108,7 @@ You type a message on Telegram
     │     ├── LANG_SWITCH: → update language preference        │
     │     ├── HEARTBEAT_ADD: → add to monitoring checklist     │
     │     ├── HEARTBEAT_REMOVE: → remove from checklist        │
+    │     ├── HEARTBEAT_INTERVAL: → change check interval      │
     │     └── WHATSAPP_QR → trigger WhatsApp pairing           │
     │                                                          │
     │     All markers are stripped before the user sees         │
@@ -232,7 +233,7 @@ The key function is `build_context()` in `store.rs` — it assembles everything 
 4. Related messages found via full-text search from any past conversation
 5. Your pending scheduled tasks
 6. Language preference
-7. Marker instructions (SCHEDULE, LANG_SWITCH, HEARTBEAT_ADD/REMOVE)
+7. Marker instructions (SCHEDULE, LANG_SWITCH, HEARTBEAT_ADD/REMOVE/INTERVAL)
 
 ### omega-skills — Extensible Capabilities
 
@@ -327,6 +328,7 @@ Omega uses a clever pattern to let the AI trigger side effects through its respo
 | `LANG_SWITCH: French` | "speak in French" | Updates language preference |
 | `HEARTBEAT_ADD: item` | "monitor my sleep" | Adds to heartbeat checklist |
 | `HEARTBEAT_REMOVE: item` | "stop monitoring sleep" | Removes from checklist |
+| `HEARTBEAT_INTERVAL: minutes` | "check every 15 minutes" | Changes heartbeat interval at runtime (1–1440) |
 | `SILENT` | Group chat, nothing to add | Response suppressed entirely |
 | `WHATSAPP_QR` | `/whatsapp` command | Triggers QR pairing flow |
 

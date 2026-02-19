@@ -140,7 +140,7 @@ When the scheduler loop finds a due action task:
 2. **Processes the response** -- The provider's response is scanned for all standard markers:
    - `SCHEDULE:` -- Creates new reminder tasks (chaining).
    - `SCHEDULE_ACTION:` -- Creates new action tasks (recursive autonomous scheduling).
-   - `HEARTBEAT_ADD:` / `HEARTBEAT_REMOVE:` -- Modifies the monitoring checklist.
+   - `HEARTBEAT_ADD:` / `HEARTBEAT_REMOVE:` / `HEARTBEAT_INTERVAL:` -- Modifies the monitoring checklist or heartbeat interval.
    - `LIMITATION:` -- Records self-detected capability gaps.
 3. **Delivers the result** -- The provider's response (with markers stripped) is sent to the user through the original channel.
 4. **Completes the task** -- Same as reminders: one-shot tasks are marked delivered, recurring tasks advance to the next due date.

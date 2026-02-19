@@ -114,12 +114,25 @@ Ask Omega to stop monitoring:
 
 Omega will emit a `HEARTBEAT_REMOVE:` marker. The gateway uses case-insensitive partial matching to find and remove the item. Comment lines (starting with `#`) are never removed.
 
+### Changing the Interval
+
+You can dynamically change how often the heartbeat checks in through conversation:
+
+- "Check every 15 minutes"
+- "Make the heartbeat run hourly"
+- "Set the heartbeat interval to 5 minutes"
+
+Omega will emit a `HEARTBEAT_INTERVAL:` marker with the new value (in minutes, 1–1440). The gateway updates the interval atomically — the very next heartbeat cycle will use the new value. No restart required.
+
+The interval is held in memory and resets to the configured `interval_minutes` on service restart. To make a permanent change, update `config.toml`.
+
 ### How It Works Under the Hood
 
 1. The current heartbeat checklist is injected into the system prompt so the provider knows what is already being monitored.
-2. `build_system_prompt()` includes instructions telling the provider when to emit `HEARTBEAT_ADD:` and `HEARTBEAT_REMOVE:` markers.
-3. After the provider responds, the gateway extracts markers, updates `~/.omega/HEARTBEAT.md`, and strips the markers from the response.
+2. `build_system_prompt()` includes instructions telling the provider when to emit `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, and `HEARTBEAT_INTERVAL:` markers.
+3. After the provider responds, the gateway extracts markers, updates `~/.omega/HEARTBEAT.md` (for add/remove) or the runtime interval (for interval changes), and strips the markers from the response.
 4. Duplicate adds are prevented (case-insensitive check).
+5. Interval values are validated: must be between 1 and 1440 (24 hours). Invalid values are silently ignored.
 
 ### Manual Editing
 

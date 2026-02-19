@@ -1015,7 +1015,11 @@ fn build_system_prompt(
          HEARTBEAT_REMOVE: <description>\n\
          Use this when the user asks AND proactively when any action you take needs ongoing \
          monitoring. If something you did will evolve over time and could need attention, \
-         add it to your watchlist. Don't wait to be told to keep an eye on your own actions.",
+         add it to your watchlist. Don't wait to be told to keep an eye on your own actions.\n\
+         To change the heartbeat check interval, include this marker on its own line:\n\
+         HEARTBEAT_INTERVAL: <minutes>\n\
+         Value must be between 1 and 1440 (24 hours). Use when the user asks to change how \
+         often you check in (e.g., \"check every 15 minutes\").",
     );
 
     prompt.push_str(

@@ -1211,6 +1211,10 @@ HEARTBEAT_REMOVE: <description>
 Use this when the user asks AND proactively when any action you take needs ongoing
 monitoring. If something you did will evolve over time and could need attention,
 add it to your watchlist. Don't wait to be told to keep an eye on your own actions.
+To change the heartbeat check interval, include this marker on its own line:
+HEARTBEAT_INTERVAL: <minutes>
+Value must be between 1 and 1440 (24 hours). Use when the user asks to change how
+often you check in (e.g., "check every 15 minutes").
 
 Self-Introspection: You are self-aware of your capabilities and limitations.
 When you encounter something you CANNOT do but SHOULD be able to (missing tools,
@@ -1229,7 +1233,7 @@ Be specific and actionable in your proposed plan.
 - LANG_SWITCH instruction: always appended (unconditional). Tells the provider to include a `LANG_SWITCH:` marker when the user explicitly asks to change language.
 - SCHEDULE marker instructions: always appended (unconditional). Tells the provider to include a `SCHEDULE:` marker line when the user requests a reminder or scheduled task, AND proactively when the agent takes an action that needs follow-up.
 - SCHEDULE_ACTION marker instructions: always appended (unconditional). Tells the provider to include a `SCHEDULE_ACTION:` marker line when the follow-up requires autonomous execution with full tool access rather than a simple reminder.
-- HEARTBEAT_ADD/REMOVE marker instructions: always appended (unconditional). Tells the provider to include `HEARTBEAT_ADD:` or `HEARTBEAT_REMOVE:` markers when the user requests monitoring changes, AND proactively when the agent takes an action that needs ongoing monitoring.
+- HEARTBEAT_ADD/REMOVE/INTERVAL marker instructions: always appended (unconditional). Tells the provider to include `HEARTBEAT_ADD:` or `HEARTBEAT_REMOVE:` markers when the user requests monitoring changes, AND proactively when the agent takes an action that needs ongoing monitoring. Also includes `HEARTBEAT_INTERVAL:` instruction for dynamic interval changes (1–1440 minutes).
 - LIMITATION marker instructions: always appended (unconditional). Tells the provider to include a `LIMITATION:` marker when it encounters an infrastructure/capability gap it cannot resolve.
 
 ---

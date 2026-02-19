@@ -38,6 +38,7 @@ pub struct Gateway {
     model_complex: String,                     // Model for multi-step/complex messages (e.g., "claude-opus-4-6")
     uptime: Instant,                           // Server start time
     active_senders: Mutex<HashMap<String, Vec<IncomingMessage>>>,  // Per-sender message buffer for non-blocking dispatch
+    heartbeat_interval: Arc<AtomicU64>,        // Dynamic heartbeat interval (minutes), updated via HEARTBEAT_INTERVAL: marker
 }
 ```
 
@@ -57,6 +58,7 @@ pub struct Gateway {
 - `model_complex`: Model identifier used for multi-step/complex messages (e.g., `"claude-opus-4-6"`). Set from `ClaudeCodeConfig.model_complex` at startup. Injected into `context.model` by `classify_and_route()` for step-based execution.
 - `uptime`: Tracks server start time for uptime calculations in commands.
 - `active_senders`: A `Mutex<HashMap<String, Vec<IncomingMessage>>>` that tracks which senders currently have an active provider call in flight. When a new message arrives for a sender that is already being processed, the message is buffered here. After the active call completes, buffered messages are dispatched in order.
+- `heartbeat_interval`: An `Arc<AtomicU64>` holding the current heartbeat interval in minutes. Initialized from `heartbeat_config.interval_minutes` and shared with the heartbeat loop and scheduler loop. Updated at runtime via `HEARTBEAT_INTERVAL:` markers. Resets to config value on restart.
 
 ## Functions
 
@@ -184,7 +186,7 @@ pub struct Gateway {
 - Task completion errors are logged but do not stop the loop.
 - `get_due_tasks()` errors are logged but do not stop the loop.
 
-#### `async fn heartbeat_loop(provider: Arc<dyn Provider>, channels: HashMap<String, Arc<dyn Channel>>, config: HeartbeatConfig, heartbeat_checklist_prompt: String, memory: Store)`
+#### `async fn heartbeat_loop(provider: Arc<dyn Provider>, channels: HashMap<String, Arc<dyn Channel>>, config: HeartbeatConfig, heartbeat_checklist_prompt: String, memory: Store, interval: Arc<AtomicU64>)`
 **Purpose:** Background task that periodically invokes the AI provider for a context-aware health check-in. Skips the API call entirely when no checklist is configured. If the provider reports an issue, the alert is delivered via a configured channel. If everything is fine (response contains `HEARTBEAT_OK`), the response is suppressed.
 
 **Parameters:**
@@ -193,11 +195,12 @@ pub struct Gateway {
 - `config: HeartbeatConfig` - Heartbeat configuration (interval, active hours, channel, reply target).
 - `heartbeat_checklist_prompt: String` - Prompt template with `{checklist}` placeholder (from `Prompts.heartbeat_checklist`).
 - `memory: Store` - Shared memory store for enriching heartbeat context with user facts and recent summaries.
+- `interval: Arc<AtomicU64>` - Shared atomic holding the current interval in minutes. Read on each iteration. Updated by `process_markers()` or `scheduler_loop` when a `HEARTBEAT_INTERVAL:` marker is processed.
 
 **Returns:** Never returns (infinite loop).
 
 **Logic:**
-1. Loop forever with `config.interval_minutes * 60` second sleep between iterations.
+1. Loop forever, reading the interval from the shared `AtomicU64` on each iteration (dynamic, not fixed at startup).
 2. Check active hours:
    - If both `active_start` and `active_end` are non-empty, call `is_within_active_hours()`.
    - If outside active hours, log info and skip this iteration.
@@ -455,7 +458,7 @@ pub struct Gateway {
 **Stage 5: Process Markers**
 - After SILENT suppression check:
 - Call `self.process_markers(&incoming, &mut response.text)` — a unified method that extracts and processes all markers from the provider response. This same method is called on each step result in `execute_steps()`, ensuring markers work in both direct and multi-step paths.
-- Markers processed in order: SCHEDULE, SCHEDULE_ACTION, PROJECT_ACTIVATE/DEACTIVATE, WHATSAPP_QR, LANG_SWITCH, HEARTBEAT_ADD/REMOVE, LIMITATION, SELF_HEAL, SELF_HEAL_RESOLVED.
+- Markers processed in order: SCHEDULE, SCHEDULE_ACTION, PROJECT_ACTIVATE/DEACTIVATE, WHATSAPP_QR, LANG_SWITCH, HEARTBEAT_ADD/REMOVE/INTERVAL, LIMITATION, SELF_HEAL, SELF_HEAL_RESOLVED.
 - Each marker is stripped from the response text after processing.
 
 **Stage 6: Store Exchange in Memory (Lines 579-582)**
@@ -611,7 +614,7 @@ pub struct Gateway {
 3. PROJECT_ACTIVATE / PROJECT_DEACTIVATE — activate/deactivate project
 4. WHATSAPP_QR — trigger WhatsApp QR pairing
 5. LANG_SWITCH — persist language preference
-6. HEARTBEAT_ADD / HEARTBEAT_REMOVE — update heartbeat checklist
+6. HEARTBEAT_ADD / HEARTBEAT_REMOVE / HEARTBEAT_INTERVAL — update heartbeat checklist or interval
 7. LIMITATION — store limitation, alert owner, add to heartbeat
 8. SELF_HEAL — create/update self-healing state, notify owner, schedule verification
 9. SELF_HEAL_RESOLVED — delete self-healing state, notify owner
@@ -754,21 +757,22 @@ pub struct Gateway {
 4. Return `Some(content)` otherwise.
 
 ### `enum HeartbeatAction`
-**Purpose:** Represents an action extracted from a `HEARTBEAT_ADD:` or `HEARTBEAT_REMOVE:` marker.
+**Purpose:** Represents an action extracted from a `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, or `HEARTBEAT_INTERVAL:` marker.
 
 **Variants:**
 - `Add(String)` — Item to add to the heartbeat checklist.
 - `Remove(String)` — Keyword to match and remove from the heartbeat checklist.
+- `SetInterval(u64)` — Dynamically change the heartbeat interval (minutes, 1–1440).
 
 ### `fn extract_heartbeat_markers(text: &str) -> Vec<HeartbeatAction>`
-**Purpose:** Extract all `HEARTBEAT_ADD:` and `HEARTBEAT_REMOVE:` markers from response text.
+**Purpose:** Extract all `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, and `HEARTBEAT_INTERVAL:` markers from response text.
 
-**Logic:** Iterates through lines, finds lines whose trimmed form starts with `"HEARTBEAT_ADD:"` or `"HEARTBEAT_REMOVE:"`, strips the prefix, trims, and collects into a `Vec<HeartbeatAction>`. Empty items (marker with no description) are skipped.
+**Logic:** Iterates through lines, finds lines whose trimmed form starts with `"HEARTBEAT_ADD:"`, `"HEARTBEAT_REMOVE:"`, or `"HEARTBEAT_INTERVAL:"`, strips the prefix, trims, and collects into a `Vec<HeartbeatAction>`. Empty items (marker with no description) are skipped. For `HEARTBEAT_INTERVAL:`, the value must parse as a `u64` between 1 and 1440 (inclusive); invalid values are silently ignored.
 
 ### `fn strip_heartbeat_markers(text: &str) -> String`
-**Purpose:** Remove all `HEARTBEAT_ADD:` and `HEARTBEAT_REMOVE:` lines from response text so the markers are not shown to the user.
+**Purpose:** Remove all `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, and `HEARTBEAT_INTERVAL:` lines from response text so the markers are not shown to the user.
 
-**Logic:** Filters out any line whose trimmed form starts with `"HEARTBEAT_ADD:"` or `"HEARTBEAT_REMOVE:"`, then joins remaining lines and trims the result.
+**Logic:** Filters out any line whose trimmed form starts with `"HEARTBEAT_ADD:"`, `"HEARTBEAT_REMOVE:"`, or `"HEARTBEAT_INTERVAL:"`, then joins remaining lines and trims the result.
 
 ### `fn apply_heartbeat_changes(actions: &[HeartbeatAction])`
 **Purpose:** Apply heartbeat add/remove actions to `~/.omega/HEARTBEAT.md`.
@@ -1129,7 +1133,7 @@ All interactions are logged to SQLite with:
 18. Group chat rules are injected into the system prompt when `incoming.is_group` is `true`.
 19. Heartbeat loop skips API calls entirely when no checklist file (`~/.omega/HEARTBEAT.md`) is configured.
 20. Heartbeat prompt is enriched with user facts and recent conversation summaries from memory.
-21. HEARTBEAT_ADD: and HEARTBEAT_REMOVE: markers are stripped from the response before sending to the user. Adds are appended to `~/.omega/HEARTBEAT.md`; removes use case-insensitive partial matching and never remove comment lines.
+21. HEARTBEAT_ADD:, HEARTBEAT_REMOVE:, and HEARTBEAT_INTERVAL: markers are stripped from the response before sending to the user. Adds are appended to `~/.omega/HEARTBEAT.md`; removes use case-insensitive partial matching and never remove comment lines. HEARTBEAT_INTERVAL: updates the shared `AtomicU64` interval (valid range: 1–1440 minutes) and sends a confirmation notification to the owner via the heartbeat channel.
 22. The current heartbeat checklist is injected into the system prompt so the provider knows what is already monitored.
 23. When `sandbox_prompt` is `Some`, the sandbox constraint text is prepended to the system prompt before context building.
 24. The startup log includes the active sandbox mode for operational visibility.
@@ -1229,6 +1233,30 @@ Verifies that `strip_heartbeat_markers()` removes `HEARTBEAT_ADD:` lines from re
 **Type:** Synchronous unit test (`#[test]`)
 
 Verifies that `strip_heartbeat_markers()` removes both `HEARTBEAT_ADD:` and `HEARTBEAT_REMOVE:` lines from the same response text.
+
+### `test_extract_heartbeat_interval`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `extract_heartbeat_markers()` correctly extracts a `HEARTBEAT_INTERVAL:` marker as `HeartbeatAction::SetInterval(15)`.
+
+### `test_extract_heartbeat_interval_invalid`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `extract_heartbeat_markers()` ignores invalid interval values: zero, negative, non-numeric, and values above 1440. Confirms boundary values (1 and 1440) are accepted.
+
+### `test_strip_heartbeat_interval`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `strip_heartbeat_markers()` removes `HEARTBEAT_INTERVAL:` lines from response text while preserving other lines.
+
+### `test_extract_heartbeat_mixed`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `extract_heartbeat_markers()` extracts all three marker types (`HEARTBEAT_INTERVAL:`, `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`) from the same response text in the correct order.
 
 ### `test_apply_heartbeat_add`
 

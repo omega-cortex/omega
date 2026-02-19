@@ -392,22 +392,18 @@ fn build_provider(
             )))
         }
         "anthropic" => {
-            let ac = cfg
-                .provider
-                .anthropic
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("provider.anthropic section missing in config"))?;
+            let ac =
+                cfg.provider.anthropic.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("provider.anthropic section missing in config")
+                })?;
             Ok(Box::new(AnthropicProvider::from_config(
                 ac.api_key.clone(),
                 ac.model.clone(),
             )))
         }
         "openrouter" => {
-            let oc = cfg
-                .provider
-                .openrouter
-                .as_ref()
-                .ok_or_else(|| {
+            let oc =
+                cfg.provider.openrouter.as_ref().ok_or_else(|| {
                     anyhow::anyhow!("provider.openrouter section missing in config")
                 })?;
             Ok(Box::new(OpenRouterProvider::from_config(

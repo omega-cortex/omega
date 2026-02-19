@@ -367,14 +367,15 @@ If the store fails to persist the language, the error is logged but the response
 
 ### Stage 6d: Heartbeat Marker Extraction
 
-**What happens:** After language switch extraction, the gateway scans the response for `HEARTBEAT_ADD:` and `HEARTBEAT_REMOVE:` markers. If found, the heartbeat checklist file is updated and the markers are stripped from the response.
+**What happens:** After language switch extraction, the gateway scans the response for `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, and `HEARTBEAT_INTERVAL:` markers. If found, the heartbeat checklist file is updated (add/remove), the runtime interval is changed (interval), and the markers are stripped from the response.
 
 **Implementation:**
-- Calls `extract_heartbeat_markers(&response.text)` to find all `HEARTBEAT_ADD:` and `HEARTBEAT_REMOVE:` lines.
+- Calls `extract_heartbeat_markers(&response.text)` to find all `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, and `HEARTBEAT_INTERVAL:` lines.
 - If any markers are found:
   - Calls `apply_heartbeat_changes(&actions)` to update `~/.omega/HEARTBEAT.md`:
     - **Add**: Appends `- {item}` to the file. Prevents duplicate adds (case-insensitive).
     - **Remove**: Removes lines containing the keyword (case-insensitive partial match). Comment lines (`#`) are never removed.
+  - For **SetInterval**: Updates the shared `Arc<AtomicU64>` with the new value and sends a confirmation notification to the owner via the heartbeat channel.
   - Logs each action at INFO level.
   - Calls `strip_heartbeat_markers()` to remove the marker lines from the response.
 
@@ -382,13 +383,14 @@ If the store fails to persist the language, the error is logged but the response
 ```
 HEARTBEAT_ADD: Check exercise habits
 HEARTBEAT_REMOVE: exercise
+HEARTBEAT_INTERVAL: 15
 ```
 
 **Why This Exists:**
-Without conversational management, users must manually edit `~/.omega/HEARTBEAT.md` to add or remove monitored items. This breaks the conversational flow and makes the heartbeat feature less discoverable. The marker pattern (proven by SCHEDULE and LANG_SWITCH) keeps file management invisible to the user.
+Without conversational management, users must manually edit `~/.omega/HEARTBEAT.md` or `config.toml` to change monitoring. This breaks the conversational flow and makes the heartbeat feature less discoverable. The marker pattern (proven by SCHEDULE and LANG_SWITCH) keeps management invisible to the user.
 
 **Error Handling:**
-File write errors are silently ignored. The response is always sent to the user. If `$HOME` is not set, the function returns without action.
+File write errors are silently ignored. The response is always sent to the user. If `$HOME` is not set, the function returns without action. Invalid interval values (non-numeric, zero, or >1440) are silently ignored.
 
 ### Stage 7: Memory Storage
 
