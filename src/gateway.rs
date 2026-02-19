@@ -1078,8 +1078,9 @@ impl Gateway {
 
     /// Process a single incoming message through the full pipeline.
     async fn handle_message(&self, incoming: IncomingMessage) {
-        let preview = if incoming.text.len() > 60 {
-            format!("{}...", &incoming.text[..60])
+        let preview = if incoming.text.chars().count() > 60 {
+            let truncated: String = incoming.text.chars().take(60).collect();
+            format!("{truncated}...")
         } else {
             incoming.text.clone()
         };
@@ -2280,8 +2281,9 @@ fn build_classification_context(
             } else {
                 "Assistant"
             };
-            let truncated = if entry.content.len() > 80 {
-                format!("{}...", &entry.content[..80])
+            let truncated = if entry.content.chars().count() > 80 {
+                let t: String = entry.content.chars().take(80).collect();
+                format!("{t}...")
             } else {
                 entry.content.clone()
             };
