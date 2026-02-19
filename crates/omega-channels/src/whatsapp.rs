@@ -111,7 +111,8 @@ impl WhatsAppChannel {
             .parse()
             .map_err(|e| OmegaError::Channel(format!("invalid whatsapp JID '{jid_str}': {e}")))?;
 
-        let chunks = split_message(text, 4096);
+        let sanitized = sanitize_for_whatsapp(text);
+        let chunks = split_message(&sanitized, 4096);
         for chunk in chunks {
             let msg = waproto::whatsapp::Message {
                 conversation: Some(chunk.to_string()),
@@ -576,6 +577,101 @@ pub async fn start_pairing(
     Ok((qr_rx, done_rx))
 }
 
+/// Convert Markdown formatting to WhatsApp-native formatting.
+///
+/// - `## Header` → `*HEADER*` (bold uppercase)
+/// - `**bold**` → `*bold*`
+/// - `[text](url)` → `text (url)`
+/// - `| col | col |` table rows → `- col | col` bullets
+/// - `---` horizontal rules → removed
+fn sanitize_for_whatsapp(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+
+        // Remove horizontal rules.
+        if trimmed.chars().all(|c| c == '-' || c == ' ') && trimmed.matches('-').count() >= 3 {
+            continue;
+        }
+
+        // Convert markdown headers to bold uppercase.
+        if let Some(header) = trimmed.strip_prefix("### ") {
+            out.push_str(&format!("*{}*", header.trim().to_uppercase()));
+            out.push('\n');
+            continue;
+        }
+        if let Some(header) = trimmed.strip_prefix("## ") {
+            out.push_str(&format!("*{}*", header.trim().to_uppercase()));
+            out.push('\n');
+            continue;
+        }
+        if let Some(header) = trimmed.strip_prefix("# ") {
+            out.push_str(&format!("*{}*", header.trim().to_uppercase()));
+            out.push('\n');
+            continue;
+        }
+
+        // Convert table rows (skip separator rows like |---|---|).
+        if trimmed.starts_with('|') && trimmed.ends_with('|') {
+            let inner = &trimmed[1..trimmed.len() - 1];
+            // Skip separator rows.
+            if inner
+                .chars()
+                .all(|c| c == '-' || c == '|' || c == ' ' || c == ':')
+            {
+                continue;
+            }
+            let cols: Vec<&str> = inner.split('|').map(|s| s.trim()).collect();
+            out.push_str("- ");
+            out.push_str(&cols.join(" | "));
+            out.push('\n');
+            continue;
+        }
+
+        let mut result = line.to_string();
+
+        // Convert markdown links: [text](url) → text (url)
+        while let Some(start_bracket) = result.find('[') {
+            if let Some(end_bracket) = result[start_bracket..].find("](") {
+                let abs_end_bracket = start_bracket + end_bracket;
+                if let Some(end_paren) = result[abs_end_bracket + 2..].find(')') {
+                    let abs_end_paren = abs_end_bracket + 2 + end_paren;
+                    let link_text = &result[start_bracket + 1..abs_end_bracket];
+                    let url = &result[abs_end_bracket + 2..abs_end_paren];
+                    let replacement = format!("{link_text} ({url})");
+                    result.replace_range(start_bracket..=abs_end_paren, &replacement);
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        // Convert **bold** to *bold* (WhatsApp native).
+        while let Some(start_pos) = result.find("**") {
+            if let Some(end_pos) = result[start_pos + 2..].find("**") {
+                let abs_end = start_pos + 2 + end_pos;
+                let inner_text = result[start_pos + 2..abs_end].to_string();
+                result.replace_range(start_pos..abs_end + 2, &format!("*{inner_text}*"));
+            } else {
+                break;
+            }
+        }
+
+        out.push_str(&result);
+        out.push('\n');
+    }
+
+    // Remove trailing newline if the original didn't have one.
+    if !text.ends_with('\n') && out.ends_with('\n') {
+        out.pop();
+    }
+
+    out
+}
+
 /// Split a long message into chunks that respect WhatsApp's 4096-char limit.
 fn split_message(text: &str, max_len: usize) -> Vec<&str> {
     if text.len() <= max_len {
@@ -652,5 +748,59 @@ mod tests {
         let png = result.unwrap();
         // PNG magic bytes.
         assert_eq!(&png[..4], &[0x89, 0x50, 0x4E, 0x47]);
+    }
+
+    #[test]
+    fn test_sanitize_headers() {
+        assert_eq!(sanitize_for_whatsapp("## Hello World"), "*HELLO WORLD*");
+        assert_eq!(sanitize_for_whatsapp("# Big Title"), "*BIG TITLE*");
+        assert_eq!(sanitize_for_whatsapp("### Small"), "*SMALL*");
+    }
+
+    #[test]
+    fn test_sanitize_bold() {
+        assert_eq!(
+            sanitize_for_whatsapp("this is **bold** text"),
+            "this is *bold* text"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_links() {
+        assert_eq!(
+            sanitize_for_whatsapp("check [Google](https://google.com) out"),
+            "check Google (https://google.com) out"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_tables() {
+        let input = "| Name | Age |\n|------|-----|\n| Alice | 30 |";
+        let result = sanitize_for_whatsapp(input);
+        assert!(result.contains("- Name | Age"), "should convert header row");
+        assert!(result.contains("- Alice | 30"), "should convert data row");
+        assert!(!result.contains("------"), "should remove separator row");
+    }
+
+    #[test]
+    fn test_sanitize_horizontal_rules() {
+        let input = "above\n---\nbelow";
+        let result = sanitize_for_whatsapp(input);
+        assert_eq!(result, "above\nbelow");
+    }
+
+    #[test]
+    fn test_sanitize_passthrough() {
+        // Native WhatsApp formatting should pass through unchanged.
+        assert_eq!(sanitize_for_whatsapp("*bold*"), "*bold*");
+        assert_eq!(sanitize_for_whatsapp("_italic_"), "_italic_");
+        assert_eq!(sanitize_for_whatsapp("~strike~"), "~strike~");
+        assert_eq!(sanitize_for_whatsapp("```code```"), "```code```");
+    }
+
+    #[test]
+    fn test_sanitize_preserves_plain_text() {
+        let plain = "Hello, how are you doing today?";
+        assert_eq!(sanitize_for_whatsapp(plain), plain);
     }
 }
