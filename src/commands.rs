@@ -374,6 +374,7 @@ const SYSTEM_FACT_KEYS: &[&str] = &[
     "preferred_language",
     "active_project",
     "personality",
+    "onboarding_stage",
 ];
 
 /// Handle /purge — delete all non-system facts, giving the user a clean slate.

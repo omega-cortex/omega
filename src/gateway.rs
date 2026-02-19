@@ -31,6 +31,7 @@ const SYSTEM_FACT_KEYS: &[&str] = &[
     "preferred_language",
     "active_project",
     "personality",
+    "onboarding_stage",
 ];
 
 fn is_valid_fact(key: &str, value: &str) -> bool {

@@ -530,6 +530,58 @@ impl Store {
                 detected
             };
 
+        // Progressive onboarding: compute stage and inject hint on transitions.
+        let real_fact_count = facts
+            .iter()
+            .filter(|(k, _)| !SYSTEM_FACT_KEYS.contains(&k.as_str()))
+            .count();
+        let has_tasks = !pending_tasks.is_empty();
+
+        let current_stage: u8 = facts
+            .iter()
+            .find(|(k, _)| k == "onboarding_stage")
+            .and_then(|(_, v)| v.parse().ok())
+            .unwrap_or(0);
+
+        let new_stage = compute_onboarding_stage(current_stage, real_fact_count, has_tasks);
+
+        let onboarding_hint = if new_stage != current_stage {
+            // Stage advanced — store it and show the hint for the NEW stage.
+            let _ = self
+                .store_fact(
+                    &incoming.sender_id,
+                    "onboarding_stage",
+                    &new_stage.to_string(),
+                )
+                .await;
+            Some(new_stage)
+        } else if current_stage == 0 && real_fact_count == 0 {
+            // First contact — no stored stage yet, show intro.
+            Some(0u8)
+        } else {
+            // Pre-existing user with no stage fact: silently store current stage, no hint.
+            if facts.iter().all(|(k, _)| k != "onboarding_stage") && current_stage == 0 {
+                let bootstrapped = compute_onboarding_stage(0, real_fact_count, has_tasks);
+                // Walk through all stages up to current state.
+                let final_stage = (0..=4).fold(0u8, |s, _| {
+                    compute_onboarding_stage(s, real_fact_count, has_tasks)
+                });
+                if final_stage > 0 {
+                    let _ = self
+                        .store_fact(
+                            &incoming.sender_id,
+                            "onboarding_stage",
+                            &final_stage.to_string(),
+                        )
+                        .await;
+                }
+                let _ = bootstrapped; // suppress unused warning
+                None
+            } else {
+                None
+            }
+        };
+
         let system_prompt = build_system_prompt(
             base_system_prompt,
             &facts,
@@ -537,6 +589,7 @@ impl Store {
             &recall,
             &pending_tasks,
             &language,
+            onboarding_hint,
         );
 
         Ok(Context {
@@ -850,7 +903,13 @@ impl Store {
 }
 
 /// System fact keys filtered out of the user profile.
-const SYSTEM_FACT_KEYS: &[&str] = &["welcomed", "preferred_language", "active_project"];
+const SYSTEM_FACT_KEYS: &[&str] = &[
+    "welcomed",
+    "preferred_language",
+    "active_project",
+    "personality",
+    "onboarding_stage",
+];
 
 /// Identity fact keys — shown first in the user profile.
 const IDENTITY_KEYS: &[&str] = &["name", "preferred_name", "pronouns"];
@@ -903,6 +962,67 @@ pub fn format_user_profile(facts: &[(String, String)]) -> String {
     lines.join("\n")
 }
 
+/// Compute the next onboarding stage based on current state.
+///
+/// Stages are sequential — can't skip. Each fires exactly once then advances.
+/// - Stage 0: First contact (intro)
+/// - Stage 1: 1+ real facts → teach /help
+/// - Stage 2: 3+ real facts → teach personality
+/// - Stage 3: First task created → teach task management
+/// - Stage 4: 5+ real facts → teach projects
+/// - Stage 5: Done (no more hints)
+fn compute_onboarding_stage(current_stage: u8, real_fact_count: usize, has_tasks: bool) -> u8 {
+    match current_stage {
+        0 if real_fact_count >= 1 => 1,
+        1 if real_fact_count >= 3 => 2,
+        2 if has_tasks => 3,
+        3 if real_fact_count >= 5 => 4,
+        4 => 5,
+        _ => current_stage,
+    }
+}
+
+/// Return the onboarding hint text for a given stage, or `None` if no hint.
+fn onboarding_hint_text(stage: u8, language: &str) -> Option<String> {
+    match stage {
+        0 => Some(format!(
+            "\n\nThis is your first conversation with this person. Respond ONLY with this \
+             introduction in {language} (adapt naturally, do NOT translate literally):\n\n\
+             Start with '\u{1f44b} \u{00a1}Hola!' (or the equivalent greeting in {language}, always \u{1f44b} + greeting on the same line).\n\n\
+             Glad to have them here. You are *OMEGA \u{03a9}* (always bold), their personal agent — \
+             but before jumping into action, you'd like to get to know them a bit.\n\n\
+             Ask their name and what they do, so you can be more useful from the start.\n\n\
+             Do NOT mention infrastructure, Rust, Claude, or any technical details. \
+             Do NOT answer their message yet. Just this introduction, nothing else.",
+        )),
+        1 => Some(
+            "\n\nOnboarding hint: This person is new. At the end of your response, \
+             casually mention that they can ask you anything or type /help to see what you can do. \
+             Keep it brief and natural — one sentence max."
+                .to_string(),
+        ),
+        2 => Some(
+            "\n\nOnboarding hint: This person hasn't customized your personality yet. \
+             At the end of your response, casually mention they can tell you how to behave \
+             (e.g. 'be more casual') or use /personality. One sentence max, only if it fits naturally."
+                .to_string(),
+        ),
+        3 => Some(
+            "\n\nOnboarding hint: This person just created their first task! \
+             At the end of your response, briefly mention they can say 'show my tasks' \
+             or type /tasks to see scheduled items. One sentence max."
+                .to_string(),
+        ),
+        4 => Some(
+            "\n\nOnboarding hint: This person is getting comfortable. \
+             At the end of your response, briefly mention they can organize work into projects — \
+             just say 'create a project' or type /projects to see how. One sentence max."
+                .to_string(),
+        ),
+        _ => None,
+    }
+}
+
 /// Build a dynamic system prompt enriched with facts, conversation history, and recalled messages.
 fn build_system_prompt(
     base_rules: &str,
@@ -911,6 +1031,7 @@ fn build_system_prompt(
     recall: &[(String, String, String)],
     pending_tasks: &[(String, String, String, Option<String>, String)],
     language: &str,
+    onboarding_hint: Option<u8>,
 ) -> String {
     let mut prompt = String::from(base_rules);
 
@@ -957,30 +1078,11 @@ fn build_system_prompt(
 
     prompt.push_str(&format!("\n\nIMPORTANT: Always respond in {language}."));
 
-    // Onboarding hint: help the agent learn about the user naturally.
-    let real_facts = facts
-        .iter()
-        .filter(|(k, _)| {
-            !["welcomed", "preferred_language", "active_project"].contains(&k.as_str())
-        })
-        .count();
-    if real_facts == 0 {
-        prompt.push_str(&format!(
-            "\n\nThis is your first conversation with this person. Respond ONLY with this \
-             introduction in {language} (adapt naturally, do NOT translate literally):\n\n\
-             Start with '👋 ¡Hola!' (or the equivalent greeting in {language}, always 👋 + greeting on the same line).\n\n\
-             Glad to have them here. You are *OMEGA Ω* (always bold), their personal agent — \
-             but before jumping into action, you'd like to get to know them a bit.\n\n\
-             Ask their name and what they do, so you can be more useful from the start.\n\n\
-             Do NOT mention infrastructure, Rust, Claude, or any technical details. \
-             Do NOT answer their message yet. Just this introduction, nothing else.",
-        ));
-    } else if real_facts < 3 {
-        prompt.push_str(
-            "\n\nYou're still getting to know this person. Naturally weave in a question \
-             to learn about them — their name, what they do, what they care about — but \
-             only when it flows with the conversation. Never interrogate.",
-        );
+    // Progressive onboarding: inject hint only when a stage transition fires.
+    if let Some(stage) = onboarding_hint {
+        if let Some(hint) = onboarding_hint_text(stage, language) {
+            prompt.push_str(&hint);
+        }
     }
 
     prompt.push_str(
@@ -1590,7 +1692,7 @@ mod tests {
             Some("daily".to_string()),
             "action".to_string(),
         )];
-        let prompt = build_system_prompt("Rules", &facts, &[], &[], &tasks, "English");
+        let prompt = build_system_prompt("Rules", &facts, &[], &[], &tasks, "English", None);
         assert!(
             prompt.contains("[action]"),
             "should show [action] badge for action tasks"
@@ -1598,38 +1700,34 @@ mod tests {
     }
 
     #[test]
-    fn test_onboarding_hint_with_few_facts() {
+    fn test_onboarding_stage0_first_conversation() {
+        let facts = vec![
+            ("welcomed".to_string(), "true".to_string()),
+            ("preferred_language".to_string(), "Spanish".to_string()),
+        ];
+        let prompt = build_system_prompt("Rules", &facts, &[], &[], &[], "Spanish", Some(0));
+        assert!(
+            prompt.contains("first conversation"),
+            "stage 0 should include first-conversation intro"
+        );
+    }
+
+    #[test]
+    fn test_onboarding_stage1_help_hint() {
         let facts = vec![
             ("welcomed".to_string(), "true".to_string()),
             ("preferred_language".to_string(), "English".to_string()),
             ("name".to_string(), "Alice".to_string()),
         ];
-        let prompt = build_system_prompt("Rules", &facts, &[], &[], &[], "English");
+        let prompt = build_system_prompt("Rules", &facts, &[], &[], &[], "English", Some(1));
         assert!(
-            prompt.contains("still getting to know"),
-            "should include onboarding hint with <3 real facts (only 1 real: name)"
+            prompt.contains("/help"),
+            "stage 1 should mention /help command"
         );
     }
 
     #[test]
-    fn test_onboarding_first_conversation_with_zero_facts() {
-        let facts = vec![
-            ("welcomed".to_string(), "true".to_string()),
-            ("preferred_language".to_string(), "Spanish".to_string()),
-        ];
-        let prompt = build_system_prompt("Rules", &facts, &[], &[], &[], "Spanish");
-        assert!(
-            prompt.contains("first conversation"),
-            "should include first-conversation hint with 0 real facts"
-        );
-        assert!(
-            !prompt.contains("still getting to know"),
-            "should NOT include the weaker hint when 0 real facts"
-        );
-    }
-
-    #[test]
-    fn test_onboarding_hint_absent_with_enough_facts() {
+    fn test_onboarding_no_hint_when_none() {
         let facts = vec![
             ("welcomed".to_string(), "true".to_string()),
             ("preferred_language".to_string(), "English".to_string()),
@@ -1637,10 +1735,107 @@ mod tests {
             ("occupation".to_string(), "engineer".to_string()),
             ("timezone".to_string(), "EST".to_string()),
         ];
-        let prompt = build_system_prompt("Rules", &facts, &[], &[], &[], "English");
+        let prompt = build_system_prompt("Rules", &facts, &[], &[], &[], "English", None);
         assert!(
-            !prompt.contains("still getting to know"),
-            "should NOT include onboarding hint with 3+ real facts"
+            !prompt.contains("Onboarding hint"),
+            "should NOT include onboarding hint when None"
+        );
+        assert!(
+            !prompt.contains("first conversation"),
+            "should NOT include first-conversation intro when None"
+        );
+    }
+
+    // --- compute_onboarding_stage tests ---
+
+    #[test]
+    fn test_compute_onboarding_stage_sequential() {
+        // Stage 0 → 1 when 1+ real facts.
+        assert_eq!(compute_onboarding_stage(0, 1, false), 1);
+        // Stage 0 stays at 0 with no facts.
+        assert_eq!(compute_onboarding_stage(0, 0, false), 0);
+        // Stage 1 → 2 when 3+ real facts.
+        assert_eq!(compute_onboarding_stage(1, 3, false), 2);
+        // Stage 1 stays with only 2.
+        assert_eq!(compute_onboarding_stage(1, 2, false), 1);
+        // Stage 2 → 3 when has_tasks.
+        assert_eq!(compute_onboarding_stage(2, 3, true), 3);
+        // Stage 2 stays without tasks.
+        assert_eq!(compute_onboarding_stage(2, 3, false), 2);
+        // Stage 3 → 4 when 5+ real facts.
+        assert_eq!(compute_onboarding_stage(3, 5, true), 4);
+        // Stage 3 stays with 4 facts.
+        assert_eq!(compute_onboarding_stage(3, 4, true), 3);
+        // Stage 4 → 5 always.
+        assert_eq!(compute_onboarding_stage(4, 5, true), 5);
+        // Stage 5 stays done.
+        assert_eq!(compute_onboarding_stage(5, 10, true), 5);
+    }
+
+    #[test]
+    fn test_compute_onboarding_stage_no_skip() {
+        // Even with many facts, can't skip from 0 to 2.
+        assert_eq!(compute_onboarding_stage(0, 10, true), 1);
+    }
+
+    #[test]
+    fn test_onboarding_hint_text_contains_commands() {
+        // Stage 1 mentions /help.
+        let hint1 = onboarding_hint_text(1, "English").unwrap();
+        assert!(hint1.contains("/help"));
+        // Stage 2 mentions /personality.
+        let hint2 = onboarding_hint_text(2, "English").unwrap();
+        assert!(hint2.contains("/personality"));
+        // Stage 3 mentions /tasks.
+        let hint3 = onboarding_hint_text(3, "English").unwrap();
+        assert!(hint3.contains("/tasks"));
+        // Stage 4 mentions /projects.
+        let hint4 = onboarding_hint_text(4, "English").unwrap();
+        assert!(hint4.contains("/projects"));
+        // Stage 5 returns None.
+        assert!(onboarding_hint_text(5, "English").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_build_context_advances_onboarding_stage() {
+        let store = test_store().await;
+        let sender = "onboard_user";
+
+        // First contact: no facts at all → should show stage 0 (first conversation).
+        let msg = IncomingMessage {
+            id: uuid::Uuid::new_v4(),
+            channel: "telegram".to_string(),
+            sender_id: sender.to_string(),
+            sender_name: None,
+            text: "hello".to_string(),
+            timestamp: chrono::Utc::now(),
+            reply_to: None,
+            attachments: vec![],
+            reply_target: Some("chat1".to_string()),
+            is_group: false,
+        };
+        let ctx = store.build_context(&msg, "Base rules").await.unwrap();
+        assert!(
+            ctx.system_prompt.contains("first conversation"),
+            "first contact should trigger stage 0 intro"
+        );
+
+        // Store a real fact (simulating the AI learned the user's name).
+        store.store_fact(sender, "welcomed", "true").await.unwrap();
+        store.store_fact(sender, "name", "Alice").await.unwrap();
+
+        // Second message: should advance to stage 1 and show /help hint.
+        let ctx2 = store.build_context(&msg, "Base rules").await.unwrap();
+        assert!(
+            ctx2.system_prompt.contains("/help"),
+            "after learning name, should show stage 1 /help hint"
+        );
+
+        // Third message: stage already at 1, no new transition → no hint.
+        let ctx3 = store.build_context(&msg, "Base rules").await.unwrap();
+        assert!(
+            !ctx3.system_prompt.contains("Onboarding hint"),
+            "no hint when stage hasn't changed"
         );
     }
 }

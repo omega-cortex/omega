@@ -768,8 +768,15 @@ LIMIT ?
 6. Resolve language preference:
    - If a `preferred_language` fact exists in the fetched facts, use it.
    - Otherwise, call `detect_language(&incoming.text)` and store the result as a `preferred_language` fact.
-7. Build a dynamic system prompt via `build_system_prompt()`, passing the `base_system_prompt` and the resolved language.
-8. Return a `Context` with the system prompt, history, and current message.
+7. Compute progressive onboarding stage:
+   - Read `onboarding_stage` from facts (default 0).
+   - Call `compute_onboarding_stage()` with current stage, real fact count, and task presence.
+   - If stage advanced: store new stage via `store_fact()`, pass `Some(new_stage)` to `build_system_prompt()`.
+   - If first contact (no stage fact, 0 real facts): pass `Some(0)` (show intro).
+   - If pre-existing user with no stage fact: silently bootstrap their stage, pass `None` (no hint).
+   - Otherwise: pass `None` (no hint).
+8. Build a dynamic system prompt via `build_system_prompt()`, passing the `base_system_prompt`, resolved language, and onboarding hint.
+9. Return a `Context` with the system prompt, history, and current message.
 
 **SQL (step 2):**
 ```sql
@@ -1146,7 +1153,60 @@ The `shellexpand()` utility is now a public function in `omega_core::config`, re
 
 ---
 
-### `fn build_system_prompt(base_rules: &str, facts: &[(String, String)], summaries: &[(String, String)], recall: &[(String, String, String)], pending_tasks: &[(String, String, String, Option<String>, String)], language: &str) -> String`
+### `fn compute_onboarding_stage(current_stage: u8, real_fact_count: usize, has_tasks: bool) -> u8`
+
+**Purpose:** Compute the next onboarding stage based on current state. Stages are sequential and cannot be skipped.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `current_stage` | `u8` | The user's current onboarding stage (0-5). |
+| `real_fact_count` | `usize` | Number of non-system facts stored for this user. |
+| `has_tasks` | `bool` | Whether the user has any pending scheduled tasks. |
+
+**Returns:** `u8` -- the new onboarding stage.
+
+**Stage transitions:**
+
+| Current | Condition | Next |
+|---------|-----------|------|
+| 0 | `real_fact_count >= 1` | 1 |
+| 1 | `real_fact_count >= 3` | 2 |
+| 2 | `has_tasks` | 3 |
+| 3 | `real_fact_count >= 5` | 4 |
+| 4 | Always | 5 |
+| 5+ | Never | Same |
+
+---
+
+### `fn onboarding_hint_text(stage: u8, language: &str) -> Option<String>`
+
+**Purpose:** Return the prompt hint text for a given onboarding stage.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `stage` | `u8` | The onboarding stage to get the hint for. |
+| `language` | `&str` | The user's preferred language (used in stage 0 intro). |
+
+**Returns:** `Option<String>` -- `Some(hint)` for stages 0-4, `None` for stage 5+.
+
+**Hints by stage:**
+
+| Stage | What OMEGA teaches | Key content |
+|-------|-------------------|-------------|
+| 0 | Who OMEGA is | First-contact introduction |
+| 1 | /help exists | "ask me anything or type /help" |
+| 2 | Personality | "tell me how to behave, or /personality" |
+| 3 | Task management | "say 'show my tasks' or /tasks" |
+| 4 | Projects | "organize work into projects — /projects" |
+| 5+ | Done | `None` (no more hints) |
+
+---
+
+### `fn build_system_prompt(base_rules: &str, facts: &[(String, String)], summaries: &[(String, String)], recall: &[(String, String, String)], pending_tasks: &[(String, String, String, Option<String>, String)], language: &str, onboarding_hint: Option<u8>) -> String`
 
 **Purpose:** Build a dynamic system prompt enriched with user facts, conversation summaries, recalled past messages, and explicit language instruction.
 
@@ -1160,6 +1220,7 @@ The `shellexpand()` utility is now a public function in `omega_core::config`, re
 | `recall` | `&[(String, String, String)]` | Recalled past messages as `(role, content, timestamp)` tuples. |
 | `pending_tasks` | `&[(String, String, String, Option<String>, String)]` | Pending scheduled tasks as `(id, description, due_at, repeat, task_type)`. |
 | `language` | `&str` | The user's preferred language (e.g., `"English"`, `"Spanish"`). |
+| `onboarding_hint` | `Option<u8>` | If `Some(stage)`, inject the hint for that stage. If `None`, no onboarding hint. |
 
 **Returns:** `String` -- the complete system prompt.
 
@@ -1226,7 +1287,7 @@ Be specific and actionable in your proposed plan.
 
 **Conditional sections:**
 - User profile section: appended only if real (non-system) facts exist, via `format_user_profile()`. Header is "User profile:" instead of "Known facts about this user:".
-- Onboarding hint: appended after the language directive when the user has fewer than 3 real facts (non-system keys). Encourages the user to share more about themselves so the agent can personalize.
+- Progressive onboarding hint: injected only when a stage transition fires (`onboarding_hint` is `Some(stage)`). Each hint teaches ONE feature and fires exactly once. Stage 0 = intro, 1 = /help, 2 = /personality, 3 = /tasks, 4 = /projects, 5+ = done (no hint). See `onboarding_hint_text()` for details.
 - Summaries section: appended only if `summaries` is non-empty.
 - Recall section: appended only if `recall` is non-empty. Each message is truncated to 200 characters.
 - Language directive: always appended (unconditional). Uses the `language` parameter.
@@ -1475,8 +1536,13 @@ All tests use an in-memory SQLite store (`sqlite::memory:`) with migrations appl
 | `test_user_profile_filters_system_facts` | Verifies that `format_user_profile()` filters out system keys (`welcomed`, `preferred_language`, `active_project`) from the output. |
 | `test_user_profile_groups_identity_first` | Verifies that `format_user_profile()` places identity keys (e.g., `preferred_name`, `pronouns`) before context keys and other facts. |
 | `test_user_profile_empty_for_system_only` | Verifies that `format_user_profile()` returns `None` when all facts are system keys. |
-| `test_onboarding_hint_with_few_facts` | Verifies that `build_system_prompt()` includes an onboarding hint when the user has fewer than 3 real (non-system) facts. |
-| `test_onboarding_hint_absent_with_enough_facts` | Verifies that `build_system_prompt()` does not include an onboarding hint when the user has 3 or more real facts. |
+| `test_onboarding_stage0_first_conversation` | Verifies stage 0 hint includes first-conversation intro. |
+| `test_onboarding_stage1_help_hint` | Verifies stage 1 hint mentions `/help`. |
+| `test_onboarding_no_hint_when_none` | Verifies no onboarding hint is injected when `onboarding_hint` is `None`. |
+| `test_compute_onboarding_stage_sequential` | Verifies sequential stage advancement through all transitions (0→1→2→3→4→5). |
+| `test_compute_onboarding_stage_no_skip` | Verifies stages cannot be skipped even when conditions for later stages are met. |
+| `test_onboarding_hint_text_contains_commands` | Verifies each stage's hint text contains the right command (/help, /personality, /tasks, /projects). |
+| `test_build_context_advances_onboarding_stage` | Integration test: verifies `build_context()` triggers stage transitions and stores the `onboarding_stage` fact. |
 | `test_create_task_with_action_type` | Creates a task with `task_type = "action"`, verifies it appears in `get_tasks_for_sender()` with the correct task_type. |
 | `test_get_due_tasks_returns_task_type` | Creates reminder and action tasks, verifies `get_due_tasks()` returns `task_type` as the 6th tuple element. |
 | `test_build_system_prompt_shows_action_badge` | Verifies that `build_system_prompt()` includes an `[action]` badge for tasks with `task_type = "action"` in the pending tasks section. |
