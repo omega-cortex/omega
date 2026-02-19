@@ -36,6 +36,7 @@ The WhatsApp channel connects Omega to WhatsApp using the WhatsApp Web protocol 
 pub struct WhatsAppConfig {
     pub enabled: bool,
     pub allowed_users: Vec<String>,  // phone numbers, empty = allow all
+    pub whisper_api_key: Option<String>,  // OpenAI API key for voice transcription
 }
 ```
 
@@ -44,6 +45,7 @@ TOML:
 [channel.whatsapp]
 enabled = false
 allowed_users = []
+whisper_api_key = ""   # Optional: OpenAI key for voice transcription
 ```
 
 Session data stored at `{data_dir}/whatsapp_session/whatsapp.db`.
@@ -72,8 +74,9 @@ pub struct WhatsAppChannel {
 |--------|----------|
 | `name()` | Returns `"whatsapp"` |
 | `start()` | Initializes `SqliteStore`, builds `Bot` with event handler, starts bot loop. Forwards `Event::Message` to mpsc as `IncomingMessage`. |
-| `send()` | Sends text via `client.send_message()` with `wa::Message { conversation: Some(text) }`. Chunks at 4096 chars. |
+| `send()` | Sanitizes markdown to WhatsApp-native formatting, sends text via `retry_send()` with `wa::Message { conversation: Some(text) }`. Chunks at 4096 chars. |
 | `send_typing()` | Sends composing presence via `client.chatstate().send_composing()`. |
+| `send_photo()` | Uploads image via `client.upload(MediaType::Image)`, constructs `ImageMessage` from `UploadResponse` fields, sends via `retry_send()`. |
 | `stop()` | Clears client reference, logs shutdown. |
 
 ---
@@ -87,11 +90,11 @@ pub struct WhatsAppChannel {
 | `Connected` | Stores `Arc<Client>` for sending |
 | `Disconnected` | Clears client reference |
 | `LoggedOut` | Clears client reference, warns about invalidated session |
-| `Message(msg, info)` | Self-chat filter, echo prevention, message unwrapping, text extraction, auth check, forward to gateway |
+| `Message(msg, info)` | Group-aware filter, echo prevention, message unwrapping, text/image/voice extraction, auth check, forward to gateway |
 
 ### Message Processing Pipeline
 
-1. **Self-chat filter**: Skip if `!info.source.is_from_me` or `sender.user != chat.user`
+1. **Group-aware filter**: Check `info.source.is_group`. In groups: skip `is_from_me` messages (don't echo ourselves). In personal chats: only process self-chat (`is_from_me` + `sender.user == chat.user`)
 2. **Echo prevention**: Check `sent_ids` set — if message ID matches a sent message, skip it
 3. **Auth check**: Verify sender phone is in `allowed_users` (or list is empty)
 4. **Unwrap wrappers**: Extract inner message from `DeviceSentMessage`, `EphemeralMessage`, or `ViewOnceMessage` containers
@@ -104,8 +107,14 @@ pub struct WhatsAppChannel {
    - Build `Attachment { file_type: Image, data: Some(bytes), filename: Some("{uuid}.{ext}") }`
    - Set text to the caption
    - On download failure, log a warning and skip the message
-7. **Empty guard**: If text is still empty and no image attachment was built, skip the message
-8. **Forward**: Send `IncomingMessage` (with `attachments` populated from step 6 if applicable) to gateway via mpsc channel
+7. **Voice handling**: If no text or image, check `inner.audio_message`. If present and `whisper_api_key` is configured:
+   - Download audio bytes via `wa_client.download(audio.as_ref())`
+   - Transcribe via `crate::whisper::transcribe_whisper()` (shared with Telegram)
+   - Inject as `"[Voice message] {transcript}"`
+   - Skip with debug log if no whisper key
+8. **Empty guard**: If text is still empty and no image/voice was processed, skip the message
+9. **Sender name**: Use `info.push_name` when available, fall back to phone number
+10. **Forward**: Send `IncomingMessage` (with `is_group` flag, `attachments` if applicable) to gateway via mpsc channel
 
 ---
 
@@ -152,14 +161,25 @@ The gateway extracts `WHATSAPP_QR` lines from AI responses (like `SCHEDULE:` and
 |-------|-------|
 | `channel` | `"whatsapp"` |
 | `sender_id` | Phone number (e.g. `"5511999887766"`) |
-| `sender_name` | Phone number (profile name not always available) |
-| `reply_target` | Chat JID (e.g. `"5511999887766@s.whatsapp.net"`) |
-| `is_group` | `false` (WhatsApp is currently self-chat only) |
+| `sender_name` | `push_name` from WhatsApp profile when available, falls back to phone number |
+| `reply_target` | Chat JID (e.g. `"5511999887766@s.whatsapp.net"` for personal, `"120363...@g.us"` for groups) |
+| `is_group` | `true` for group chats (`@g.us`), `false` for personal chats |
 | `attachments` | Empty for text-only messages; contains `Attachment { file_type: Image, data: Some(bytes), filename: Some("{uuid}.{ext}") }` for image messages |
 
 ### Outgoing (Gateway → WhatsApp)
 
-Text is sent as `wa::Message { conversation: Some(text) }`. Messages over 4096 chars are chunked.
+Text is sanitized from Markdown to WhatsApp-native formatting (`sanitize_for_whatsapp()`), then sent as `wa::Message { conversation: Some(text) }`. Messages over 4096 chars are chunked. Photos are uploaded via `client.upload(MediaType::Image)` and sent as `ImageMessage`. All sends are retried up to 3 times with exponential backoff (500ms, 1s, 2s).
+
+### Markdown Sanitization
+
+| Markdown | WhatsApp |
+|----------|----------|
+| `## Header` | `*HEADER*` (bold uppercase) |
+| `**bold**` | `*bold*` |
+| `[text](url)` | `text (url)` |
+| `\| col \| col \|` | `- col \| col` (bullets) |
+| `---` | removed |
+| `*bold*`, `_italic_`, `~strike~` | passthrough (native WhatsApp) |
 
 ---
 

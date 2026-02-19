@@ -55,7 +55,7 @@ Cargo workspace with 7 crates:
 |-------|---------|
 | `omega-core` | Types, traits, config (Prompts with identity/soul/system split), error handling, prompt sanitization |
 | `omega-providers` | AI backends — 6 providers: Claude Code CLI (subprocess), Ollama (local HTTP), OpenAI (HTTP), Anthropic (HTTP), OpenRouter (HTTP, reuses OpenAI types), Gemini (HTTP) |
-| `omega-channels` | Messaging platforms (Telegram with voice transcription via Whisper + photo reception, WhatsApp with image reception) |
+| `omega-channels` | Messaging platforms (Telegram with voice transcription via Whisper + photo reception, WhatsApp with voice transcription via shared Whisper + image reception + photo sending + group chat + markdown sanitization + send retry with backoff) |
 | `omega-memory` | SQLite storage, conversation history, audit log, scheduled tasks, task types (reminder/action), limitations (self-introspection), structured user profile formatting |
 | `omega-skills` | Skill loader + project loader — skills from `~/.omega/skills/*/SKILL.md` (TOML or YAML frontmatter), projects from `~/.omega/projects/*/ROLE.md`, trigger-based MCP server activation |
 | `omega-sandbox` | OS-level filesystem enforcement — Seatbelt (macOS), Landlock (Linux) — restricts writes to data dir (`~/.omega/`) + /tmp + ~/.claude in sandbox/rx modes |

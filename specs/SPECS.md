@@ -40,7 +40,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 ### Milestone 5: omega-channels
 - [channels-lib.md](channels-lib.md) — Channels crate overview
 - [channels-telegram.md](channels-telegram.md) — Telegram Bot API channel (long polling)
-- [channels-whatsapp.md](channels-whatsapp.md) — WhatsApp bridge channel (placeholder)
+- [channels-whatsapp.md](channels-whatsapp.md) — WhatsApp Web protocol channel (text, image, voice, group chat, markdown, retry)
 
 ### Milestone 6: omega-memory
 - [memory-lib.md](memory-lib.md) — Memory crate overview

@@ -10,12 +10,14 @@
 crates/omega-channels/
   Cargo.toml
   src/
-    lib.rs          <-- you are here
-    telegram.rs     <-- Telegram Bot API integration (complete)
-    whatsapp.rs     <-- WhatsApp bridge (placeholder)
+    lib.rs              <-- you are here
+    telegram.rs         <-- Telegram Bot API integration (complete)
+    whatsapp.rs         <-- WhatsApp Web protocol integration (complete)
+    whatsapp_store.rs   <-- SQLite session persistence for WhatsApp
+    whisper.rs          <-- Shared OpenAI Whisper transcription
 ```
 
-`lib.rs` is only six lines long:
+`lib.rs` declares the submodules:
 
 ```rust
 //! # omega-channels
@@ -23,7 +25,9 @@ crates/omega-channels/
 //! Messaging platform integrations for Omega.
 
 pub mod telegram;
-mod whatsapp;
+pub mod whatsapp;
+pub mod whatsapp_store;
+pub mod whisper;
 ```
 
 That is all it does. The real work happens inside each module file.
@@ -32,15 +36,11 @@ That is all it does. The real work happens inside each module file.
 
 - **`pub mod telegram`** -- The `telegram` module and everything marked `pub` inside it are accessible to any crate that depends on `omega-channels`. In practice, the gateway imports `omega_channels::telegram::TelegramChannel` to wire up the Telegram integration.
 
-- **`mod whatsapp`** -- The `whatsapp` module is private. It compiles, but nothing inside it is reachable from outside the crate. This is the convention for modules that are still being developed: declare them so the compiler checks them, but keep them hidden until they are ready.
+- **`pub mod whatsapp`** -- The `whatsapp` module implements WhatsApp Web protocol integration via `whatsapp-rust`. Features: text, image reception, voice transcription (Whisper), photo sending, group chat detection, markdown sanitization, and send retry with exponential backoff. The gateway imports `omega_channels::whatsapp::WhatsAppChannel`.
 
-There are no `pub use` re-exports at the crate root right now. Consumers reach into the specific module they need (e.g., `omega_channels::telegram::TelegramChannel`). If the number of channels grows and a flat namespace becomes desirable, you could add lines like:
+- **`pub mod whisper`** -- Shared OpenAI Whisper transcription module. Both Telegram and WhatsApp use `whisper::transcribe_whisper()` for voice message processing.
 
-```rust
-pub use telegram::TelegramChannel;
-```
-
-to `lib.rs` so users can write `omega_channels::TelegramChannel` directly.
+There are no `pub use` re-exports at the crate root. Consumers reach into the specific module they need (e.g., `omega_channels::telegram::TelegramChannel`).
 
 ## How a channel module works
 

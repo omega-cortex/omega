@@ -49,13 +49,15 @@ Ask Omega to "connect WhatsApp" or "set up WhatsApp" in a Telegram chat. The AI 
 ```toml
 [channel.whatsapp]
 enabled = false
-allowed_users = []   # Phone numbers. Empty = allow all.
+allowed_users = []          # Phone numbers. Empty = allow all.
+whisper_api_key = ""        # Optional: OpenAI key for voice transcription
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `false` | Whether the WhatsApp channel is active |
 | `allowed_users` | `Vec<String>` | `[]` | Allowed phone numbers. Empty = allow all. |
+| `whisper_api_key` | `Option<String>` | `None` | OpenAI API key for Whisper voice transcription. Presence = voice enabled. |
 
 ---
 
@@ -69,19 +71,25 @@ On restart, Omega reconnects using the persisted session — no re-scan needed. 
 
 ## How It Works
 
-WhatsApp is a **personal channel** — it only processes messages from your self-chat (messages to yourself). It does not act as a chatbot for other people's messages. Because of this, `is_group` is always set to `false` on WhatsApp messages.
+WhatsApp supports both **personal chats** (self-chat, messages to yourself) and **group chats**. In personal mode, only self-chat messages are processed. In groups, Omega responds to messages from other participants (but skips its own echoes). The gateway handles group rules and SILENT suppression automatically.
 
 1. **Pairing**: The `whatsapp-rust` library initiates a WebSocket connection to WhatsApp servers and generates QR codes. The user scans one with their phone (WhatsApp > Linked Devices > Link a Device).
 
-2. **Receiving messages**: The bot's event handler receives `Event::Message` events. Only self-chat messages are processed (`is_from_me` + sender matches chat JID). Messages from other chats are silently ignored.
+2. **Receiving messages**: The bot's event handler receives `Event::Message` events. In personal chats, only self-chat messages are processed (`is_from_me` + sender matches chat JID). In groups, all messages from other participants are processed (own messages are skipped). The sender's `push_name` is used for display when available.
 
-3. **Message unwrapping**: Self-chat messages are often wrapped in `DeviceSentMessage`, `EphemeralMessage`, or `ViewOnceMessage` containers. The handler unwraps these before extracting text from `conversation` or `extended_text_message.text`. If no text is found, the handler checks for an `image_message`. Image messages are downloaded via the WhatsApp client (`ImageMessage` implements the `Downloadable` trait), and the image bytes are passed through as an `Attachment` with the caption as text (defaults to `"[Photo]"`). Other non-text message types are skipped.
+3. **Message unwrapping**: Messages are often wrapped in `DeviceSentMessage`, `EphemeralMessage`, or `ViewOnceMessage` containers. The handler unwraps these before extracting text from `conversation` or `extended_text_message.text`.
 
-4. **Echo prevention**: Sent message IDs are tracked in a `HashSet`. When the bot sends a reply, the message ID is recorded. When the echo arrives back as an incoming event, the ID is matched and the message is skipped, preventing infinite loops.
+4. **Image handling**: If no text is found, the handler checks for an `image_message`. Image messages are downloaded via the WhatsApp client (`ImageMessage` implements the `Downloadable` trait), and the image bytes are passed through as an `Attachment` with the caption as text (defaults to `"[Photo]"`).
 
-5. **Sending messages**: Text is sent as `wa::Message { conversation: Some(text) }` via `client.send_message()`. Messages over 4096 characters are automatically chunked.
+5. **Voice transcription**: If no text or image, the handler checks for an `audio_message`. When a `whisper_api_key` is configured, voice messages are downloaded and transcribed via OpenAI Whisper (shared module with Telegram), injected as `"[Voice message] {transcript}"`.
 
-6. **Typing indicators**: The `send_typing()` method sends "composing" presence via `client.chatstate().send_composing()`.
+6. **Echo prevention**: Sent message IDs are tracked in a `HashSet`. When the bot sends a reply, the message ID is recorded. When the echo arrives back as an incoming event, the ID is matched and the message is skipped, preventing infinite loops.
+
+7. **Sending messages**: Text is sanitized from Markdown to WhatsApp-native formatting (headers become bold uppercase, `**bold**` becomes `*bold*`, links are expanded, tables become bullets, horizontal rules are removed). Messages over 4096 characters are automatically chunked. All sends use retry with exponential backoff (3 attempts: 500ms, 1s, 2s).
+
+8. **Sending photos**: Images are uploaded via `client.upload(MediaType::Image)` and sent as `ImageMessage` with retry backoff.
+
+9. **Typing indicators**: The `send_typing()` method sends "composing" presence via `client.chatstate().send_composing()`.
 
 ---
 
@@ -105,8 +113,9 @@ Leave `allowed_users = []` to allow all incoming messages.
 |--------|-------------|
 | `name()` | Returns `"whatsapp"` |
 | `start()` | Initializes session store, builds bot, starts event loop |
-| `send()` | Sends text message to the chat JID |
+| `send()` | Sanitizes markdown, sends text message to the chat JID with retry |
 | `send_typing()` | Sends "composing" presence indicator |
+| `send_photo()` | Uploads and sends image via WhatsApp media upload with retry |
 | `stop()` | Disconnects and cleans up |
 
 ---
@@ -134,9 +143,10 @@ omega init  # or /whatsapp from Telegram
 Check that the `whatsapp-rust` dependencies are correctly installed. The library needs network access to WhatsApp servers.
 
 ### Messages not received
-- WhatsApp only processes self-chat messages (messages you send to yourself). It will not respond to messages from other people.
-- Text messages and image messages are supported. Other media types (video, audio, documents) are not yet processed and will be silently skipped.
-- If an image fails to download, the message is skipped — check logs for download warnings.
+- In personal mode, WhatsApp only processes self-chat messages (messages you send to yourself). In group chats, it responds to other participants.
+- Text, image, and voice messages are supported. Other media types (video, documents) are not yet processed and will be silently skipped.
+- Voice transcription requires `whisper_api_key` in config. Without it, voice messages are silently skipped.
+- If an image or audio download fails, the message is skipped — check logs for download warnings.
 - Check `allowed_users` in config — your phone number must be listed (or leave empty for all)
 - Verify the session is still valid (check logs for "WhatsApp connected" or "logged out")
 

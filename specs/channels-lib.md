@@ -20,7 +20,9 @@ This file is the entry point for the `omega-channels` crate. It serves two purpo
 | Module | Visibility | Status | Description |
 |--------|-----------|--------|-------------|
 | `telegram` | `pub mod` | Implemented | Telegram Bot API channel using long-polling (`getUpdates`) and `sendMessage`. |
-| `whatsapp` | `mod` (private) | Placeholder | WhatsApp bridge channel. Contains only a doc comment; no public types. |
+| `whatsapp` | `pub mod` | Implemented | WhatsApp Web protocol channel via `whatsapp-rust`. Supports text, image, voice (Whisper), group chat, markdown sanitization, and send retry with backoff. |
+| `whatsapp_store` | `pub mod` | Implemented | SQLite-based session persistence for WhatsApp (Signal protocol keys, device identity). |
+| `whisper` | `pub mod` | Implemented | Shared OpenAI Whisper transcription module used by both Telegram and WhatsApp. |
 
 ## Re-exports
 
@@ -31,7 +33,7 @@ The file does **not** contain any explicit `pub use` re-exports. Public access t
 | `TelegramChannel` | `omega_channels::telegram::TelegramChannel` | Public struct; implements `omega_core::traits::Channel`. |
 | `split_message` | Not accessible | Private function inside `telegram` module (not marked `pub` at module boundary, but `pub` within the module -- accessible as `omega_channels::telegram::split_message` because the module itself is `pub`). |
 
-Since `whatsapp` is declared with `mod` (no `pub`), nothing inside it is reachable from outside the crate.
+All modules are `pub mod`, making their public types accessible from outside the crate.
 
 ## Feature Gates
 
