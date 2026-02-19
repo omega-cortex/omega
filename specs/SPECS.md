@@ -36,6 +36,8 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [providers-openrouter.md](providers-openrouter.md) — OpenRouter proxy provider (reuses OpenAI types)
 - [providers-anthropic.md](providers-anthropic.md) — Anthropic Messages API provider (HTTP, x-api-key header)
 - [providers-gemini.md](providers-gemini.md) — Google Gemini API provider (HTTP, URL query param auth)
+- [providers-mcp-client.md](providers-mcp-client.md) — MCP client over stdio (JSON-RPC 2.0, tool discovery, tool calling)
+- [providers-tools.md](providers-tools.md) — Shared tool executor (bash/read/write/edit + MCP routing + sandbox enforcement)
 
 ### Milestone 5: omega-channels
 - [channels-lib.md](channels-lib.md) — Channels crate overview
@@ -78,7 +80,9 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 │  error.rs       │ openai.rs       │               │
 │  message.rs     │ ollama.rs       │               │
 │  sanitize.rs    │ openrouter.rs   │               │
-│  traits.rs      │                 │               │
+│  traits.rs      │ gemini.rs       │               │
+│                 │ mcp_client.rs   │               │
+│                 │ tools.rs        │               │
 ├─────────────────┼─────────────────┼───────────────┤
 │  omega-memory   │ omega-skills    │ omega-sandbox  │
 │  store.rs       │ lib.rs (loader) │ (planned)      │

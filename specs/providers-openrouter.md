@@ -20,11 +20,13 @@ Routes requests through OpenRouter's API proxy, which provides access to many mo
 | `client` | `reqwest::Client` | HTTP client |
 | `api_key` | `String` | OpenRouter API key |
 | `model` | `String` | Namespaced model (e.g., `anthropic/claude-sonnet-4`) |
+| `workspace_path` | `Option<PathBuf>` | Working directory for tool execution; `None` disables tool calling |
+| `sandbox_mode` | `SandboxMode` | Sandbox level passed to `ToolExecutor` |
 
 ### Constructor
 
 ```rust
-pub fn from_config(api_key: String, model: String) -> Self
+pub fn from_config(api_key: String, model: String, workspace_path: Option<PathBuf>, sandbox_mode: SandboxMode) -> Self
 ```
 
 ## Provider Trait Implementation
@@ -40,8 +42,10 @@ pub fn from_config(api_key: String, model: String) -> Self
 
 Imports from `crate::openai`:
 - `build_openai_messages()` — converts system + ApiMessages into ChatMessages
+- `openai_agentic_complete()` — shared agentic tool-calling loop; `complete()` delegates to this when tools are enabled
 - `ChatCompletionRequest` — request body type
 - `ChatCompletionResponse` — response body type
+- `OpenAiToolDef`, `ToolCallMsg`, `FunctionCall` — tool-related types
 
 The only differences from OpenAI:
 1. Base URL: `https://openrouter.ai/api/v1` (constant `OPENROUTER_BASE_URL`)

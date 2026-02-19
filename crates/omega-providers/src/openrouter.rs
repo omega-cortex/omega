@@ -1,35 +1,53 @@
 //! OpenRouter proxy provider.
 //!
-//! Reuses OpenAI's request/response types. Only the base URL and provider name differ.
+//! Reuses OpenAI's request/response types and agentic loop.
+//! Only the base URL and provider name differ.
 
 use async_trait::async_trait;
 use omega_core::{
+    config::SandboxMode,
     context::Context,
     error::OmegaError,
     message::{MessageMetadata, OutgoingMessage},
     traits::Provider,
 };
+use std::path::PathBuf;
 use std::time::Instant;
 use tracing::{debug, warn};
 
-use crate::openai::{build_openai_messages, ChatCompletionRequest, ChatCompletionResponse};
+use crate::openai::{
+    build_openai_messages, openai_agentic_complete, ChatCompletionRequest, ChatCompletionResponse,
+};
+use crate::tools::ToolExecutor;
 
 const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
+
+/// Default max agentic loop iterations.
+const DEFAULT_MAX_TURNS: u32 = 50;
 
 /// OpenRouter provider — routes requests to many models via the OpenAI-compatible API.
 pub struct OpenRouterProvider {
     client: reqwest::Client,
     api_key: String,
     model: String,
+    workspace_path: Option<PathBuf>,
+    sandbox_mode: SandboxMode,
 }
 
 impl OpenRouterProvider {
     /// Create from config values.
-    pub fn from_config(api_key: String, model: String) -> Self {
+    pub fn from_config(
+        api_key: String,
+        model: String,
+        workspace_path: Option<PathBuf>,
+        sandbox_mode: SandboxMode,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_key,
             model,
+            workspace_path,
+            sandbox_mode,
         }
     }
 }
@@ -47,21 +65,55 @@ impl Provider for OpenRouterProvider {
     async fn complete(&self, context: &Context) -> Result<OutgoingMessage, OmegaError> {
         let (system, api_messages) = context.to_api_messages();
         let effective_model = context.model.as_deref().unwrap_or(&self.model);
-        let start = Instant::now();
+        let url = format!("{OPENROUTER_BASE_URL}/chat/completions");
+        let auth = format!("Bearer {}", self.api_key);
+        let max_turns = context.max_turns.unwrap_or(DEFAULT_MAX_TURNS);
 
+        // Determine if tools should be enabled.
+        let has_tools = context
+            .allowed_tools
+            .as_ref()
+            .map(|t| !t.is_empty())
+            .unwrap_or(true);
+
+        if has_tools {
+            if let Some(ref ws) = self.workspace_path {
+                let mut executor = ToolExecutor::new(ws.clone(), self.sandbox_mode);
+                executor.connect_mcp_servers(&context.mcp_servers).await;
+
+                let result = openai_agentic_complete(
+                    &self.client,
+                    &url,
+                    &auth,
+                    effective_model,
+                    &system,
+                    &api_messages,
+                    &mut executor,
+                    max_turns,
+                    "openrouter",
+                )
+                .await;
+
+                executor.shutdown_mcp().await;
+                return result;
+            }
+        }
+
+        // Fallback: no tools.
+        let start = Instant::now();
         let messages = build_openai_messages(&system, &api_messages);
         let body = ChatCompletionRequest {
             model: effective_model.to_string(),
             messages,
+            tools: None,
         };
 
-        let url = format!("{OPENROUTER_BASE_URL}/chat/completions");
-        debug!("openrouter: POST {url} model={effective_model}");
+        debug!("openrouter: POST {url} model={effective_model} (no tools)");
 
         let resp = self
             .client
             .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Authorization", &auth)
             .json(&body)
             .send()
             .await
@@ -84,7 +136,7 @@ impl Provider for OpenRouterProvider {
             .as_ref()
             .and_then(|c| c.first())
             .and_then(|c| c.message.as_ref())
-            .map(|m| m.content.clone())
+            .and_then(|m| m.content.clone())
             .unwrap_or_else(|| "No response from OpenRouter.".to_string());
 
         let tokens = parsed.usage.as_ref().and_then(|u| u.total_tokens);
@@ -133,6 +185,8 @@ mod tests {
         let p = OpenRouterProvider::from_config(
             "sk-or-test".into(),
             "anthropic/claude-sonnet-4".into(),
+            None,
+            SandboxMode::Rwx,
         );
         assert_eq!(p.name(), "openrouter");
         assert!(p.requires_api_key());

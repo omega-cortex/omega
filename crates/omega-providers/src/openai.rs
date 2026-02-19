@@ -1,38 +1,57 @@
 //! OpenAI-compatible API provider.
 //!
 //! Works with OpenAI's API and any compatible endpoint.
-//! Exports `pub(crate)` types reused by the OpenRouter provider.
+//! Exports `pub(crate)` types and the agentic loop reused by the OpenRouter provider.
 
 use async_trait::async_trait;
 use omega_core::{
+    config::SandboxMode,
     context::{ApiMessage, Context},
     error::OmegaError,
     message::{MessageMetadata, OutgoingMessage},
     traits::Provider,
 };
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::time::Instant;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
-/// OpenAI-compatible provider.
+use crate::tools::{ToolDef, ToolExecutor};
+
+/// Default max agentic loop iterations.
+const DEFAULT_MAX_TURNS: u32 = 50;
+
+/// OpenAI-compatible provider with tool-execution loop.
 pub struct OpenAiProvider {
     client: reqwest::Client,
     base_url: String,
     api_key: String,
     model: String,
+    workspace_path: Option<PathBuf>,
+    sandbox_mode: SandboxMode,
 }
 
 impl OpenAiProvider {
     /// Create from config values.
-    pub fn from_config(base_url: String, api_key: String, model: String) -> Self {
+    pub fn from_config(
+        base_url: String,
+        api_key: String,
+        model: String,
+        workspace_path: Option<PathBuf>,
+        sandbox_mode: SandboxMode,
+    ) -> Self {
         Self {
             client: reqwest::Client::new(),
             base_url,
             api_key,
             model,
+            workspace_path,
+            sandbox_mode,
         }
     }
 }
+
+// --- Serde types ---
 
 /// Build OpenAI-format messages from context (system as a message role).
 pub(crate) fn build_openai_messages(system: &str, api_messages: &[ApiMessage]) -> Vec<ChatMessage> {
@@ -40,28 +59,67 @@ pub(crate) fn build_openai_messages(system: &str, api_messages: &[ApiMessage]) -
     if !system.is_empty() {
         messages.push(ChatMessage {
             role: "system".to_string(),
-            content: system.to_string(),
+            content: Some(system.to_string()),
+            tool_calls: None,
+            tool_call_id: None,
         });
     }
     for m in api_messages {
         messages.push(ChatMessage {
             role: m.role.clone(),
-            content: m.content.clone(),
+            content: Some(m.content.clone()),
+            tool_calls: None,
+            tool_call_id: None,
         });
     }
     messages
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub(crate) struct ChatMessage {
     pub role: String,
-    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCallMsg>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub(crate) struct ToolCallMsg {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub call_type: String,
+    pub function: FunctionCall,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub(crate) struct FunctionCall {
+    pub name: String,
+    pub arguments: String,
 }
 
 #[derive(Serialize)]
 pub(crate) struct ChatCompletionRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<OpenAiToolDef>>,
+}
+
+#[derive(Serialize, Clone)]
+pub(crate) struct OpenAiToolDef {
+    #[serde(rename = "type")]
+    pub tool_type: String,
+    pub function: OpenAiFunctionDef,
+}
+
+#[derive(Serialize, Clone)]
+pub(crate) struct OpenAiFunctionDef {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -74,11 +132,178 @@ pub(crate) struct ChatCompletionResponse {
 #[derive(Deserialize)]
 pub(crate) struct ChatChoice {
     pub message: Option<ChatMessage>,
+    #[allow(dead_code)]
+    pub finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub(crate) struct ChatUsage {
     pub total_tokens: Option<u64>,
+}
+
+// --- Helper: convert ToolDef → OpenAI format ---
+
+pub(crate) fn to_openai_tools(defs: &[ToolDef]) -> Vec<OpenAiToolDef> {
+    defs.iter()
+        .map(|d| OpenAiToolDef {
+            tool_type: "function".to_string(),
+            function: OpenAiFunctionDef {
+                name: d.name.clone(),
+                description: d.description.clone(),
+                parameters: d.parameters.clone(),
+            },
+        })
+        .collect()
+}
+
+// --- Shared agentic loop ---
+
+/// Run the OpenAI-format agentic loop (used by OpenAI and OpenRouter).
+///
+/// Loops: infer → tool calls → execute → feed results back, until the model
+/// produces a text-only response or max_turns is reached.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn openai_agentic_complete(
+    client: &reqwest::Client,
+    url: &str,
+    auth_header: &str,
+    model: &str,
+    system: &str,
+    api_messages: &[ApiMessage],
+    executor: &mut ToolExecutor,
+    max_turns: u32,
+    provider_name: &str,
+) -> Result<OutgoingMessage, OmegaError> {
+    let start = Instant::now();
+
+    // Build initial messages and tools.
+    let mut messages = build_openai_messages(system, api_messages);
+    let all_tool_defs = executor.all_tool_defs();
+    let tools = if all_tool_defs.is_empty() {
+        None
+    } else {
+        Some(to_openai_tools(&all_tool_defs))
+    };
+
+    let mut last_model: Option<String> = None;
+    let mut total_tokens: u64 = 0;
+
+    for turn in 0..max_turns {
+        let body = ChatCompletionRequest {
+            model: model.to_string(),
+            messages: messages.clone(),
+            tools: tools.clone(),
+        };
+
+        debug!("{provider_name}: POST {url} model={model} turn={turn}");
+
+        let resp = client
+            .post(url)
+            .header("Authorization", auth_header)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| OmegaError::Provider(format!("{provider_name} request failed: {e}")))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(OmegaError::Provider(format!(
+                "{provider_name} returned {status}: {text}"
+            )));
+        }
+
+        let parsed: ChatCompletionResponse = resp.json().await.map_err(|e| {
+            OmegaError::Provider(format!("{provider_name}: failed to parse response: {e}"))
+        })?;
+
+        if let Some(ref m) = parsed.model {
+            last_model = Some(m.clone());
+        }
+        if let Some(ref u) = parsed.usage {
+            if let Some(t) = u.total_tokens {
+                total_tokens += t;
+            }
+        }
+
+        let choice = parsed
+            .choices
+            .as_ref()
+            .and_then(|c| c.first())
+            .and_then(|c| c.message.clone());
+
+        let Some(assistant_msg) = choice else {
+            break;
+        };
+
+        // Check for tool calls.
+        if let Some(ref tool_calls) = assistant_msg.tool_calls {
+            if !tool_calls.is_empty() {
+                // Append the assistant message (with tool_calls) to the conversation.
+                messages.push(assistant_msg.clone());
+
+                for tc in tool_calls {
+                    let args: serde_json::Value =
+                        serde_json::from_str(&tc.function.arguments).unwrap_or_default();
+
+                    info!(
+                        "{provider_name}: tool call [{turn}] {} ({})",
+                        tc.function.name, tc.id
+                    );
+
+                    let result = executor.execute(&tc.function.name, &args).await;
+
+                    // Append tool result message.
+                    messages.push(ChatMessage {
+                        role: "tool".to_string(),
+                        content: Some(result.content),
+                        tool_calls: None,
+                        tool_call_id: Some(tc.id.clone()),
+                    });
+                }
+
+                continue; // Next turn.
+            }
+        }
+
+        // Text-only response — we're done.
+        let text = assistant_msg
+            .content
+            .unwrap_or_else(|| format!("No response from {provider_name}."));
+
+        let elapsed_ms = start.elapsed().as_millis() as u64;
+        return Ok(OutgoingMessage {
+            text,
+            metadata: MessageMetadata {
+                provider_used: provider_name.to_string(),
+                tokens_used: if total_tokens > 0 {
+                    Some(total_tokens)
+                } else {
+                    None
+                },
+                processing_time_ms: elapsed_ms,
+                model: last_model,
+            },
+            reply_target: None,
+        });
+    }
+
+    // Max turns exhausted.
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+    Ok(OutgoingMessage {
+        text: format!("{provider_name}: reached max turns ({max_turns}) without final response"),
+        metadata: MessageMetadata {
+            provider_used: provider_name.to_string(),
+            tokens_used: if total_tokens > 0 {
+                Some(total_tokens)
+            } else {
+                None
+            },
+            processing_time_ms: elapsed_ms,
+            model: last_model,
+        },
+        reply_target: None,
+    })
 }
 
 #[async_trait]
@@ -94,21 +319,55 @@ impl Provider for OpenAiProvider {
     async fn complete(&self, context: &Context) -> Result<OutgoingMessage, OmegaError> {
         let (system, api_messages) = context.to_api_messages();
         let effective_model = context.model.as_deref().unwrap_or(&self.model);
-        let start = Instant::now();
+        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+        let auth = format!("Bearer {}", self.api_key);
+        let max_turns = context.max_turns.unwrap_or(DEFAULT_MAX_TURNS);
 
+        // Determine if tools should be enabled.
+        let has_tools = context
+            .allowed_tools
+            .as_ref()
+            .map(|t| !t.is_empty())
+            .unwrap_or(true); // None = tools enabled
+
+        if has_tools {
+            if let Some(ref ws) = self.workspace_path {
+                let mut executor = ToolExecutor::new(ws.clone(), self.sandbox_mode);
+                executor.connect_mcp_servers(&context.mcp_servers).await;
+
+                let result = openai_agentic_complete(
+                    &self.client,
+                    &url,
+                    &auth,
+                    effective_model,
+                    &system,
+                    &api_messages,
+                    &mut executor,
+                    max_turns,
+                    "openai",
+                )
+                .await;
+
+                executor.shutdown_mcp().await;
+                return result;
+            }
+        }
+
+        // Fallback: no tools (classification calls, or no workspace).
+        let start = Instant::now();
         let messages = build_openai_messages(&system, &api_messages);
         let body = ChatCompletionRequest {
             model: effective_model.to_string(),
             messages,
+            tools: None,
         };
 
-        let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        debug!("openai: POST {url} model={effective_model}");
+        debug!("openai: POST {url} model={effective_model} (no tools)");
 
         let resp = self
             .client
             .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Authorization", &auth)
             .json(&body)
             .send()
             .await
@@ -132,7 +391,7 @@ impl Provider for OpenAiProvider {
             .as_ref()
             .and_then(|c| c.first())
             .and_then(|c| c.message.as_ref())
-            .map(|m| m.content.clone())
+            .and_then(|m| m.content.clone())
             .unwrap_or_else(|| "No response from OpenAI.".to_string());
 
         let tokens = parsed.usage.as_ref().and_then(|u| u.total_tokens);
@@ -155,7 +414,6 @@ impl Provider for OpenAiProvider {
             warn!("openai: no API key configured");
             return false;
         }
-        // Basic check: try to list models.
         let url = format!("{}/models", self.base_url.trim_end_matches('/'));
         match self
             .client
@@ -183,6 +441,8 @@ mod tests {
             "https://api.openai.com/v1".into(),
             "sk-test".into(),
             "gpt-4o".into(),
+            None,
+            SandboxMode::Rwx,
         );
         assert_eq!(p.name(), "openai");
         assert!(p.requires_api_key());
@@ -207,7 +467,7 @@ mod tests {
         let messages = build_openai_messages("Be helpful.", &api_msgs);
         assert_eq!(messages.len(), 4);
         assert_eq!(messages[0].role, "system");
-        assert_eq!(messages[0].content, "Be helpful.");
+        assert_eq!(messages[0].content.as_deref(), Some("Be helpful."));
         assert_eq!(messages[3].role, "user");
     }
 
@@ -231,8 +491,70 @@ mod tests {
             .as_ref()
             .and_then(|c| c.first())
             .and_then(|c| c.message.as_ref())
-            .map(|m| m.content.clone());
+            .and_then(|m| m.content.clone());
         assert_eq!(text, Some("Hello!".into()));
         assert_eq!(resp.usage.as_ref().and_then(|u| u.total_tokens), Some(42));
+    }
+
+    #[test]
+    fn test_openai_tool_call_response_parsing() {
+        let json = r#"{"choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_123","type":"function","function":{"name":"bash","arguments":"{\"command\":\"ls\"}"}}]},"finish_reason":"tool_calls"}],"model":"gpt-4o","usage":{"total_tokens":50}}"#;
+        let resp: ChatCompletionResponse = serde_json::from_str(json).unwrap();
+        let msg = resp
+            .choices
+            .as_ref()
+            .unwrap()
+            .first()
+            .unwrap()
+            .message
+            .as_ref()
+            .unwrap();
+        assert!(msg.content.is_none());
+        let tcs = msg.tool_calls.as_ref().unwrap();
+        assert_eq!(tcs.len(), 1);
+        assert_eq!(tcs[0].function.name, "bash");
+        assert_eq!(tcs[0].id, "call_123");
+    }
+
+    #[test]
+    fn test_to_openai_tools() {
+        let defs = crate::tools::builtin_tool_defs();
+        let tools = to_openai_tools(&defs);
+        assert_eq!(tools.len(), 4);
+        assert_eq!(tools[0].tool_type, "function");
+        assert!(!tools[0].function.name.is_empty());
+    }
+
+    #[test]
+    fn test_chat_completion_request_no_tools() {
+        let req = ChatCompletionRequest {
+            model: "gpt-4o".into(),
+            messages: vec![ChatMessage {
+                role: "user".into(),
+                content: Some("Hi".into()),
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            tools: None,
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert!(json.get("tools").is_none());
+    }
+
+    #[test]
+    fn test_chat_completion_request_with_tools() {
+        let defs = crate::tools::builtin_tool_defs();
+        let req = ChatCompletionRequest {
+            model: "gpt-4o".into(),
+            messages: vec![ChatMessage {
+                role: "user".into(),
+                content: Some("list files".into()),
+                tool_calls: None,
+                tool_call_id: None,
+            }],
+            tools: Some(to_openai_tools(&defs)),
+        };
+        let json = serde_json::to_value(&req).unwrap();
+        assert!(json.get("tools").unwrap().as_array().unwrap().len() == 4);
     }
 }
