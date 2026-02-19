@@ -64,6 +64,7 @@ whisper_api_key = ""        # Optional: OpenAI key for voice transcription (or e
 [channel.whatsapp]
 enabled = false
 allowed_users = []          # Phone numbers (e.g. ["5511999887766"]). Empty = allow all.
+whisper_api_key = ""        # Optional: OpenAI key for voice transcription (or env: OPENAI_API_KEY)
 
 # --- Memory ---
 

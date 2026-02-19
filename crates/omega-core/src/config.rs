@@ -200,6 +200,9 @@ pub struct WhatsAppConfig {
     /// Allowed phone numbers (e.g. `["5511999887766"]`). Empty = allow all.
     #[serde(default)]
     pub allowed_users: Vec<String>,
+    /// OpenAI API key for Whisper voice transcription. Presence = voice enabled.
+    #[serde(default)]
+    pub whisper_api_key: Option<String>,
 }
 
 /// Memory config.
@@ -1006,5 +1009,27 @@ mod tests {
         assert!(cfg.enabled);
         assert_eq!(cfg.api_key, "AIza-test");
         assert_eq!(cfg.model, "gemini-2.0-flash");
+    }
+
+    #[test]
+    fn test_whatsapp_config_with_whisper() {
+        let toml_str = r#"
+            enabled = true
+            allowed_users = ["5511999887766"]
+            whisper_api_key = "sk-wa-test"
+        "#;
+        let cfg: WhatsAppConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.whisper_api_key.as_deref(), Some("sk-wa-test"));
+        assert_eq!(cfg.allowed_users, vec!["5511999887766"]);
+    }
+
+    #[test]
+    fn test_whatsapp_config_without_whisper() {
+        let toml_str = r#"
+            enabled = true
+            allowed_users = []
+        "#;
+        let cfg: WhatsAppConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.whisper_api_key.is_none());
     }
 }

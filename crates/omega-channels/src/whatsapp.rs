@@ -107,6 +107,7 @@ impl Channel for WhatsAppChannel {
         let tx_events = tx.clone();
         let client_for_event = client_handle.clone();
         let sent_ids_for_event = self.sent_ids.clone();
+        let whisper_api_key = self.config.whisper_api_key.clone();
 
         let mut bot = Bot::builder()
             .with_backend(backend)
@@ -122,6 +123,7 @@ impl Channel for WhatsAppChannel {
                 let allowed = allowed_users.clone();
                 let client_store = client_for_event.clone();
                 let sent_ids = sent_ids_for_event.clone();
+                let whisper_key = whisper_api_key.clone();
                 async move {
                     match event {
                         Event::PairingQrCode { code, .. } => {
@@ -233,6 +235,64 @@ impl Channel for WhatsAppChannel {
                                 } else {
                                     warn!("whatsapp client not available for image download");
                                     return;
+                                }
+                            } else if let Some(ref audio) = inner.audio_message {
+                                // Voice message transcription via Whisper.
+                                match whisper_key.as_deref() {
+                                    Some(key) if !key.is_empty() => {
+                                        let wa_client = {
+                                            let guard = client_store.lock().await;
+                                            guard.clone()
+                                        };
+                                        if let Some(wa_client) = wa_client {
+                                            match wa_client.download(audio.as_ref()).await {
+                                                Ok(bytes) => {
+                                                    let http = reqwest::Client::new();
+                                                    match crate::whisper::transcribe_whisper(
+                                                        &http, key, &bytes,
+                                                    )
+                                                    .await
+                                                    {
+                                                        Ok(transcript) => {
+                                                            let secs = audio
+                                                                .seconds
+                                                                .unwrap_or(0);
+                                                            info!(
+                                                                "transcribed whatsapp voice ({secs}s)"
+                                                            );
+                                                            (
+                                                                format!(
+                                                                    "[Voice message] {transcript}"
+                                                                ),
+                                                                Vec::new(),
+                                                            )
+                                                        }
+                                                        Err(e) => {
+                                                            warn!(
+                                                                "whatsapp voice transcription failed: {e}"
+                                                            );
+                                                            return;
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    warn!(
+                                                        "whatsapp audio download failed: {e}"
+                                                    );
+                                                    return;
+                                                }
+                                            }
+                                        } else {
+                                            warn!(
+                                                "whatsapp client not available for audio download"
+                                            );
+                                            return;
+                                        }
+                                    }
+                                    _ => {
+                                        debug!("skipping whatsapp voice (no whisper key)");
+                                        return;
+                                    }
                                 }
                             } else if text.is_empty() {
                                 return;
