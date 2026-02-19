@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 description = "Quantitative trading engine for Omega — Kalman filter, HMM regime detection, Kelly sizing, IBKR execution"
 
+[[bin]]
+name = "omega-quant"
+path = "src/bin/main.rs"
+
 [dependencies]
 tokio = { workspace = true }
 serde = { workspace = true }
@@ -14,6 +18,7 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+clap = { workspace = true }
 
 ibapi = "2.7"
 rand = "0.8"

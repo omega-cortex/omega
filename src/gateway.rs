@@ -93,8 +93,6 @@ pub struct Gateway {
     model_complex: String,
     /// Tracks senders with active provider calls. New messages are buffered here.
     active_senders: Mutex<HashMap<String, Vec<IncomingMessage>>>,
-    /// Lazily-initialized quantitative trading engine (managed via `/quant` command).
-    quant_engine: Mutex<Option<Arc<Mutex<omega_quant::QuantEngine>>>>,
     /// Shared heartbeat interval (minutes) — updated at runtime via `HEARTBEAT_INTERVAL:` marker.
     heartbeat_interval: Arc<AtomicU64>,
 }
@@ -138,7 +136,6 @@ impl Gateway {
             model_fast,
             model_complex,
             active_senders: Mutex::new(HashMap::new()),
-            quant_engine: Mutex::new(None),
             heartbeat_interval,
         }
     }
@@ -978,54 +975,6 @@ impl Gateway {
         }
     }
 
-    /// Start the quant engine with given symbol and portfolio value.
-    /// Connects to IBKR and starts streaming price data.
-    pub async fn start_quant(&self, symbol: &str, portfolio_value: f64, paper: bool) {
-        let config = if paper {
-            omega_quant::market_data::IbkrConfig::paper()
-        } else {
-            omega_quant::market_data::IbkrConfig::live()
-        };
-
-        let engine = Arc::new(Mutex::new(omega_quant::QuantEngine::new(
-            symbol,
-            portfolio_value,
-        )));
-
-        // Start price feed and wire it to the engine.
-        let qe = engine.clone();
-        let mut rx = omega_quant::market_data::start_price_feed(symbol, &config);
-        tokio::spawn(async move {
-            while let Ok(tick) = rx.recv().await {
-                let mut eng = qe.lock().await;
-                let signal = eng.process_price(tick.price);
-                info!(
-                    "quant: {} ${:.2} | {:?} | conf: {:.0}%",
-                    signal.symbol,
-                    signal.filtered_price,
-                    signal.regime,
-                    signal.confidence * 100.0
-                );
-            }
-        });
-
-        *self.quant_engine.lock().await = Some(engine);
-        info!(
-            "quant: engine started for {symbol} (paper={paper}, portfolio=${portfolio_value:.0})"
-        );
-    }
-
-    /// Stop the quant engine.
-    pub async fn stop_quant(&self) {
-        *self.quant_engine.lock().await = None;
-        info!("quant: engine stopped");
-    }
-
-    /// Check if quant engine is currently running.
-    pub async fn is_quant_active(&self) -> bool {
-        self.quant_engine.lock().await.is_some()
-    }
-
     /// Graceful shutdown: summarize active conversations, stop channels.
     async fn shutdown(
         &self,
@@ -1201,57 +1150,6 @@ impl Gateway {
                 return;
             }
 
-            // Intercept QUANT_ENABLE/QUANT_DISABLE markers from /quant command.
-            let trimmed_resp = response.trim();
-            if trimmed_resp.starts_with("QUANT_ENABLE:") {
-                let parts: Vec<&str> = trimmed_resp
-                    .strip_prefix("QUANT_ENABLE:")
-                    .unwrap()
-                    .split(':')
-                    .collect();
-                let symbol = parts.first().copied().unwrap_or("AAPL");
-                let portfolio: f64 = parts
-                    .get(1)
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(10_000.0);
-                let paper = parts.get(2).copied().unwrap_or("paper") == "paper";
-
-                // Check if IB Gateway is reachable first.
-                let config = if paper {
-                    omega_quant::market_data::IbkrConfig::paper()
-                } else {
-                    omega_quant::market_data::IbkrConfig::live()
-                };
-                if !omega_quant::market_data::check_connection(&config).await {
-                    let mode = if paper { "paper (4002)" } else { "live (4001)" };
-                    self.send_text(
-                        &incoming,
-                        &format!(
-                            "IB Gateway not reachable on port {}. \
-                             Make sure IB Gateway or TWS is running.\n\n\
-                             Docker: docker run -d -p {}:{} ghcr.io/gnzsnz/ib-gateway:latest",
-                            mode, config.port, config.port,
-                        ),
-                    )
-                    .await;
-                    return;
-                }
-
-                self.start_quant(symbol, portfolio, paper).await;
-                let mode = if paper { "paper" } else { "live" };
-                self.send_text(
-                    &incoming,
-                    &format!("Quant engine started: {symbol} (${portfolio:.0}, {mode} mode)"),
-                )
-                .await;
-                return;
-            }
-            if trimmed_resp == "QUANT_DISABLE" {
-                self.stop_quant().await;
-                self.send_text(&incoming, "Quant engine stopped.").await;
-                return;
-            }
-
             self.send_text(&incoming, &response).await;
             return;
         }
@@ -1334,18 +1232,6 @@ impl Gateway {
             if let Some(ref constraint) = self.sandbox_prompt {
                 prompt.push_str("\n\n");
                 prompt.push_str(constraint);
-            }
-
-            // Quant advisory signal (non-blocking — skip if engine is busy).
-            if let Ok(quant_guard) = self.quant_engine.try_lock() {
-                if let Some(ref engine) = *quant_guard {
-                    if let Ok(eng) = engine.try_lock() {
-                        if let Some(signal) = eng.last_signal() {
-                            prompt.push_str("\n\n");
-                            prompt.push_str(&omega_quant::QuantEngine::format_signal(&signal));
-                        }
-                    }
-                }
             }
 
             prompt

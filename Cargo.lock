@@ -1801,7 +1801,6 @@ dependencies = [
  "omega-core",
  "omega-memory",
  "omega-providers",
- "omega-quant",
  "omega-sandbox",
  "omega-skills",
  "reqwest",
@@ -1895,6 +1894,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "clap",
  "futures",
  "ibapi",
  "rand 0.8.5",

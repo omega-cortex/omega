@@ -2,56 +2,79 @@
 
 ## Overview
 
-The omega-quant crate provides real-time quantitative trading analysis and advisory signals. It connects to Interactive Brokers (IBKR) via the TWS API and runs a pipeline of mathematical models to produce actionable signals.
-
-## Enabling
-
-Quant is configured via the `/quant` Telegram bot command — no config.toml section needed.
-
-```
-/quant enable         — Start the quant engine (connects to IB Gateway)
-/quant disable        — Stop the quant engine
-/quant symbol AAPL    — Change tracked symbol (default: AAPL)
-/quant portfolio 50000 — Set portfolio value (default: 10000)
-/quant paper          — Use paper trading, port 4002 (default)
-/quant live           — Use live trading, port 4001
-```
-
-**Prerequisite**: IB Gateway or TWS must be running locally. Paper trading uses port 4002, live uses port 4001. Auth is handled by the IB Gateway app — no API keys in code.
+The omega-quant crate provides real-time quantitative trading analysis and order execution via Interactive Brokers (IBKR). It is exposed as a standalone CLI binary (`omega-quant`) that the AI invokes through the `ibkr-quant` skill — no gateway wiring, no config.toml section needed.
 
 ## How It Works
 
-1. **IBKR Price Feed**: Connects to IB Gateway via TWS API, streams 5-second real-time bars
-2. **Kalman Filter**: Smooths raw prices and estimates trend
-3. **HMM Regime Detection**: Classifies market as Bull, Bear, or Lateral
-4. **Merton Allocation**: Computes risk-adjusted optimal position fraction
-5. **Kelly Sizing**: Determines position size in USD with safety caps
-6. **Signal Injection**: Latest signal appears in AI system prompt as `[QUANT ADVISORY]`
+The AI learns about omega-quant from the `ibkr-quant` skill (`skills/ibkr-quant/SKILL.md`). When a user asks about trading, stocks, or market analysis, the AI invokes the CLI tool via bash:
 
-## Signal Format
+1. **Check connectivity**: `omega-quant check --port 4002`
+2. **Analyze signals**: `omega-quant analyze AAPL --portfolio 50000 --bars 10`
+3. **Place orders**: `omega-quant order AAPL buy 100 --port 4002`
 
-When you ask about trading or markets, the AI sees something like:
+## CLI Commands
 
+### Check IB Gateway connectivity
+
+```bash
+omega-quant check --port 4002
+# → {"connected": true, "host": "127.0.0.1", "port": 4002}
 ```
-[QUANT ADVISORY — NOT FINANCIAL ADVICE]
-Symbol: AAPL | Price: $185.50 (filtered: $185.45)
-Regime: Bull (Bull: 72% | Bear: 8% | Lateral: 20%)
-Hurst: 0.50 (Random Walk)
-Merton allocation: +0.65 | Kelly: 8.2% ($820)
-Direction: Long | Action: LONG (urgency: 72%) | Execution: Immediate
-Confidence: 40%
-[END QUANT ADVISORY]
+
+- Port 4002 = paper trading (default, safe)
+- Port 4001 = live trading (real money)
+
+### Analyze — stream trading signals
+
+```bash
+omega-quant analyze AAPL --portfolio 50000 --port 4002 --bars 10
 ```
+
+Streams JSONL (one JSON signal per 5-second bar). Each signal contains:
+- `regime`: Bull / Bear / Lateral (HMM-detected market state)
+- `filtered_price`: Kalman-filtered price (noise removed)
+- `merton_allocation`: optimal portfolio allocation [-0.5, 1.5]
+- `kelly_fraction`: fractional Kelly bet size
+- `kelly_position_usd`: recommended position in dollars
+- `direction`: Long / Short / Hold
+- `action`: Long/Short/Hold/ReducePosition/Exit with urgency
+- `confidence`: signal confidence score [0, 1]
+- `reasoning`: human-readable summary
+
+### Order — place a trade
+
+```bash
+omega-quant order AAPL buy 100 --port 4002
+# → {"status": "Completed", "filled_qty": 100.0, "avg_price": 185.52, ...}
+```
+
+## Signal Interpretation
+
+- **Bull regime + Long direction + kelly_should_trade=true** → strong buy signal
+- **Bear regime + Short direction** → consider reducing exposure
+- **Lateral regime** → typically Hold, wait for regime change
+- **confidence > 0.5** → higher conviction signal
+- **merton_allocation > 0.1** → math says go long; < -0.1 → go short
+
+## Prerequisites
+
+IB Gateway or TWS must be running locally:
+- Paper trading: port 4002 (default)
+- Live trading: port 4001
+- Docker: `docker run -d -p 4002:4002 ghcr.io/gnzsnz/ib-gateway:latest`
+- Auth is handled by the IB Gateway app — no API keys in code
 
 ## Safety Guardrails
 
 | Guardrail | Default | Purpose |
 |-----------|---------|---------|
 | Mode | paper | Paper trading by default (port 4002) |
-| Confirmation | always on | Human approves every trade |
-| Kelly fraction | 0.25 | Only 25% of theoretical optimal |
-| Max position | 10% | Never risk more than 10% of portfolio |
 | Daily trades | 10 | Cap on number of trades per day |
-| Daily USD | $5,000 | Cap on total USD traded per day |
+| Daily USD | $50,000 | Cap on total USD traded per day |
 | Cooldown | 5 min | Minimum wait between trades |
 | Circuit breaker | 2% | Abort TWAP if price deviates >2% |
+| Signals | advisory | Marked "NOT FINANCIAL ADVICE" |
+
+## Removing Quant
+
+To completely remove quant from Omega, simply delete `skills/ibkr-quant/`. Zero gateway changes needed.
