@@ -43,7 +43,11 @@ All our architecture must be monolithic and modular, like Legos.
    - Bug fixes → regression test that reproduces the bug and confirms the fix
    - Changed behavior → updated existing tests to match new expectations
 
-4. **Output Filtering**: Always filter verbose output:
+4. **Language Compliance**: Any implementation or modification with language-facing impact (user messages, welcome texts, prompts, bot responses, error messages, onboarding hints) **MUST** be compliant with all 8 supported languages: English, Spanish, Portuguese, French, German, Italian, Dutch, Russian. Check `prompts/WELCOME.toml` and `prompts/SYSTEM_PROMPT.md` for existing patterns.
+
+5. **Post-Implementation Prompt**: After every modification or new implementation is complete, always ask: **"Do you want to make a commit and push?"**
+
+6. **Output Filtering**: Always filter verbose output:
 Apply always outour redirection to a /tmp/ folder to avoid polluting the console to later apply filters.
   command > /tmp/cmd_output.log 2>&1 && grep -iE "error|warn|fail|pass" /tmp/cmd_output.log | head -20
 
