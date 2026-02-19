@@ -155,7 +155,7 @@ async fn handle_facts(store: &Store, sender_id: &str) -> String {
         Ok(facts) => {
             let mut out = String::from("Known Facts\n");
             for (key, value) in &facts {
-                out.push_str(&format!("\n- {key}: {value}"));
+                out.push_str(&format!("\n- {}: {}", escape_md(key), escape_md(value)));
             }
             out
         }
@@ -399,9 +399,10 @@ async fn handle_purge(store: &Store, sender_id: &str) -> String {
     }
 
     let purged = deleted as usize - preserved.len();
+    let keys_display: Vec<String> = SYSTEM_FACT_KEYS.iter().map(|k| escape_md(k)).collect();
     format!(
         "Purged {purged} facts. System keys preserved ({}).",
-        SYSTEM_FACT_KEYS.join(", ")
+        keys_display.join(", ")
     )
 }
 
@@ -429,6 +430,11 @@ fn handle_help() -> String {
 /whatsapp — Connect WhatsApp via QR code\n\
 /help     — This message"
         .to_string()
+}
+
+/// Escape underscores for Telegram Markdown rendering.
+fn escape_md(s: &str) -> String {
+    s.replace('_', "\\_")
 }
 
 /// Format bytes into a human-readable string.
