@@ -24,9 +24,11 @@ The file itself contains no types, traits, or functions. Its entire job is modul
 | `anthropic` | `pub mod` (public) | Implemented | Anthropic Messages API provider. Non-streaming HTTP via `reqwest`. |
 | `claude_code` | `pub mod` (public) | Implemented | Claude Code CLI provider. Invokes `claude` as a subprocess. |
 | `gemini` | `pub mod` (public) | Implemented | Google Gemini API provider. Non-streaming HTTP via `reqwest`. |
+| `mcp_client` | `pub(crate) mod` | Implemented | MCP (Model Context Protocol) client used by providers to call MCP-exposed tools. |
 | `ollama` | `pub mod` (public) | Implemented | Ollama local model provider. Non-streaming HTTP via `reqwest`. |
-| `openai` | `pub mod` (public) | Implemented | OpenAI-compatible API provider. Non-streaming HTTP via `reqwest`. Exports `pub(crate)` types reused by OpenRouter. |
-| `openrouter` | `pub mod` (public) | Implemented | OpenRouter proxy provider. Reuses OpenAI request/response types. |
+| `openai` | `pub mod` (public) | Implemented | OpenAI-compatible API provider. Non-streaming HTTP via `reqwest`. Exports `pub(crate)` types and the shared agentic loop reused by OpenRouter. |
+| `openrouter` | `pub mod` (public) | Implemented | OpenRouter proxy provider. Reuses OpenAI request/response types and delegates to `openai_agentic_complete()`. |
+| `tools` | `pub(crate) mod` | Implemented | `ToolExecutor` — wraps workspace execution of tool calls dispatched by the agentic loop across all HTTP providers. |
 
 ## Re-exports
 
@@ -48,14 +50,16 @@ Each module exports a provider struct with `from_config()` constructor and `Prov
 | Module | Struct | `from_config()` Params |
 |--------|--------|----------------------|
 | `claude_code` | `ClaudeCodeProvider` | max_turns, allowed_tools, timeout_secs, working_dir, sandbox_mode, max_resume_attempts, model |
-| `ollama` | `OllamaProvider` | base_url, model |
-| `openai` | `OpenAiProvider` | base_url, api_key, model |
-| `anthropic` | `AnthropicProvider` | api_key, model |
-| `openrouter` | `OpenRouterProvider` | api_key, model |
-| `gemini` | `GeminiProvider` | api_key, model |
+| `ollama` | `OllamaProvider` | base_url, model, workspace_path, sandbox_mode |
+| `openai` | `OpenAiProvider` | base_url, api_key, model, workspace_path, sandbox_mode |
+| `anthropic` | `AnthropicProvider` | api_key, model, workspace_path, sandbox_mode |
+| `openrouter` | `OpenRouterProvider` | api_key, model, workspace_path, sandbox_mode |
+| `gemini` | `GeminiProvider` | api_key, model, workspace_path, sandbox_mode |
 
-Additionally, `openai` exports `pub(crate)` types reused by `openrouter`:
-- `ChatMessage`, `ChatCompletionRequest`, `ChatCompletionResponse`, `build_openai_messages()`
+Additionally, `openai` exports `pub(crate)` types and functions reused by `openrouter` and the shared agentic loop:
+- `ChatMessage`, `ChatCompletionRequest`, `ChatCompletionResponse`, `ChatChoice`, `build_openai_messages()`
+- `ToolCallMsg`, `FunctionCall`, `OpenAiToolDef`, `OpenAiFunctionDef`
+- `openai_agentic_complete()` — the shared agentic tool-calling loop function
 
 ## Dependencies
 
@@ -78,8 +82,10 @@ Declared in `Cargo.toml` (all workspace-level):
 All HTTP-based providers follow the same pattern:
 1. `let (system, messages) = context.to_api_messages()`
 2. `let effective_model = context.model.as_deref().unwrap_or(&self.model)`
-3. Build provider-specific request body
-4. `self.client.post(&url).json(&body).send().await`
-5. Parse response → `OutgoingMessage { text, metadata: { provider_used, tokens_used, processing_time_ms, model } }`
+3. Check `allowed_tools` / `workspace_path` — determine whether the agentic tool-calling path is active
+4. If `workspace_path` is set, create a `ToolExecutor` scoped to that directory and the configured `sandbox_mode`
+5. If tools are available, enter the provider-specific agentic loop (or call `openai_agentic_complete()` for OpenAI/OpenRouter), iterating until the model stops requesting tool calls or the max-iterations guard fires
+6. Otherwise (no workspace or no tools), fall back to the plain single-shot POST → parse response → return
+7. Return `OutgoingMessage { text, metadata: { provider_used, tokens_used, processing_time_ms, model } }`
 
 All use non-streaming (`"stream": false` or no streaming parameter). The gateway handles status timers for long responses.
