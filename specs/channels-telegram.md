@@ -132,6 +132,12 @@ pub fn new(config: TelegramConfig) -> Self
 Constructs a new `TelegramChannel`. Precomputes `base_url` from the bot token, initializes the HTTP client, and sets `last_update_id` to `None`.
 
 ```rust
+async fn register_commands(&self)
+```
+
+Registers all bot commands with Telegram via `POST /setMyCommands`, enabling the autocomplete command menu for users. Called once at the beginning of `start()` before the polling loop. Best-effort: logs success or failure but does not propagate errors or prevent startup.
+
+```rust
 async fn send_message(&self, chat_id: i64, text: &str) -> Result<(), OmegaError>
 ```
 
@@ -190,7 +196,7 @@ Returns `"telegram"`.
 
 ### `async fn start(&self) -> Result<mpsc::Receiver<IncomingMessage>, OmegaError>`
 
-Spawns a background `tokio::spawn` task that performs long polling against the Telegram Bot API. Returns an `mpsc::Receiver<IncomingMessage>` with a buffer size of 64.
+Calls `register_commands()` to register the bot command menu with Telegram, then spawns a background `tokio::spawn` task that performs long polling against the Telegram Bot API. Returns an `mpsc::Receiver<IncomingMessage>` with a buffer size of 64.
 
 **Long Polling Mechanism (detailed below).**
 

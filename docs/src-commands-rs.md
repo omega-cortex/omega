@@ -405,6 +405,9 @@ This appears when you run `/forget` but haven't sent any messages yet in the cur
 ### "/unknown" or unknown command treated as regular message
 Commands are case-sensitive. Use lowercase: `/status`, not `/Status`. Unknown commands (e.g., `/xyz`) are passed to Claude as regular messages.
 
+### Commands with @botname suffix (group chats)
+In Telegram group chats, commands often include the bot's username (e.g., `/help@omega_bot`). Omega automatically strips the `@botname` suffix before matching, so these work exactly like their plain equivalents.
+
 ### Response shows "Error: ..."
 A temporary issue with memory storage. Usually resolves on retry. Contact support if persistent.
 

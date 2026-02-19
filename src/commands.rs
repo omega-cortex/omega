@@ -38,7 +38,9 @@ impl Command {
     /// Parse a command from message text. Returns `None` for unknown `/` prefixes
     /// (which should pass through to the provider).
     pub fn parse(text: &str) -> Option<Self> {
-        let cmd = text.split_whitespace().next()?;
+        let first = text.split_whitespace().next()?;
+        // Strip @botname suffix (e.g. "/help@omega_bot" → "/help").
+        let cmd = first.split('@').next().unwrap_or(first);
         match cmd {
             "/status" => Some(Self::Status),
             "/memory" => Some(Self::Memory),
@@ -469,6 +471,28 @@ mod tests {
             Some(Command::WhatsApp)
         ));
         assert!(matches!(Command::parse("/help"), Some(Command::Help)));
+    }
+
+    #[test]
+    fn test_parse_commands_with_botname_suffix() {
+        assert!(matches!(
+            Command::parse("/help@omega_bot"),
+            Some(Command::Help)
+        ));
+        assert!(matches!(
+            Command::parse("/status@omega_bot"),
+            Some(Command::Status)
+        ));
+        assert!(matches!(
+            Command::parse("/cancel@omega_bot task123"),
+            Some(Command::Cancel)
+        ));
+        assert!(matches!(
+            Command::parse("/lang@omega_bot"),
+            Some(Command::Language)
+        ));
+        // Unknown command with @botname should still return None.
+        assert!(Command::parse("/unknown@omega_bot").is_none());
     }
 
     #[test]

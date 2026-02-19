@@ -54,6 +54,7 @@ pub enum Command {
 
 **Behavior:**
 - Extracts the first whitespace-delimited token from message text
+- Strips any `@botname` suffix (e.g., `/help@omega_bot` → `/help`) to support Telegram group chat command format
 - Matches against known command prefixes (all start with `/`)
 - Returns `None` for unknown `/` prefixes, allowing them to pass through to the provider as regular messages
 - Case-sensitive matching
@@ -76,6 +77,7 @@ pub enum Command {
 ```
 "/status" → Some(Status)
 "/help foobar" → Some(Help)  // whitespace-delimited, so "foobar" ignored
+"/help@omega_bot" → Some(Help)  // @botname suffix stripped
 "/unknown" → None  // unknown commands pass through
 "hello" → None  // non-command text returns None
 ```
@@ -576,6 +578,7 @@ All handlers are `async` even though most only interact with local SQLite. This 
 - All commands are synchronous from user perspective (no long-running operations)
 - Commands are scoped to user + channel (e.g., `/forget` clears only the user's conversation in that channel)
 - `/language` has an alias `/lang`; all other commands have no aliases
+- Commands with `@botname` suffixes (e.g., `/help@omega_bot`) are recognized — the suffix is stripped before matching
 - Fact keys and values are opaque strings managed by the memory system
 - `/cancel` uses ID prefix matching (first 8+ characters of UUID) for user convenience
 - `/tasks` only shows tasks with status `'pending'`; delivered and cancelled tasks are hidden

@@ -185,6 +185,43 @@ impl TelegramChannel {
         Ok(())
     }
 
+    /// Register bot commands with Telegram so users see an autocomplete menu.
+    /// Best-effort: logs failures but does not propagate errors.
+    async fn register_commands(&self) {
+        let commands = serde_json::json!({
+            "commands": [
+                { "command": "help", "description": "Show available commands" },
+                { "command": "status", "description": "Uptime, provider, database info" },
+                { "command": "memory", "description": "Your conversation and facts stats" },
+                { "command": "history", "description": "Last 5 conversation summaries" },
+                { "command": "facts", "description": "List known facts about you" },
+                { "command": "forget", "description": "Clear current conversation" },
+                { "command": "tasks", "description": "List your scheduled tasks" },
+                { "command": "cancel", "description": "Cancel a task by ID" },
+                { "command": "language", "description": "Show or set your language" },
+                { "command": "personality", "description": "Show or set how I behave" },
+                { "command": "skills", "description": "List available skills" },
+                { "command": "projects", "description": "List available projects" },
+                { "command": "project", "description": "Show, activate, or deactivate a project" },
+                { "command": "whatsapp", "description": "Connect WhatsApp via QR code" },
+            ]
+        });
+
+        let url = format!("{}/setMyCommands", self.base_url);
+        match self.client.post(&url).json(&commands).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                info!("registered Telegram bot commands");
+            }
+            Ok(resp) => {
+                let body = resp.text().await.unwrap_or_default();
+                warn!("failed to register Telegram bot commands: {body}");
+            }
+            Err(e) => {
+                warn!("failed to register Telegram bot commands: {e}");
+            }
+        }
+    }
+
     /// Send a chat action (e.g. "typing") to a chat.
     async fn send_chat_action(&self, chat_id: i64, action: &str) -> Result<(), OmegaError> {
         let url = format!("{}/sendChatAction", self.base_url);
@@ -211,6 +248,8 @@ impl Channel for TelegramChannel {
     }
 
     async fn start(&self) -> Result<mpsc::Receiver<IncomingMessage>, OmegaError> {
+        self.register_commands().await;
+
         let (tx, rx) = mpsc::channel(64);
         let client = self.client.clone();
         let base_url = self.base_url.clone();

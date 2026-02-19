@@ -14,7 +14,7 @@ At a high level, the Telegram channel does three things:
 2. **Sends** responses back to the user (`sendMessage`).
 3. **Shows typing indicators** while the AI provider is thinking (`sendChatAction`).
 
-When the gateway calls `start()`, the channel spawns a background task that continuously polls the Telegram API for new messages. Each valid message is converted into an `IncomingMessage` and sent through a Tokio `mpsc` channel back to the gateway for processing.
+When the gateway calls `start()`, the channel first registers its bot commands with Telegram (enabling the `/` autocomplete menu), then spawns a background task that continuously polls the Telegram API for new messages. Each valid message is converted into an `IncomingMessage` and sent through a Tokio `mpsc` channel back to the gateway for processing.
 
 ---
 
@@ -26,10 +26,11 @@ All communication goes through the Telegram Bot API at:
 https://api.telegram.org/bot{YOUR_BOT_TOKEN}/
 ```
 
-The channel uses three endpoints:
+The channel uses four endpoints:
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
+| `/setMyCommands` | POST | Register bot commands for autocomplete menu (once at startup) |
 | `/getUpdates` | GET | Long polling for new messages |
 | `/sendMessage` | POST | Sending text responses |
 | `/sendChatAction` | POST | Sending typing indicators |
