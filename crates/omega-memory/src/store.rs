@@ -681,7 +681,8 @@ impl Store {
 
     // --- Scheduled tasks ---
 
-    /// Create a scheduled task.
+    /// Create a scheduled task. Deduplicates: if a pending task with the same
+    /// sender, description, and due_at already exists, returns the existing ID.
     #[allow(clippy::too_many_arguments)]
     pub async fn create_task(
         &self,
@@ -693,6 +694,24 @@ impl Store {
         repeat: Option<&str>,
         task_type: &str,
     ) -> Result<String, OmegaError> {
+        // Deduplicate: check for existing pending task with same sender + description + due_at.
+        let existing: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM scheduled_tasks \
+             WHERE sender_id = ? AND description = ? AND due_at = ? AND status = 'pending' \
+             LIMIT 1",
+        )
+        .bind(sender_id)
+        .bind(description)
+        .bind(due_at)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| OmegaError::Memory(format!("dedup check failed: {e}")))?;
+
+        if let Some((id,)) = existing {
+            tracing::info!("scheduled task dedup: reusing existing {id}");
+            return Ok(id);
+        }
+
         let id = Uuid::new_v4().to_string();
         sqlx::query(
             "INSERT INTO scheduled_tasks (id, channel, sender_id, reply_target, description, due_at, repeat, task_type) \
@@ -1470,6 +1489,42 @@ mod tests {
         let action = due.iter().find(|t| t.3 == "Action task").unwrap();
         assert_eq!(reminder.5, "reminder");
         assert_eq!(action.5, "action");
+    }
+
+    #[tokio::test]
+    async fn test_create_task_dedup() {
+        let store = test_store().await;
+        let id1 = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "Close all positions",
+                "2026-02-20T14:30:00",
+                None,
+                "action",
+            )
+            .await
+            .unwrap();
+
+        // Same sender + description + due_at → returns existing ID.
+        let id2 = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "Close all positions",
+                "2026-02-20T14:30:00",
+                None,
+                "action",
+            )
+            .await
+            .unwrap();
+        assert_eq!(id1, id2);
+
+        // Only one task exists.
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert_eq!(tasks.len(), 1);
     }
 
     #[tokio::test]
