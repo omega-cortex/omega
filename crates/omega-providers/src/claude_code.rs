@@ -316,12 +316,24 @@ impl ClaudeCodeProvider {
             cmd.arg("--session-id").arg(session);
         }
 
-        // Allowed tools — pass explicit entries, or disable all tools with an
-        // empty string when the caller explicitly set an empty list (e.g.,
-        // classification calls that need no tool access).
-        if allowed_tools.is_empty() && extra_allowed_tools.is_empty() {
-            if context_disabled_tools {
-                cmd.arg("--allowedTools").arg("");
+        // Tool permissions: In `-p` (non-interactive) mode, Claude Code
+        // cannot prompt for approval — tools must be pre-approved or
+        // permissions bypassed entirely.
+        //
+        // - `context_disabled_tools` = caller wants NO tools (classification).
+        // - `allowed_tools` empty = full access intended → bypass
+        //   permissions so every tool works autonomously (the OS-level
+        //   sandbox provides the real security boundary). MCP patterns
+        //   are still appended so those servers are discoverable.
+        // - `allowed_tools` non-empty = explicit whitelist → pre-approve
+        //   only those tools (plus any MCP patterns).
+        if context_disabled_tools {
+            cmd.arg("--allowedTools").arg("");
+        } else if allowed_tools.is_empty() {
+            cmd.arg("--dangerously-skip-permissions");
+            // MCP tool patterns still needed so Claude knows about them.
+            for tool in extra_allowed_tools {
+                cmd.arg("--allowedTools").arg(tool);
             }
         } else {
             for tool in allowed_tools {
@@ -392,11 +404,20 @@ impl ClaudeCodeProvider {
             cmd.arg("--model").arg(model);
         }
 
-        for tool in allowed_tools {
-            cmd.arg("--allowedTools").arg(tool);
-        }
-        for tool in extra_allowed_tools {
-            cmd.arg("--allowedTools").arg(tool);
+        // Same permission logic as run_cli: bypass when full access,
+        // otherwise pre-approve only the listed tools.
+        if allowed_tools.is_empty() {
+            cmd.arg("--dangerously-skip-permissions");
+            for tool in extra_allowed_tools {
+                cmd.arg("--allowedTools").arg(tool);
+            }
+        } else {
+            for tool in allowed_tools {
+                cmd.arg("--allowedTools").arg(tool);
+            }
+            for tool in extra_allowed_tools {
+                cmd.arg("--allowedTools").arg(tool);
+            }
         }
 
         debug!("executing: claude -p <resume> --session-id {session_id}");
