@@ -8,46 +8,59 @@ trigger: "quant|trading|signal|ibkr|market|regime|kelly|position|interactive bro
 
 You have `omega-quant`, a standalone CLI for quantitative trading via Interactive Brokers. You are the strategist — omega-quant provides the tools; you make the decisions.
 
+## Account Configuration
+
+| Setting | Value |
+|---------|-------|
+| Account | `DU8772409` |
+| Port | `7497` (TWS paper trading) |
+| Portfolio | `$279,713` |
+| Host | `127.0.0.1` |
+
+**IMPORTANT**: Always use `--port 7497` in every command. This account uses TWS (not IB Gateway).
+
 ## Commands Reference
 
 ### 1. `check` — Verify connectivity
 
 ```bash
-omega-quant check --port 4002
+omega-quant check --port 7497
 ```
 
-Returns: `{"connected": true, "host": "127.0.0.1", "port": 4002}`
+Returns: `{"connected": true, "host": "127.0.0.1", "port": 7497}`
 
-**Always check connectivity before any other command.**
+**Always check connectivity before any other command.** If not connected, tell the user to open TWS and verify API settings.
 
 ### 2. `scan` — Find instruments by volume/activity
 
 ```bash
 # Most active US stocks
-omega-quant scan --scan-code MOST_ACTIVE --instrument STK --location STK.US.MAJOR --count 10 --port 4002
-
-# Hot crypto by volume
-omega-quant scan --scan-code HOT_BY_VOLUME --instrument CRYPTO --location CRYPTO.PAXOS --count 5 --port 4002
+omega-quant scan --scan-code MOST_ACTIVE --instrument STK --location STK.US.MAJOR --count 10 --port 7497
 
 # Stocks above $10 with high volume
-omega-quant scan --scan-code HOT_BY_VOLUME --instrument STK --location STK.US.MAJOR --count 10 --min-price 10 --min-volume 1000000 --port 4002
+omega-quant scan --scan-code HOT_BY_VOLUME --instrument STK --location STK.US.MAJOR --count 10 --min-price 10 --min-volume 1000000 --port 7497
+
+# Top gainers
+omega-quant scan --scan-code TOP_PERC_GAIN --instrument STK --location STK.US.MAJOR --count 10 --port 7497
 ```
 
 Scan codes: `MOST_ACTIVE`, `HOT_BY_VOLUME`, `TOP_PERC_GAIN`, `TOP_PERC_LOSE`, `HIGH_OPEN_GAP`, `LOW_OPEN_GAP`
 
 Returns: JSON array of `{rank, symbol, security_type, exchange, currency}`
 
+**Note**: Crypto scanner (`CRYPTO.PAXOS`) and forex scanner (`CASH.IDEALPRO`) require specific market data subscriptions in TWS. If they return empty, stocks scanner is always available.
+
 ### 3. `analyze` — Stream trading signals
 
 ```bash
-# Stock
-omega-quant analyze AAPL --asset-class stock --portfolio 50000 --bars 10 --port 4002
+# Stock (only during market hours 9:30am-4pm ET, or with extended hours subscription)
+omega-quant analyze AAPL --asset-class stock --portfolio 279713 --bars 10 --port 7497
 
-# Forex
-omega-quant analyze EUR/USD --asset-class forex --portfolio 50000 --bars 10 --port 4002
+# Forex (24/5 — Sun 5pm to Fri 5pm ET)
+omega-quant analyze EUR/USD --asset-class forex --portfolio 279713 --bars 10 --port 7497
 
-# Crypto
-omega-quant analyze BTC --asset-class crypto --portfolio 50000 --bars 10 --port 4002
+# Crypto (24/7 — requires crypto data subscription)
+omega-quant analyze BTC --asset-class crypto --portfolio 279713 --bars 10 --port 7497
 ```
 
 Each signal contains: `regime`, `regime_probabilities`, `filtered_price`, `trend`, `merton_allocation`, `kelly_fraction`, `kelly_position_usd`, `kelly_should_trade`, `direction`, `action`, `execution`, `confidence`, `reasoning`
@@ -58,35 +71,39 @@ Each signal contains: `regime`, `regime_probabilities`, `filtered_price`, `trend
 - Lateral regime → **hold, wait for regime change**
 - merton_allocation > 0.1 → math says long; < -0.1 → short
 
+**Data availability by hour:**
+- Stocks: 9:30am–4:00pm ET (extended hours 4am–8pm ET with subscription)
+- Forex: Sunday 5pm – Friday 5pm ET
+- Crypto: 24/7 (requires PAXOS subscription in TWS)
+
+If `analyze` hangs or times out, the market for that asset class is likely closed.
+
 ### 4. `order` — Place trades (market or bracket)
 
 ```bash
-# Simple market order
-omega-quant order AAPL buy 100 --asset-class stock --port 4002
-
-# Bracket order with SL/TP (percentages from entry)
-omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --port 4002
-
-# Bracket with safety checks (P&L cutoff + max positions)
-omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --account DU1234567 --portfolio 50000 --max-positions 3 --port 4002
+# Bracket order with SL/TP and all safety checks
+omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --account DU8772409 --portfolio 279713 --max-positions 3 --port 7497
 
 # Forex bracket
-omega-quant order EUR/USD buy 20000 --asset-class forex --stop-loss 0.5 --take-profit 1.0 --port 4002
+omega-quant order EUR/USD buy 20000 --asset-class forex --stop-loss 0.5 --take-profit 1.0 --account DU8772409 --portfolio 279713 --max-positions 3 --port 7497
 
 # Crypto bracket
-omega-quant order BTC buy 0.1 --asset-class crypto --stop-loss 2.0 --take-profit 5.0 --port 4002
+omega-quant order BTC buy 0.1 --asset-class crypto --stop-loss 2.0 --take-profit 5.0 --account DU8772409 --portfolio 279713 --max-positions 3 --port 7497
+
+# Simple market order (no SL/TP — avoid unless closing)
+omega-quant order AAPL buy 100 --asset-class stock --port 7497
 ```
 
-Safety checks (automatic when flags provided):
-- `--max-positions N`: blocks if current positions >= N (default: 3)
-- `--account` + `--portfolio`: blocks if daily P&L < -5% of portfolio
+Safety checks (automatic with flags):
+- `--max-positions 3`: blocks if current positions >= 3
+- `--account DU8772409 --portfolio 279713`: blocks if daily P&L < -5%
 
 Bracket orders create 3 linked orders: MKT entry → LMT take-profit → STP stop-loss.
 
 ### 5. `positions` — List open positions
 
 ```bash
-omega-quant positions --port 4002
+omega-quant positions --port 7497
 ```
 
 Returns: JSON array of `{account, symbol, security_type, quantity, avg_cost}`
@@ -96,7 +113,7 @@ Returns: JSON array of `{account, symbol, security_type, quantity, avg_cost}`
 ### 6. `pnl` — Daily P&L
 
 ```bash
-omega-quant pnl DU1234567 --port 4002
+omega-quant pnl DU8772409 --port 7497
 ```
 
 Returns: `{daily_pnl, unrealized_pnl, realized_pnl}`
@@ -105,32 +122,33 @@ Returns: `{daily_pnl, unrealized_pnl, realized_pnl}`
 
 ```bash
 # Close entire position (auto-detects side and quantity)
-omega-quant close AAPL --asset-class stock --port 4002
+omega-quant close AAPL --asset-class stock --port 7497
 
 # Partial close
-omega-quant close AAPL --asset-class stock --quantity 50 --port 4002
+omega-quant close AAPL --asset-class stock --quantity 50 --port 7497
 
 # Close forex
-omega-quant close EUR/USD --asset-class forex --port 4002
+omega-quant close EUR/USD --asset-class forex --port 7497
 ```
 
 ## Strategy Rules (YOU MUST FOLLOW)
 
-1. **Always use bracket orders**: Every entry must have `--stop-loss` and `--take-profit`. Default: SL 1.5%, TP 3.0% unless the user specifies otherwise.
+1. **Always use bracket orders**: Every entry must have `--stop-loss 1.5 --take-profit 3.0` unless the user specifies otherwise. Always include `--account DU8772409 --portfolio 279713 --max-positions 3`.
 
-2. **Max 3 simultaneous positions**: Always check `positions` before entering. Use `--max-positions 3`.
+2. **Max 3 simultaneous positions**: Always check `positions` before entering. If count >= 3, do NOT enter new trades.
 
 3. **Never same instrument 2 days in a row**: Track via conversation memory. If you traded AAPL yesterday, skip AAPL today.
 
 4. **Time-based asset selection**:
-   - US market hours (9:30am-4:00pm ET): stocks
-   - Outside US hours: prioritize crypto and forex
+   - US market hours (9:30am-4:00pm ET): stocks are preferred
+   - Outside US hours: use forex (24/5) — always available weekdays
+   - Crypto only if data subscription is active (test with analyze first)
 
 5. **Pre-entry checklist** (every single trade):
-   - `check` → connectivity OK
-   - `positions` → count < 3
-   - `pnl ACCOUNT` → daily P&L > -5%
-   - `analyze SYMBOL` → confidence > 0.5 AND kelly_should_trade = true
+   - `check --port 7497` → connectivity OK
+   - `positions --port 7497` → count < 3
+   - `pnl DU8772409 --port 7497` → daily P&L > -5% of $279,713
+   - `analyze SYMBOL --port 7497` → confidence > 0.5 AND kelly_should_trade = true
    - Only then → `order` with bracket
 
 6. **Exit discipline**:
@@ -165,14 +183,26 @@ SCHEDULE_ACTION: 1m | Monitor open positions and P&L, close if regime changed
 
 ## Safety
 
-- **Paper first**: Always `--port 4002` unless user explicitly says "live" or "real money"
+- **Paper trading**: This account (DU8772409) is paper. Port 7497 = TWS paper.
 - **Not financial advice**: Always include disclaimer that signals are advisory
 - **Circuit breaker**: Auto-aborts if price deviates >2% during execution
 - **Daily limits**: Max 10 trades/day, $50k/day, 5-min cooldown (enforced in Rust)
-- **P&L cutoff**: Halt all trading if daily loss exceeds 5% of portfolio
+- **P&L cutoff**: Halt all trading if daily loss exceeds 5% of portfolio ($13,986)
 
-## Prerequisites
+## TWS Configuration Requirements
 
-IB Gateway or TWS must be running locally. If `check` shows `"connected": false`:
-- Docker: `docker run -d -p 4002:4002 ghcr.io/gnzsnz/ib-gateway:latest`
-- Or launch IB Gateway / TWS manually
+For omega-quant to work correctly, these TWS settings must be configured:
+
+**API Settings** (File → Global Configuration → API → Settings):
+- [x] **Enable ActiveX and Socket Clients** — MUST be checked
+- [x] **Socket port** = `7497`
+- [ ] **Read-Only API** — MUST be UNCHECKED (otherwise orders will be rejected)
+- [x] **Allow connections from localhost only** — recommended for security
+- [x] **Bypass Order Precautions for API Orders** — recommended for automated bracket orders
+
+**Market Data Subscriptions** (Account → Market Data Subscriptions in TWS):
+- US Stocks (SMART): required for stock scan/analyze/order — likely already active
+- Forex (IDEALPRO): required for EUR/USD, GBP/JPY etc. — check if available
+- Crypto (PAXOS): required for BTC, ETH etc. — may need to be added
+
+**If a command fails or returns empty**, tell the user which TWS setting needs to be checked.
