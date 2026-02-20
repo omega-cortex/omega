@@ -1192,6 +1192,13 @@ impl Gateway {
                 self.prompts.identity, self.prompts.soul, self.prompts.system
             );
 
+            // Model identity — so the AI knows which model it is running on.
+            prompt.push_str(&format!(
+                "\n\nYou are running on provider '{}', model '{}'.",
+                self.provider.name(),
+                self.model_fast
+            ));
+
             // Platform formatting hint.
             match incoming.channel.as_str() {
                 "whatsapp" => prompt.push_str(
