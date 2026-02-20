@@ -240,6 +240,20 @@ impl QuantEngine {
         result
     }
 
+    /// Format a one-liner critical alert for non-trading contexts.
+    ///
+    /// Used when the user is NOT in a trading project but the signal
+    /// represents an urgent condition (EXIT, high-urgency entry, large reduce).
+    pub fn format_critical_alert(signal: &QuantSignal) -> String {
+        format!(
+            "[QUANT ALERT] {} ${:.0} — {} (confidence {:.0}%). Mention /project to switch context.",
+            signal.symbol,
+            signal.raw_price,
+            signal.action,
+            signal.confidence * 100.0,
+        )
+    }
+
     /// Format a signal as a human-readable advisory block.
     pub fn format_signal(signal: &QuantSignal) -> String {
         let regime_emoji = match signal.regime {
@@ -325,6 +339,18 @@ mod tests {
         assert!(formatted.contains("NOT FINANCIAL ADVICE"));
         assert!(formatted.contains("ETHUSDT"));
         assert!(formatted.contains("QUANT ADVISORY"));
+    }
+
+    #[test]
+    fn test_critical_alert_format() {
+        let mut engine = QuantEngine::new("BTCUSDT", 50_000.0);
+        let signal = engine.process_price(48_000.0);
+        let alert = QuantEngine::format_critical_alert(&signal);
+        assert!(alert.contains("QUANT ALERT"));
+        assert!(alert.contains("BTCUSDT"));
+        assert!(alert.contains("/project"));
+        // Must be a single line (compact, not a multi-line block).
+        assert!(!alert.contains('\n'));
     }
 
     #[test]

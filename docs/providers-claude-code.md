@@ -57,7 +57,15 @@ If Claude hits the max turns limit and the response includes a `session_id`, Ome
 
 ### `allowed_tools`
 
-The list of tools Claude is permitted to use during its agentic turns. Each tool is passed as a separate `--allowedTools` argument. The defaults are:
+Controls which tools the Claude Code subprocess is permitted to use and how permissions are handled in non-interactive `-p` mode.
+
+**Empty list (default, recommended):** `allowed_tools = []`
+
+When empty, Omega passes `--dangerously-skip-permissions` to the Claude Code CLI. This bypasses all permission prompts, giving the subprocess full access to every tool (Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, Task/sub-agents, etc.). This is safe because the OS-level sandbox (Seatbelt on macOS, Landlock on Linux) enforces the real security boundary — the Claude Code permission system is redundant within a sandboxed environment.
+
+**Explicit list:** `allowed_tools = ["Bash", "Read", "Write", "Edit"]`
+
+When non-empty, each tool is passed as a separate `--allowedTools` argument. Only those tools are available and pre-approved. This restricts what the subprocess can do (e.g., no web searches, no sub-agents).
 
 | Tool | What it does |
 |------|-------------|
@@ -65,8 +73,12 @@ The list of tools Claude is permitted to use during its agentic turns. Each tool
 | `Read` | Read files from disk |
 | `Write` | Write files to disk |
 | `Edit` | Edit existing files |
-
-If you want a more restricted provider (e.g., one that can only answer questions without touching the filesystem), pass a smaller list to `from_config`.
+| `Glob` | Search for files by pattern |
+| `Grep` | Search file contents |
+| `WebSearch` | Search the web |
+| `WebFetch` | Fetch web page content |
+| `Task` | Launch sub-agents |
+| `NotebookEdit` | Edit Jupyter notebooks |
 
 ### `working_dir`
 

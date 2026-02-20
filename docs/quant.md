@@ -67,6 +67,7 @@ Each signal contains:
 - `confidence`: signal confidence score [0, 1]
 - `reasoning`: human-readable summary
 
+
 ### Order — place a trade (market or bracket)
 
 ```bash

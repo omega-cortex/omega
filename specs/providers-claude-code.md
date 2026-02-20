@@ -35,7 +35,7 @@ Public struct. The provider that wraps the Claude Code CLI.
 |-------|------|------------|-------------|
 | `session_id` | `Option<String>` | Private | Optional session ID passed to the CLI for conversation continuity across invocations. |
 | `max_turns` | `u32` | Private | Maximum number of agentic turns the CLI is allowed per single invocation. Default: `10`. |
-| `allowed_tools` | `Vec<String>` | Private | List of tool names the CLI is permitted to use. Default: `[]` (empty = full tool access, no `--allowedTools` flag passed). |
+| `allowed_tools` | `Vec<String>` | Private | List of tool names the CLI is permitted to use. Default: `[]` (empty = full tool access, `--dangerously-skip-permissions` passed to bypass all permission prompts since the OS-level sandbox provides the real security boundary). When non-empty, each tool is passed as a separate `--allowedTools` argument. |
 | `timeout` | `Duration` | Private | Maximum time to wait for the CLI subprocess to complete. Constructed from `Duration::from_secs(timeout_secs)`. Default: `3600` seconds (60 minutes). |
 | `working_dir` | `Option<PathBuf>` | Private | Optional working directory for the CLI subprocess. When `Some`, sets the `current_dir` on the subprocess `Command`. Used by sandbox mode to confine the provider to a workspace directory (e.g., `~/.omega/workspace/`). Default: `None`. |
 | `max_resume_attempts` | `u32` | Private | Maximum number of auto-resume attempts when the CLI hits `error_max_turns` with a `session_id`. Default: `5`. |
@@ -245,11 +245,16 @@ Delegates to `Self::check_cli()`. Returns `true` if the `claude` binary is insta
 
 ### `run_cli(prompt, extra_allowed_tools, model, context_disabled_tools)` (private, async)
 
-Private helper that assembles and executes the `claude` CLI subprocess. Called by `complete()`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. The `context_disabled_tools: bool` parameter is `true` when the caller explicitly set `context.allowed_tools = Some(vec![])` — in that case, if both `allowed_tools` and `extra_allowed_tools` are empty, `run_cli` passes `--allowedTools ""` to disable all tool use in the CLI (used by classification calls).
+Private helper that assembles and executes the `claude` CLI subprocess. Called by `complete()`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. The `context_disabled_tools: bool` parameter is `true` when the caller explicitly set `context.allowed_tools = Some(vec![])`.
+
+Permission logic (3 branches):
+1. **Tools disabled** (`context_disabled_tools = true`): passes `--allowedTools ""` to disable all tool use (used by classification calls).
+2. **Full access** (`allowed_tools` empty, regardless of MCP tools): passes `--dangerously-skip-permissions` to bypass all permission prompts in non-interactive `-p` mode. MCP tool patterns are still appended via `--allowedTools` so the CLI discovers them. The OS-level sandbox (Seatbelt/Landlock) provides the real security boundary.
+3. **Explicit whitelist** (`allowed_tools` non-empty): passes `--allowedTools` for each tool plus any MCP patterns. Only these tools are pre-approved.
 
 ### `run_cli_with_session(prompt, extra_allowed_tools, session_id, model)` (private, async)
 
-Private helper that assembles and executes the `claude` CLI subprocess with an explicit `--session-id` argument. Called by the auto-resume loop in `complete()` when a previous invocation returned `error_max_turns` with a `session_id`. Behaves identically to `run_cli()` except it always includes `--session-id <session_id>` in the CLI arguments, overriding `self.session_id`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI.
+Private helper that assembles and executes the `claude` CLI subprocess with an explicit `--session-id` argument. Called by the auto-resume loop in `complete()` when a previous invocation returned `error_max_turns` with a `session_id`. Behaves identically to `run_cli()` except it always includes `--session-id <session_id>` in the CLI arguments, overriding `self.session_id`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. Uses the same permission logic as `run_cli()`: full access (`allowed_tools` empty) → `--dangerously-skip-permissions`; explicit whitelist → `--allowedTools` per tool.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -265,7 +270,8 @@ The subprocess is invoked with the following arguments:
 | `--max-turns` | `self.max_turns` (default `10`) | Yes |
 | `--model` | Effective model string | Only if model is non-empty |
 | `--session-id` | `self.session_id` | Only if `session_id` is `Some` |
-| `--allowedTools` | One per tool in `self.allowed_tools` | Yes (repeated per tool) |
+| `--dangerously-skip-permissions` | (flag, no value) | Only when `allowed_tools` is empty (full access mode) |
+| `--allowedTools` | One per tool in `self.allowed_tools` + MCP patterns | Only when `allowed_tools` is non-empty, or for MCP patterns in full access mode |
 
 **Environment modifications:**
 

@@ -207,7 +207,24 @@ Related past context:
 IMPORTANT: Always respond in Spanish.
 ```
 
-The "User profile", "Recent conversation history", and "Related past context" sections are only included when data is available. The user profile groups identity facts (name, language, timezone) separately from context facts (interests, preferences), and filters out internal system keys. For new users with fewer than 3 real facts, an onboarding hint is included encouraging the AI to learn about the user naturally through conversation. Recalled messages are truncated to 200 characters to avoid bloating the prompt. The language directive (e.g., "IMPORTANT: Always respond in Spanish.") is always present, using the user's stored `preferred_language` fact or auto-detecting from the first message via stop-word heuristics for 7 languages (Spanish, Portuguese, French, German, Italian, Dutch, Russian), defaulting to English.
+The "User profile", "Recent conversation history", and "Related past context" sections are only included when data is available. The user profile groups identity facts (name, language, timezone) separately from context facts (interests, preferences), and filters out internal system keys. Recalled messages are truncated to 200 characters to avoid bloating the prompt. The language directive (e.g., "IMPORTANT: Always respond in Spanish.") is always present, using the user's stored `preferred_language` fact or auto-detecting from the first message via stop-word heuristics for 7 languages (Spanish, Portuguese, French, German, Italian, Dutch, Russian), defaulting to English.
+
+### Progressive Onboarding
+
+New users are guided through features ONE at a time via progressive onboarding hints. The system tracks an `onboarding_stage` fact (0-5) per user, advancing sequentially as milestones are reached:
+
+| Stage | Trigger | What OMEGA teaches |
+|-------|---------|-------------------|
+| 0 | First contact (0 facts) | Who OMEGA is (intro) |
+| 1 | 1+ real facts | /help exists |
+| 2 | 3+ real facts | Personality customization (/personality) |
+| 3 | First task created | Task management (/tasks) |
+| 4 | 5+ real facts | Projects (/projects) |
+| 5 | Auto (after stage 4 shown) | Done — no more hints |
+
+Each hint fires **exactly once** when its stage transition occurs. Pre-existing users who already have facts get their stage silently bootstrapped without seeing retroactive hints.
+
+Onboarding hints are language-aware: the stage 0 intro uses a dynamic greeting appropriate to the user's detected language (instead of a hardcoded greeting), and stages 1-4 instruct the AI to respond in the user's preferred language.
 
 ### Resilience
 

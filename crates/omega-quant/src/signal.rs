@@ -101,6 +101,20 @@ pub struct QuantSignal {
     pub reasoning: String,
 }
 
+impl QuantSignal {
+    /// Returns `true` when the signal represents a critical event that should
+    /// break through even when the user is not in a trading context — e.g.
+    /// an EXIT action or very high-urgency entry/reduce (≥ 80 %).
+    pub fn is_critical(&self) -> bool {
+        match &self.action {
+            Action::Exit => true,
+            Action::ReducePosition { by_percent } => *by_percent >= 50.0,
+            Action::Long { urgency } | Action::Short { urgency } => *urgency >= 0.80,
+            Action::Hold => false,
+        }
+    }
+}
+
 impl fmt::Display for QuantSignal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -205,6 +219,65 @@ mod tests {
             "REDUCE 25%"
         );
         assert_eq!(format!("{}", Action::Exit), "EXIT");
+    }
+
+    #[test]
+    fn test_is_critical() {
+        // EXIT is always critical.
+        let mut sig = make_signal(Action::Exit);
+        assert!(sig.is_critical());
+
+        // High-urgency Long is critical.
+        sig.action = Action::Long { urgency: 0.85 };
+        assert!(sig.is_critical());
+
+        // Low-urgency Long is not.
+        sig.action = Action::Long { urgency: 0.5 };
+        assert!(!sig.is_critical());
+
+        // High-urgency Short is critical.
+        sig.action = Action::Short { urgency: 0.80 };
+        assert!(sig.is_critical());
+
+        // ReducePosition >= 50% is critical.
+        sig.action = Action::ReducePosition { by_percent: 60.0 };
+        assert!(sig.is_critical());
+
+        // ReducePosition < 50% is not.
+        sig.action = Action::ReducePosition { by_percent: 30.0 };
+        assert!(!sig.is_critical());
+
+        // Hold is never critical.
+        sig.action = Action::Hold;
+        assert!(!sig.is_critical());
+    }
+
+    /// Helper to build a test signal with a given action.
+    fn make_signal(action: Action) -> QuantSignal {
+        QuantSignal {
+            timestamp: Utc::now(),
+            symbol: "BTCUSDT".into(),
+            raw_price: 67_000.0,
+            filtered_price: 66_990.0,
+            trend: -0.001,
+            regime: Regime::Bear,
+            regime_probabilities: RegimeProbabilities {
+                bull: 0.2,
+                bear: 0.6,
+                lateral: 0.2,
+            },
+            hurst_exponent: 0.48,
+            hurst_interpretation: HurstInterpretation::Trending,
+            merton_allocation: -0.15,
+            kelly_fraction: 0.02,
+            kelly_position_usd: 200.0,
+            kelly_should_trade: true,
+            direction: Direction::Short,
+            action,
+            execution: ExecutionStrategy::Immediate,
+            confidence: 0.61,
+            reasoning: "Test signal".into(),
+        }
     }
 
     #[test]
