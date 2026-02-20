@@ -27,11 +27,13 @@ Set API keys via environment variables:
 3. **HMM Regime Detection**: Classifies market as Bull, Bear, or Lateral
 4. **Merton Allocation**: Computes risk-adjusted optimal position fraction
 5. **Kelly Sizing**: Determines position size in USD with safety caps
-6. **Signal Injection**: Latest signal appears in AI system prompt as `[QUANT ADVISORY]`
+6. **Signal Injection**: Context-aware — full advisory only in trading projects, critical one-liner alerts in others, nothing for routine signals outside trading context
 
 ## Signal Format
 
-When you ask about trading or markets, the AI sees something like:
+When you're in a trading project, the AI sees the full advisory:
+
+### Full Advisory (trading project active)
 
 ```
 [QUANT ADVISORY — NOT FINANCIAL ADVICE]
@@ -43,6 +45,16 @@ Direction: Long | Action: LONG (urgency: 72%) | Execution: Immediate
 Confidence: 40%
 [END QUANT ADVISORY]
 ```
+
+### Critical Alert (non-trading project, urgent signal only)
+
+When you're in a different project but something critical happens (EXIT signal, urgency ≥ 80%, large position reduce), you get a compact one-liner:
+
+```
+[QUANT ALERT] BTCUSDT $67000 — EXIT (confidence 85%). Mention /project to switch context.
+```
+
+Routine signals are not shown outside trading projects — the heartbeat loop handles those.
 
 ## Safety Guardrails
 

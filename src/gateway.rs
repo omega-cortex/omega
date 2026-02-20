@@ -1268,12 +1268,34 @@ impl Gateway {
                 prompt.push_str(constraint);
             }
 
-            // Quant advisory signal (non-blocking — skip if engine is busy).
+            // Quant advisory signal — context-aware injection.
+            // Full signal only when in a trading project; critical alerts
+            // (EXIT, high-urgency) break through regardless; otherwise
+            // the heartbeat loop handles routine monitoring.
             if let Some(ref engine) = self.quant_engine {
                 if let Ok(eng) = engine.try_lock() {
-                    if let Some(price) = eng.last_signal() {
-                        prompt.push_str("\n\n");
-                        prompt.push_str(&omega_quant::QuantEngine::format_signal(&price));
+                    if let Some(signal) = eng.last_signal() {
+                        let is_trading_project = active_project
+                            .as_deref()
+                            .map(|p| {
+                                let lp = p.to_lowercase();
+                                lp.contains("trad")
+                                    || lp.contains("quant")
+                                    || lp.contains("binance")
+                                    || lp.contains("crypto")
+                                    || lp.contains("market")
+                            })
+                            .unwrap_or(false);
+
+                        if is_trading_project {
+                            prompt.push_str("\n\n");
+                            prompt.push_str(&omega_quant::QuantEngine::format_signal(&signal));
+                        } else if signal.is_critical() {
+                            prompt.push_str("\n\n");
+                            prompt.push_str(&omega_quant::QuantEngine::format_critical_alert(
+                                &signal,
+                            ));
+                        }
                     }
                 }
             }

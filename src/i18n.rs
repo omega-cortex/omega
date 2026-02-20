@@ -613,13 +613,25 @@ pub fn personality_show(lang: &str, pref: &str) -> String {
 /// Format the purge result.
 pub fn purge_result(lang: &str, purged: usize, keys_display: &str) -> String {
     match lang {
-        "Spanish" => format!("{purged} datos eliminados. Claves del sistema preservadas ({keys_display})."),
-        "Portuguese" => format!("{purged} fatos excluídos. Chaves do sistema preservadas ({keys_display})."),
+        "Spanish" => {
+            format!("{purged} datos eliminados. Claves del sistema preservadas ({keys_display}).")
+        }
+        "Portuguese" => {
+            format!("{purged} fatos excluídos. Chaves do sistema preservadas ({keys_display}).")
+        }
         "French" => format!("{purged} faits supprimés. Clés système préservées ({keys_display})."),
-        "German" => format!("{purged} Fakten gelöscht. Systemschlüssel beibehalten ({keys_display})."),
-        "Italian" => format!("{purged} fatti eliminati. Chiavi di sistema preservate ({keys_display})."),
-        "Dutch" => format!("{purged} feiten verwijderd. Systeemsleutels behouden ({keys_display})."),
-        "Russian" => format!("{purged} фактов удалено. Системные ключи сохранены ({keys_display})."),
+        "German" => {
+            format!("{purged} Fakten gelöscht. Systemschlüssel beibehalten ({keys_display}).")
+        }
+        "Italian" => {
+            format!("{purged} fatti eliminati. Chiavi di sistema preservate ({keys_display}).")
+        }
+        "Dutch" => {
+            format!("{purged} feiten verwijderd. Systeemsleutels behouden ({keys_display}).")
+        }
+        "Russian" => {
+            format!("{purged} фактов удалено. Системные ключи сохранены ({keys_display}).")
+        }
         _ => format!("Purged {purged} facts. System keys preserved ({keys_display})."),
     }
 }
@@ -641,13 +653,27 @@ pub fn project_activated(lang: &str, name: &str) -> String {
 /// Format the project not found message.
 pub fn project_not_found(lang: &str, name: &str) -> String {
     match lang {
-        "Spanish" => format!("Proyecto '{name}' no encontrado. Usa /projects para ver los disponibles."),
-        "Portuguese" => format!("Projeto '{name}' não encontrado. Use /projects para ver os disponíveis."),
-        "French" => format!("Projet '{name}' introuvable. Utilisez /projects pour voir les disponibles."),
-        "German" => format!("Projekt '{name}' nicht gefunden. Verwende /projects für verfügbare Projekte."),
-        "Italian" => format!("Progetto '{name}' non trovato. Usa /projects per vedere quelli disponibili."),
-        "Dutch" => format!("Project '{name}' niet gevonden. Gebruik /projects om beschikbare te zien."),
-        "Russian" => format!("Проект '{name}' не найден. Используйте /projects для просмотра доступных."),
+        "Spanish" => {
+            format!("Proyecto '{name}' no encontrado. Usa /projects para ver los disponibles.")
+        }
+        "Portuguese" => {
+            format!("Projeto '{name}' não encontrado. Use /projects para ver os disponíveis.")
+        }
+        "French" => {
+            format!("Projet '{name}' introuvable. Utilisez /projects pour voir les disponibles.")
+        }
+        "German" => {
+            format!("Projekt '{name}' nicht gefunden. Verwende /projects für verfügbare Projekte.")
+        }
+        "Italian" => {
+            format!("Progetto '{name}' non trovato. Usa /projects per vedere quelli disponibili.")
+        }
+        "Dutch" => {
+            format!("Project '{name}' niet gevonden. Gebruik /projects om beschikbare te zien.")
+        }
+        "Russian" => {
+            format!("Проект '{name}' не найден. Используйте /projects для просмотра доступных.")
+        }
         _ => format!("Project '{name}' not found. Use /projects to see available projects."),
     }
 }

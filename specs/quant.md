@@ -47,8 +47,12 @@ Price tick → Kalman filter → Returns → EWMA volatility
 
 - `QuantEngine` stored as `Option<Arc<Mutex<QuantEngine>>>` in Gateway
 - WebSocket kline feed spawned in `Gateway::run()` (processes closed candles)
-- Latest signal injected into system prompt via `try_lock()` (non-blocking)
-- Advisory block: `[QUANT ADVISORY — NOT FINANCIAL ADVICE]`
+- Context-aware signal injection via `try_lock()` (non-blocking):
+  - **Trading project active** (name contains `trad`/`quant`/`binance`/`crypto`/`market`): full `[QUANT ADVISORY]` block
+  - **Non-trading project + critical signal** (`is_critical()` — EXIT, urgency ≥ 80%, reduce ≥ 50%): one-liner `[QUANT ALERT]`
+  - **Non-trading project + routine signal**: not injected (heartbeat handles routine monitoring)
+- `QuantSignal::is_critical()` on `signal.rs` defines urgency thresholds
+- `QuantEngine::format_critical_alert()` produces the compact one-liner
 
 ## Dependencies
 

@@ -95,13 +95,9 @@ pub async fn handle(cmd: Command, ctx: &CommandContext<'_>) -> String {
         Command::Tasks => handle_tasks(ctx.store, ctx.sender_id, &lang).await,
         Command::Cancel => handle_cancel(ctx.store, ctx.sender_id, ctx.text, &lang).await,
         Command::Language => handle_language(ctx.store, ctx.sender_id, ctx.text, &lang).await,
-        Command::Personality => {
-            handle_personality(ctx.store, ctx.sender_id, ctx.text, &lang).await
-        }
+        Command::Personality => handle_personality(ctx.store, ctx.sender_id, ctx.text, &lang).await,
         Command::Skills => handle_skills(ctx.skills, &lang),
-        Command::Projects => {
-            handle_projects(ctx.store, ctx.sender_id, ctx.projects, &lang).await
-        }
+        Command::Projects => handle_projects(ctx.store, ctx.sender_id, ctx.projects, &lang).await,
         Command::Project => {
             handle_project(
                 ctx.store,
@@ -212,9 +208,7 @@ async fn handle_tasks(store: &Store, sender_id: &str, lang: &str) -> String {
             let mut out = format!("{}\n", i18n::t("scheduled_tasks", lang));
             for (id, description, due_at, repeat, task_type) in &tasks {
                 let short_id = &id[..8.min(id.len())];
-                let repeat_label = repeat
-                    .as_deref()
-                    .unwrap_or_else(|| i18n::t("once", lang));
+                let repeat_label = repeat.as_deref().unwrap_or_else(|| i18n::t("once", lang));
                 let type_badge = if task_type == "action" {
                     " [action]"
                 } else {
