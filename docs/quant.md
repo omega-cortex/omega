@@ -2,15 +2,19 @@
 
 ## Overview
 
-The omega-quant crate provides real-time quantitative trading analysis and order execution via Interactive Brokers (IBKR). It is exposed as a standalone CLI binary (`omega-quant`) that the AI invokes through the `ibkr-quant` skill — no gateway wiring, no config.toml section needed.
+The omega-quant crate provides real-time quantitative trading analysis, multi-asset order execution, and portfolio monitoring via Interactive Brokers (IBKR). It is exposed as a standalone CLI binary (`omega-quant`) that the AI invokes through the `ibkr-quant` skill — no gateway wiring, no config.toml section needed.
 
 ## How It Works
 
-The AI learns about omega-quant from the `ibkr-quant` skill (`skills/ibkr-quant/SKILL.md`). When a user asks about trading, stocks, or market analysis, the AI invokes the CLI tool via bash:
+The AI learns about omega-quant from the `ibkr-quant` skill (`skills/ibkr-quant/SKILL.md`). When a user asks about trading, stocks, forex, crypto, or market analysis, the AI invokes the CLI tool via bash:
 
 1. **Check connectivity**: `omega-quant check --port 4002`
-2. **Analyze signals**: `omega-quant analyze AAPL --portfolio 50000 --bars 10`
-3. **Place orders**: `omega-quant order AAPL buy 100 --port 4002`
+2. **Scan market**: `omega-quant scan --scan-code MOST_ACTIVE --count 10`
+3. **Analyze signals**: `omega-quant analyze AAPL --asset-class stock --portfolio 50000 --bars 10`
+4. **Place orders**: `omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0`
+5. **Monitor positions**: `omega-quant positions`
+6. **Check P&L**: `omega-quant pnl DU1234567`
+7. **Close positions**: `omega-quant close AAPL --asset-class stock`
 
 ## CLI Commands
 
@@ -24,13 +28,35 @@ omega-quant check --port 4002
 - Port 4002 = paper trading (default, safe)
 - Port 4001 = live trading (real money)
 
+### Scan — find instruments by volume/activity
+
+```bash
+# Most active US stocks
+omega-quant scan --scan-code MOST_ACTIVE --instrument STK --location STK.US.MAJOR --count 10
+
+# Hot crypto
+omega-quant scan --scan-code HOT_BY_VOLUME --instrument CRYPTO --location CRYPTO.PAXOS --count 5
+
+# Stocks above $10 with high volume
+omega-quant scan --scan-code HOT_BY_VOLUME --instrument STK --location STK.US.MAJOR --min-price 10 --min-volume 1000000
+```
+
+Scan codes: `MOST_ACTIVE`, `HOT_BY_VOLUME`, `TOP_PERC_GAIN`, `TOP_PERC_LOSE`, `HIGH_OPEN_GAP`, `LOW_OPEN_GAP`
+
 ### Analyze — stream trading signals
 
 ```bash
-omega-quant analyze AAPL --portfolio 50000 --port 4002 --bars 10
+# Stock
+omega-quant analyze AAPL --asset-class stock --portfolio 50000 --bars 10
+
+# Forex
+omega-quant analyze EUR/USD --asset-class forex --portfolio 50000 --bars 10
+
+# Crypto
+omega-quant analyze BTC --asset-class crypto --portfolio 50000 --bars 10
 ```
 
-Streams JSONL (one JSON signal per 5-second bar). Each signal contains:
+Each signal contains:
 - `regime`: Bull / Bear / Lateral (HMM-detected market state)
 - `filtered_price`: Kalman-filtered price (noise removed)
 - `merton_allocation`: optimal portfolio allocation [-0.5, 1.5]
@@ -41,11 +67,49 @@ Streams JSONL (one JSON signal per 5-second bar). Each signal contains:
 - `confidence`: signal confidence score [0, 1]
 - `reasoning`: human-readable summary
 
-### Order — place a trade
+### Order — place a trade (market or bracket)
 
 ```bash
-omega-quant order AAPL buy 100 --port 4002
-# → {"status": "Completed", "filled_qty": 100.0, "avg_price": 185.52, ...}
+# Simple market order
+omega-quant order AAPL buy 100 --asset-class stock --port 4002
+
+# Bracket order with stop-loss and take-profit
+omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --port 4002
+
+# Bracket with safety checks
+omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --account DU1234567 --portfolio 50000 --max-positions 3
+
+# Forex bracket
+omega-quant order EUR/USD buy 20000 --asset-class forex --stop-loss 0.5 --take-profit 1.0
+
+# Crypto bracket
+omega-quant order BTC buy 0.1 --asset-class crypto --stop-loss 2.0 --take-profit 5.0
+```
+
+Bracket orders create 3 linked orders: MKT entry → LMT take-profit → STP stop-loss.
+
+### Positions — list open positions
+
+```bash
+omega-quant positions --port 4002
+# → [{"account":"DU1234567","symbol":"AAPL","security_type":"STK","quantity":100.0,"avg_cost":185.50}]
+```
+
+### P&L — daily profit/loss
+
+```bash
+omega-quant pnl DU1234567 --port 4002
+# → {"daily_pnl":-250.50,"unrealized_pnl":-100.0,"realized_pnl":-150.50}
+```
+
+### Close — close a position
+
+```bash
+# Close entire position (auto-detects side and quantity)
+omega-quant close AAPL --asset-class stock --port 4002
+
+# Partial close
+omega-quant close AAPL --asset-class stock --quantity 50 --port 4002
 ```
 
 ## Signal Interpretation
@@ -55,6 +119,14 @@ omega-quant order AAPL buy 100 --port 4002
 - **Lateral regime** → typically Hold, wait for regime change
 - **confidence > 0.5** → higher conviction signal
 - **merton_allocation > 0.1** → math says go long; < -0.1 → go short
+
+## Multi-Asset Support
+
+| Asset Class | Flag | Symbol Format | Example |
+|-------------|------|---------------|---------|
+| Stock | `--asset-class stock` | `AAPL`, `MSFT` | `omega-quant analyze AAPL --asset-class stock` |
+| Forex | `--asset-class forex` | `EUR/USD`, `GBP/JPY` | `omega-quant order EUR/USD buy 20000 --asset-class forex` |
+| Crypto | `--asset-class crypto` | `BTC`, `ETH` | `omega-quant analyze BTC --asset-class crypto` |
 
 ## Prerequisites
 
@@ -73,6 +145,9 @@ IB Gateway or TWS must be running locally:
 | Daily USD | $50,000 | Cap on total USD traded per day |
 | Cooldown | 5 min | Minimum wait between trades |
 | Circuit breaker | 2% | Abort TWAP if price deviates >2% |
+| Max positions | 3 | Block new trades if too many open positions |
+| P&L cutoff | -5% | Halt trading if daily loss exceeds 5% of portfolio |
+| Bracket orders | always | Every entry gets SL + TP (enforced by skill) |
 | Signals | advisory | Marked "NOT FINANCIAL ADVICE" |
 
 ## Removing Quant

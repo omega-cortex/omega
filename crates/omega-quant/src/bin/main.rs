@@ -1,14 +1,21 @@
 //! omega-quant CLI — standalone quantitative trading tool.
 //!
 //! Subcommands:
-//! - `check`   — verify IB Gateway connectivity
-//! - `analyze` — stream trading signals as JSONL
-//! - `order`   — place an order via IBKR
+//! - `check`     — verify IB Gateway connectivity
+//! - `scan`      — scan market for instruments by volume/activity
+//! - `analyze`   — stream trading signals as JSONL
+//! - `order`     — place an order (market or bracket) via IBKR
+//! - `positions` — list open positions
+//! - `pnl`       — get daily P&L for an account
+//! - `close`     — close a position
 
 use clap::{Parser, Subcommand};
 use omega_quant::execution::{ImmediatePlan, Side};
-use omega_quant::executor::{CircuitBreaker, DailyLimits, Executor};
-use omega_quant::market_data::IbkrConfig;
+use omega_quant::executor::{
+    check_daily_pnl_cutoff, check_max_positions, close_position, get_daily_pnl, get_ibkr_price,
+    get_positions, place_bracket_order, CircuitBreaker, DailyLimits, Executor,
+};
+use omega_quant::market_data::{build_contract, AssetClass, IbkrConfig};
 
 #[derive(Parser)]
 #[command(
@@ -32,10 +39,40 @@ enum Commands {
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
     },
+    /// Scan market for instruments by volume/activity.
+    Scan {
+        /// Scanner code (e.g. MOST_ACTIVE, HOT_BY_VOLUME, TOP_PERC_GAIN).
+        #[arg(long, default_value = "MOST_ACTIVE")]
+        scan_code: String,
+        /// Instrument type (e.g. STK, CRYPTO, CASH.IDEALPRO).
+        #[arg(long, default_value = "STK")]
+        instrument: String,
+        /// Location code (e.g. STK.US.MAJOR, CRYPTO.PAXOS).
+        #[arg(long, default_value = "STK.US.MAJOR")]
+        location: String,
+        /// Number of results to return.
+        #[arg(long, default_value_t = 10)]
+        count: i32,
+        /// Minimum price filter.
+        #[arg(long)]
+        min_price: Option<f64>,
+        /// Minimum volume filter.
+        #[arg(long)]
+        min_volume: Option<i32>,
+        /// TWS/Gateway port.
+        #[arg(long, default_value_t = 4002)]
+        port: u16,
+        /// TWS/Gateway host.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+    },
     /// Stream trading signals as JSONL (one JSON object per line).
     Analyze {
-        /// Stock symbol (e.g. AAPL).
+        /// Symbol (e.g. AAPL, EUR/USD, BTC).
         symbol: String,
+        /// Asset class: stock, forex/fx, crypto.
+        #[arg(long, default_value = "stock")]
+        asset_class: String,
         /// Portfolio value in USD.
         #[arg(long, default_value_t = 10_000.0)]
         portfolio: f64,
@@ -49,14 +86,32 @@ enum Commands {
         #[arg(long, default_value_t = 30)]
         bars: u32,
     },
-    /// Place an order via IBKR.
+    /// Place an order via IBKR (market or bracket with SL/TP).
     Order {
-        /// Stock symbol (e.g. AAPL).
+        /// Symbol (e.g. AAPL, EUR/USD, BTC).
         symbol: String,
         /// Order side: buy or sell.
         side: String,
-        /// Quantity (number of shares).
+        /// Quantity.
         quantity: f64,
+        /// Asset class: stock, forex/fx, crypto.
+        #[arg(long, default_value = "stock")]
+        asset_class: String,
+        /// Stop loss percentage (e.g. 1.5 = 1.5% below/above entry).
+        #[arg(long)]
+        stop_loss: Option<f64>,
+        /// Take profit percentage (e.g. 3.0 = 3% above/below entry).
+        #[arg(long)]
+        take_profit: Option<f64>,
+        /// IBKR account ID (for P&L cutoff check).
+        #[arg(long)]
+        account: Option<String>,
+        /// Portfolio value in USD (for P&L cutoff check).
+        #[arg(long)]
+        portfolio: Option<f64>,
+        /// Maximum simultaneous positions allowed.
+        #[arg(long, default_value_t = 3)]
+        max_positions: usize,
         /// TWS/Gateway port.
         #[arg(long, default_value_t = 4002)]
         port: u16,
@@ -64,6 +119,61 @@ enum Commands {
         #[arg(long, default_value = "127.0.0.1")]
         host: String,
     },
+    /// List open positions from IBKR.
+    Positions {
+        /// TWS/Gateway port.
+        #[arg(long, default_value_t = 4002)]
+        port: u16,
+        /// TWS/Gateway host.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+    },
+    /// Get daily P&L for an IBKR account.
+    Pnl {
+        /// IBKR account ID (e.g. DU1234567).
+        account: String,
+        /// TWS/Gateway port.
+        #[arg(long, default_value_t = 4002)]
+        port: u16,
+        /// TWS/Gateway host.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+    },
+    /// Close an open position.
+    Close {
+        /// Symbol (e.g. AAPL, EUR/USD, BTC).
+        symbol: String,
+        /// Asset class: stock, forex/fx, crypto.
+        #[arg(long, default_value = "stock")]
+        asset_class: String,
+        /// Quantity to close (omit to close entire position).
+        #[arg(long)]
+        quantity: Option<f64>,
+        /// TWS/Gateway port.
+        #[arg(long, default_value_t = 4002)]
+        port: u16,
+        /// TWS/Gateway host.
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+    },
+}
+
+/// Print a JSON connectivity error and exit.
+fn connectivity_error(host: &str, port: u16) -> ! {
+    let err = serde_json::json!({
+        "error": format!("IB Gateway not reachable at {host}:{port}"),
+    });
+    println!("{}", serde_json::to_string(&err).unwrap());
+    std::process::exit(1);
+}
+
+/// Parse a side string into a `Side` enum.
+fn parse_side(s: &str) -> anyhow::Result<Side> {
+    match s.to_lowercase().as_str() {
+        "buy" => Ok(Side::Buy),
+        "sell" => Ok(Side::Sell),
+        _ => anyhow::bail!("Invalid side '{s}'. Use 'buy' or 'sell'."),
+    }
 }
 
 #[tokio::main]
@@ -85,30 +195,59 @@ async fn main() -> anyhow::Result<()> {
             });
             println!("{}", serde_json::to_string(&result)?);
         }
+
+        Commands::Scan {
+            scan_code,
+            instrument,
+            location,
+            count,
+            min_price,
+            min_volume,
+            port,
+            host,
+        } => {
+            let config = IbkrConfig {
+                host: host.clone(),
+                port,
+                client_id: 1,
+            };
+            if !omega_quant::market_data::check_connection(&config).await {
+                connectivity_error(&host, port);
+            }
+
+            let results = omega_quant::market_data::run_scanner(
+                &config,
+                &scan_code,
+                &instrument,
+                &location,
+                count,
+                min_price,
+                min_volume,
+            )
+            .await?;
+            println!("{}", serde_json::to_string(&results)?);
+        }
+
         Commands::Analyze {
             symbol,
+            asset_class,
             portfolio,
             port,
             host,
             bars,
         } => {
             let config = IbkrConfig {
-                host,
+                host: host.clone(),
                 port,
                 client_id: 1,
             };
-
-            // Verify connectivity first.
             if !omega_quant::market_data::check_connection(&config).await {
-                let err = serde_json::json!({
-                    "error": format!("IB Gateway not reachable at {}:{}", config.host, config.port),
-                });
-                println!("{}", serde_json::to_string(&err)?);
-                std::process::exit(1);
+                connectivity_error(&host, port);
             }
 
+            let parsed_class: AssetClass = asset_class.parse()?;
             let mut engine = omega_quant::QuantEngine::new(&symbol, portfolio);
-            let mut rx = omega_quant::market_data::start_price_feed(&symbol, &config);
+            let mut rx = omega_quant::market_data::start_price_feed(&symbol, &config, parsed_class);
             let mut count: u32 = 0;
 
             while let Ok(tick) = rx.recv().await {
@@ -120,60 +259,185 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+
         Commands::Order {
             symbol,
             side,
+            quantity,
+            asset_class,
+            stop_loss,
+            take_profit,
+            account,
+            portfolio,
+            max_positions,
+            port,
+            host,
+        } => {
+            let config = IbkrConfig {
+                host: host.clone(),
+                port,
+                client_id: 1,
+            };
+            if !omega_quant::market_data::check_connection(&config).await {
+                connectivity_error(&host, port);
+            }
+
+            let order_side = parse_side(&side)?;
+            let parsed_class: AssetClass = asset_class.parse()?;
+            let contract = build_contract(&symbol, parsed_class)?;
+
+            // Safety: check position count.
+            if let Ok(positions) = get_positions(&config).await {
+                check_max_positions(positions.len(), max_positions)?;
+            }
+
+            // Safety: check daily P&L cutoff.
+            if let (Some(acct), Some(port_val)) = (&account, portfolio) {
+                if let Ok(pnl) = get_daily_pnl(&config, acct).await {
+                    check_daily_pnl_cutoff(pnl.daily_pnl, port_val, 5.0)?;
+                }
+            }
+
+            if let (Some(sl_pct), Some(tp_pct)) = (stop_loss, take_profit) {
+                // Bracket order: fetch entry price, calculate SL/TP levels.
+                let entry_price = get_ibkr_price(&config, &contract).await?;
+                let (sl_price, tp_price) = match order_side {
+                    Side::Buy => (
+                        entry_price * (1.0 - sl_pct / 100.0),
+                        entry_price * (1.0 + tp_pct / 100.0),
+                    ),
+                    Side::Sell => (
+                        entry_price * (1.0 + sl_pct / 100.0),
+                        entry_price * (1.0 - tp_pct / 100.0),
+                    ),
+                };
+
+                let state = place_bracket_order(
+                    &config, &contract, order_side, quantity, tp_price, sl_price,
+                )
+                .await?;
+
+                let result = serde_json::json!({
+                    "type": "bracket",
+                    "status": format!("{:?}", state.status),
+                    "entry_price": entry_price,
+                    "stop_loss_price": sl_price,
+                    "take_profit_price": tp_price,
+                    "filled_qty": state.total_filled_qty,
+                    "filled_usd": state.total_filled_usd,
+                    "order_ids": state.order_ids,
+                    "errors": state.errors,
+                });
+                println!("{}", serde_json::to_string(&result)?);
+            } else {
+                // Simple market order.
+                let plan = omega_quant::execution::ExecutionPlan::Immediate(ImmediatePlan {
+                    symbol: symbol.clone(),
+                    side: order_side,
+                    quantity,
+                    estimated_price: 0.0,
+                    estimated_usd: 0.0,
+                });
+
+                let circuit_breaker = CircuitBreaker::default();
+                let daily_limits = DailyLimits::new(10, 50_000.0, 5);
+                let mut executor = Executor::new(config, circuit_breaker, daily_limits);
+                let state = executor.execute(&plan).await;
+
+                let result = serde_json::json!({
+                    "type": "market",
+                    "status": format!("{:?}", state.status),
+                    "filled_qty": state.total_filled_qty,
+                    "avg_price": if state.total_filled_qty > 0.0 {
+                        state.total_filled_usd / state.total_filled_qty
+                    } else {
+                        0.0
+                    },
+                    "filled_usd": state.total_filled_usd,
+                    "errors": state.errors,
+                    "abort_reason": state.abort_reason,
+                });
+                println!("{}", serde_json::to_string(&result)?);
+            }
+        }
+
+        Commands::Positions { port, host } => {
+            let config = IbkrConfig {
+                host: host.clone(),
+                port,
+                client_id: 1,
+            };
+            if !omega_quant::market_data::check_connection(&config).await {
+                connectivity_error(&host, port);
+            }
+
+            let positions = get_positions(&config).await?;
+            println!("{}", serde_json::to_string(&positions)?);
+        }
+
+        Commands::Pnl {
+            account,
+            port,
+            host,
+        } => {
+            let config = IbkrConfig {
+                host: host.clone(),
+                port,
+                client_id: 1,
+            };
+            if !omega_quant::market_data::check_connection(&config).await {
+                connectivity_error(&host, port);
+            }
+
+            let pnl = get_daily_pnl(&config, &account).await?;
+            println!("{}", serde_json::to_string(&pnl)?);
+        }
+
+        Commands::Close {
+            symbol,
+            asset_class,
             quantity,
             port,
             host,
         } => {
             let config = IbkrConfig {
-                host,
+                host: host.clone(),
                 port,
                 client_id: 1,
             };
-
-            // Verify connectivity first.
             if !omega_quant::market_data::check_connection(&config).await {
-                let err = serde_json::json!({
-                    "error": format!("IB Gateway not reachable at {}:{}", config.host, config.port),
-                });
-                println!("{}", serde_json::to_string(&err)?);
-                std::process::exit(1);
+                connectivity_error(&host, port);
             }
 
-            let order_side = match side.to_lowercase().as_str() {
-                "buy" => Side::Buy,
-                "sell" => Side::Sell,
-                _ => {
-                    anyhow::bail!("Invalid side '{}'. Use 'buy' or 'sell'.", side);
-                }
+            let parsed_class: AssetClass = asset_class.parse()?;
+            let contract = build_contract(&symbol, parsed_class)?;
+
+            // Determine side and quantity from current position.
+            let positions = get_positions(&config).await?;
+            let match_symbol = match parsed_class {
+                AssetClass::Forex => symbol.split('/').next().unwrap_or(&symbol).to_string(),
+                _ => symbol.clone(),
+            };
+            let pos = positions
+                .iter()
+                .find(|p| p.symbol == match_symbol)
+                .ok_or_else(|| anyhow::anyhow!("No open position found for {symbol}"))?;
+
+            let close_qty = quantity.unwrap_or(pos.quantity.abs());
+            let close_side = if pos.quantity > 0.0 {
+                Side::Sell
+            } else {
+                Side::Buy
             };
 
-            let plan = omega_quant::execution::ExecutionPlan::Immediate(ImmediatePlan {
-                symbol: symbol.clone(),
-                side: order_side,
-                quantity,
-                estimated_price: 0.0,
-                estimated_usd: 0.0,
-            });
-
-            let circuit_breaker = CircuitBreaker::default();
-            let daily_limits = DailyLimits::new(10, 50_000.0, 5);
-            let mut executor = Executor::new(config, circuit_breaker, daily_limits);
-            let state = executor.execute(&plan).await;
+            let state = close_position(&config, &contract, close_qty, close_side).await?;
 
             let result = serde_json::json!({
                 "status": format!("{:?}", state.status),
-                "filled_qty": state.total_filled_qty,
-                "avg_price": if state.total_filled_qty > 0.0 {
-                    state.total_filled_usd / state.total_filled_qty
-                } else {
-                    0.0
-                },
+                "side": format!("{close_side}"),
+                "closed_qty": state.total_filled_qty,
                 "filled_usd": state.total_filled_usd,
                 "errors": state.errors,
-                "abort_reason": state.abort_reason,
             });
             println!("{}", serde_json::to_string(&result)?);
         }

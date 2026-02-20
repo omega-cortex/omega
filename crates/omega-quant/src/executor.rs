@@ -1,4 +1,4 @@
-//! Live order executor with circuit breaker, daily limits, and crash recovery.
+//! Live order executor with circuit breaker, daily limits, bracket orders, and crash recovery.
 //!
 //! Uses IBKR TWS API via `ibapi` for order placement. Authentication is handled
 //! by IB Gateway — no API keys needed in code.
@@ -151,6 +151,32 @@ impl ExecutionState {
     }
 }
 
+/// Position information from IBKR.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionInfo {
+    /// Account ID.
+    pub account: String,
+    /// Instrument symbol.
+    pub symbol: String,
+    /// Security type (e.g. "STK", "CRYPTO", "CASH").
+    pub security_type: String,
+    /// Position quantity (positive = long, negative = short).
+    pub quantity: f64,
+    /// Average cost per unit.
+    pub avg_cost: f64,
+}
+
+/// Daily P&L for an account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyPnl {
+    /// Daily profit/loss.
+    pub daily_pnl: f64,
+    /// Unrealized P&L (open positions).
+    pub unrealized_pnl: Option<f64>,
+    /// Realized P&L (closed positions).
+    pub realized_pnl: Option<f64>,
+}
+
 /// Live executor with safety guardrails, using IBKR TWS API.
 pub struct Executor {
     config: IbkrConfig,
@@ -208,7 +234,8 @@ impl Executor {
 
     /// Execute a single immediate order via IBKR.
     async fn execute_immediate(&mut self, plan: &ImmediatePlan, state: &mut ExecutionState) {
-        match place_ibkr_order(&self.config, &plan.symbol, plan.side, plan.quantity).await {
+        let contract = ibapi::contracts::Contract::stock(&plan.symbol).build();
+        match place_ibkr_order(&self.config, &contract, plan.side, plan.quantity).await {
             Ok(fill) => {
                 state.order_ids.push(fill.order_id as i64);
                 state.total_filled_qty += fill.filled_qty;
@@ -231,12 +258,13 @@ impl Executor {
 
     /// Execute a TWAP plan slice by slice via IBKR.
     async fn execute_twap(&mut self, plan: &TwapPlan, state: &mut ExecutionState) {
+        let contract = ibapi::contracts::Contract::stock(&plan.symbol).build();
         let entry_price = plan.estimated_price;
         let mut consecutive_failures: u32 = 0;
 
         for (i, slice) in plan.slices.iter().enumerate() {
             // Circuit breaker: check price deviation.
-            match get_ibkr_price(&self.config, &plan.symbol).await {
+            match get_ibkr_price(&self.config, &contract).await {
                 Ok(current_price) => {
                     if entry_price > 0.0 {
                         let deviation = (current_price - entry_price).abs() / entry_price;
@@ -258,7 +286,7 @@ impl Executor {
             }
 
             // Execute slice.
-            match place_ibkr_order(&self.config, &plan.symbol, plan.side, slice.quantity).await {
+            match place_ibkr_order(&self.config, &contract, plan.side, slice.quantity).await {
                 Ok(fill) => {
                     state.order_ids.push(fill.order_id as i64);
                     state.total_filled_qty += fill.filled_qty;
@@ -328,19 +356,19 @@ struct OrderFill {
 /// Place a market order via IBKR TWS API.
 async fn place_ibkr_order(
     config: &IbkrConfig,
-    symbol: &str,
+    contract: &ibapi::contracts::Contract,
     side: Side,
     quantity: f64,
 ) -> Result<OrderFill> {
-    use ibapi::contracts::Contract;
     use ibapi::orders::{order_builder, Action, PlaceOrder};
     use ibapi::Client;
+
+    let symbol = contract.symbol.to_string();
 
     let client = Client::connect(&config.connection_url(), config.client_id + 100)
         .await
         .map_err(|e| anyhow::anyhow!("IBKR connection failed: {e}"))?;
 
-    let contract = Contract::stock(symbol).build();
     let action = match side {
         Side::Buy => Action::Buy,
         Side::Sell => Action::Sell,
@@ -353,7 +381,7 @@ async fn place_ibkr_order(
         .map_err(|e| anyhow::anyhow!("failed to get order ID: {e}"))?;
 
     let mut notifications = client
-        .place_order(order_id, &contract, &order)
+        .place_order(order_id, contract, &order)
         .await
         .map_err(|e| anyhow::anyhow!("IBKR order placement failed: {e}"))?;
 
@@ -391,9 +419,14 @@ async fn place_ibkr_order(
     })
 }
 
-/// Get current price for a symbol via IBKR snapshot.
-async fn get_ibkr_price(config: &IbkrConfig, symbol: &str) -> Result<f64> {
-    use ibapi::contracts::Contract;
+/// Get current price for a contract via IBKR snapshot.
+///
+/// Automatically uses `MidPoint` for forex contracts and `Trades` for everything else.
+pub async fn get_ibkr_price(
+    config: &IbkrConfig,
+    contract: &ibapi::contracts::Contract,
+) -> Result<f64> {
+    use ibapi::contracts::SecurityType;
     use ibapi::market_data::realtime::{BarSize, WhatToShow};
     use ibapi::market_data::TradingHours;
     use ibapi::Client;
@@ -402,13 +435,17 @@ async fn get_ibkr_price(config: &IbkrConfig, symbol: &str) -> Result<f64> {
         .await
         .map_err(|e| anyhow::anyhow!("IBKR connection failed for price check: {e}"))?;
 
-    let contract = Contract::stock(symbol).build();
+    let what_to_show = if contract.security_type == SecurityType::ForexPair {
+        WhatToShow::MidPoint
+    } else {
+        WhatToShow::Trades
+    };
 
     let mut subscription = client
         .realtime_bars(
-            &contract,
+            contract,
             BarSize::Sec5,
-            WhatToShow::Trades,
+            what_to_show,
             TradingHours::Extended,
         )
         .await
@@ -421,8 +458,290 @@ async fn get_ibkr_price(config: &IbkrConfig, symbol: &str) -> Result<f64> {
             Err(e) => anyhow::bail!("IBKR price error: {e}"),
         }
     } else {
-        anyhow::bail!("No price data received from IBKR for {symbol}")
+        anyhow::bail!("No price data received from IBKR")
     }
+}
+
+/// Get all open positions from IBKR.
+pub async fn get_positions(config: &IbkrConfig) -> Result<Vec<PositionInfo>> {
+    use ibapi::accounts::PositionUpdate;
+    use ibapi::Client;
+
+    let client = Client::connect(&config.connection_url(), config.client_id + 400)
+        .await
+        .map_err(|e| anyhow::anyhow!("IBKR connection failed: {e}"))?;
+
+    let mut subscription = client
+        .positions()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to request positions: {e}"))?;
+
+    let mut positions = Vec::new();
+
+    while let Some(result) = subscription.next().await {
+        match result {
+            Ok(PositionUpdate::Position(pos)) => {
+                if pos.position.abs() > f64::EPSILON {
+                    positions.push(PositionInfo {
+                        account: pos.account.clone(),
+                        symbol: pos.contract.symbol.to_string(),
+                        security_type: pos.contract.security_type.to_string(),
+                        quantity: pos.position,
+                        avg_cost: pos.average_cost,
+                    });
+                }
+            }
+            Ok(PositionUpdate::PositionEnd) => break,
+            Err(e) => {
+                warn!("quant: position error: {e}");
+                break;
+            }
+        }
+    }
+
+    Ok(positions)
+}
+
+/// Get daily P&L for an account.
+pub async fn get_daily_pnl(config: &IbkrConfig, account_id: &str) -> Result<DailyPnl> {
+    use ibapi::accounts::types::AccountId;
+    use ibapi::Client;
+
+    let client = Client::connect(&config.connection_url(), config.client_id + 500)
+        .await
+        .map_err(|e| anyhow::anyhow!("IBKR connection failed: {e}"))?;
+
+    let account = AccountId(account_id.to_string());
+    let mut subscription = client
+        .pnl(&account, None)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to request P&L: {e}"))?;
+
+    let timeout_dur = std::time::Duration::from_secs(10);
+    match tokio::time::timeout(timeout_dur, subscription.next()).await {
+        Ok(Some(Ok(pnl))) => Ok(DailyPnl {
+            daily_pnl: pnl.daily_pnl,
+            unrealized_pnl: pnl.unrealized_pnl,
+            realized_pnl: pnl.realized_pnl,
+        }),
+        Ok(Some(Err(e))) => anyhow::bail!("P&L error: {e}"),
+        Ok(None) => anyhow::bail!("No P&L data received"),
+        Err(_) => anyhow::bail!("P&L request timed out"),
+    }
+}
+
+/// Place a bracket order (market entry + take profit + stop loss).
+///
+/// Creates 3 linked orders: parent MKT → TP LMT → SL STP.
+/// The stop loss order has `transmit=true` which triggers all three.
+pub async fn place_bracket_order(
+    config: &IbkrConfig,
+    contract: &ibapi::contracts::Contract,
+    side: Side,
+    quantity: f64,
+    take_profit_price: f64,
+    stop_loss_price: f64,
+) -> Result<ExecutionState> {
+    use ibapi::orders::{order_builder, Action, PlaceOrder};
+    use ibapi::Client;
+
+    let client = Client::connect(&config.connection_url(), config.client_id + 100)
+        .await
+        .map_err(|e| anyhow::anyhow!("IBKR connection failed: {e}"))?;
+
+    let parent_id = client
+        .next_valid_order_id()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get order ID: {e}"))?;
+
+    let action = match side {
+        Side::Buy => Action::Buy,
+        Side::Sell => Action::Sell,
+    };
+    let reverse_action = match side {
+        Side::Buy => Action::Sell,
+        Side::Sell => Action::Buy,
+    };
+
+    // Parent: market order (transmit=false).
+    let mut parent = order_builder::market_order(action, quantity);
+    parent.order_id = parent_id;
+    parent.transmit = false;
+
+    // Take profit: limit order in opposite direction (transmit=false).
+    let mut take_profit = order_builder::limit_order(reverse_action, quantity, take_profit_price);
+    take_profit.order_id = parent_id + 1;
+    take_profit.parent_id = parent_id;
+    take_profit.transmit = false;
+
+    // Stop loss: stop order in opposite direction (transmit=true triggers all).
+    let mut stop_loss = order_builder::stop(reverse_action, quantity, stop_loss_price);
+    stop_loss.order_id = parent_id + 2;
+    stop_loss.parent_id = parent_id;
+    stop_loss.transmit = true;
+
+    let mut state = ExecutionState {
+        plan_json: String::new(),
+        slices_completed: 0,
+        total_slices: 3,
+        total_filled_qty: 0.0,
+        total_filled_usd: 0.0,
+        status: ExecutionStatus::Running,
+        order_ids: vec![
+            parent_id as i64,
+            (parent_id + 1) as i64,
+            (parent_id + 2) as i64,
+        ],
+        errors: Vec::new(),
+        abort_reason: None,
+        started_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    // Place parent order (holds notifications for fills).
+    let mut parent_notifications = client
+        .place_order(parent_id, contract, &parent)
+        .await
+        .map_err(|e| anyhow::anyhow!("Bracket parent order failed: {e}"))?;
+
+    // Place take profit.
+    let _tp = client
+        .place_order(parent_id + 1, contract, &take_profit)
+        .await
+        .map_err(|e| anyhow::anyhow!("Bracket take-profit order failed: {e}"))?;
+
+    // Place stop loss (transmit=true triggers all orders).
+    let _sl = client
+        .place_order(parent_id + 2, contract, &stop_loss)
+        .await
+        .map_err(|e| anyhow::anyhow!("Bracket stop-loss order failed: {e}"))?;
+
+    // Read parent order fill.
+    while let Some(result) = parent_notifications.next().await {
+        match result {
+            Ok(PlaceOrder::ExecutionData(exec)) => {
+                state.total_filled_qty = exec.execution.cumulative_quantity;
+                let avg_price = exec.execution.average_price;
+                state.total_filled_usd = state.total_filled_qty * avg_price;
+            }
+            Ok(PlaceOrder::CommissionReport(_)) => break,
+            Ok(_) => {}
+            Err(e) => {
+                state.errors.push(e.to_string());
+                break;
+            }
+        }
+    }
+
+    state.slices_completed = 3;
+    state.status = ExecutionStatus::Completed;
+    state.updated_at = Utc::now();
+
+    info!(
+        "quant: bracket order placed: parent={}, TP={}, SL={}, filled={:.6}",
+        parent_id,
+        parent_id + 1,
+        parent_id + 2,
+        state.total_filled_qty
+    );
+
+    Ok(state)
+}
+
+/// Close a position with a market order.
+pub async fn close_position(
+    config: &IbkrConfig,
+    contract: &ibapi::contracts::Contract,
+    quantity: f64,
+    side: Side,
+) -> Result<ExecutionState> {
+    use ibapi::orders::{order_builder, Action, PlaceOrder};
+    use ibapi::Client;
+
+    let client = Client::connect(&config.connection_url(), config.client_id + 600)
+        .await
+        .map_err(|e| anyhow::anyhow!("IBKR connection failed: {e}"))?;
+
+    let action = match side {
+        Side::Buy => Action::Buy,
+        Side::Sell => Action::Sell,
+    };
+    let order = order_builder::market_order(action, quantity);
+
+    let order_id = client
+        .next_valid_order_id()
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to get order ID: {e}"))?;
+
+    let mut notifications = client
+        .place_order(order_id, contract, &order)
+        .await
+        .map_err(|e| anyhow::anyhow!("Close order failed: {e}"))?;
+
+    let mut state = ExecutionState {
+        plan_json: String::new(),
+        slices_completed: 0,
+        total_slices: 1,
+        total_filled_qty: 0.0,
+        total_filled_usd: 0.0,
+        status: ExecutionStatus::Running,
+        order_ids: vec![order_id as i64],
+        errors: Vec::new(),
+        abort_reason: None,
+        started_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+
+    while let Some(result) = notifications.next().await {
+        match result {
+            Ok(PlaceOrder::ExecutionData(exec)) => {
+                state.total_filled_qty = exec.execution.cumulative_quantity;
+                let avg_price = exec.execution.average_price;
+                state.total_filled_usd = state.total_filled_qty * avg_price;
+            }
+            Ok(PlaceOrder::CommissionReport(_)) => break,
+            Ok(_) => {}
+            Err(e) => {
+                state.errors.push(e.to_string());
+                break;
+            }
+        }
+    }
+
+    state.slices_completed = 1;
+    state.status = ExecutionStatus::Completed;
+    state.updated_at = Utc::now();
+
+    info!(
+        "quant: position closed: {side:?} {:.6} (${:.2})",
+        state.total_filled_qty, state.total_filled_usd
+    );
+
+    Ok(state)
+}
+
+/// Check if adding a position would exceed the maximum position count.
+pub fn check_max_positions(current: usize, max: usize) -> Result<()> {
+    if current >= max {
+        anyhow::bail!(
+            "Max positions limit reached ({current}/{max}). Close a position before opening new ones."
+        );
+    }
+    Ok(())
+}
+
+/// Check if daily P&L has breached the cutoff threshold.
+pub fn check_daily_pnl_cutoff(daily_pnl: f64, portfolio: f64, cutoff_pct: f64) -> Result<()> {
+    if portfolio > 0.0 {
+        let pnl_pct = (daily_pnl / portfolio) * 100.0;
+        if pnl_pct <= -cutoff_pct.abs() {
+            anyhow::bail!(
+                "Daily P&L cutoff breached: {pnl_pct:.2}% (limit: -{:.1}%). Trading halted.",
+                cutoff_pct.abs()
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Serialize execution state to JSON for crash recovery.
@@ -536,5 +855,75 @@ mod tests {
         assert_eq!(limits.trades_today, 1);
         assert!((limits.usd_today - 500.0).abs() < 1e-6);
         assert!(limits.last_trade_time.is_some());
+    }
+
+    #[test]
+    fn test_position_info_serde() {
+        let pos = PositionInfo {
+            account: "DU1234567".into(),
+            symbol: "AAPL".into(),
+            security_type: "STK".into(),
+            quantity: 100.0,
+            avg_cost: 150.50,
+        };
+        let json = serde_json::to_string(&pos).unwrap();
+        let recovered: PositionInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(recovered.account, "DU1234567");
+        assert_eq!(recovered.symbol, "AAPL");
+        assert!((recovered.quantity - 100.0).abs() < f64::EPSILON);
+        assert!((recovered.avg_cost - 150.50).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_daily_pnl_serde() {
+        let pnl = DailyPnl {
+            daily_pnl: -250.50,
+            unrealized_pnl: Some(-100.0),
+            realized_pnl: Some(-150.50),
+        };
+        let json = serde_json::to_string(&pnl).unwrap();
+        let recovered: DailyPnl = serde_json::from_str(&json).unwrap();
+        assert!((recovered.daily_pnl - (-250.50)).abs() < f64::EPSILON);
+        assert_eq!(recovered.unrealized_pnl, Some(-100.0));
+        assert_eq!(recovered.realized_pnl, Some(-150.50));
+    }
+
+    #[test]
+    fn test_bracket_price_calc_buy() {
+        let entry: f64 = 100.0;
+        let sl_pct: f64 = 1.5;
+        let tp_pct: f64 = 3.0;
+        let sl_price = entry * (1.0 - sl_pct / 100.0);
+        let tp_price = entry * (1.0 + tp_pct / 100.0);
+        assert!((sl_price - 98.5).abs() < 1e-6);
+        assert!((tp_price - 103.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_bracket_price_calc_sell() {
+        let entry: f64 = 100.0;
+        let sl_pct: f64 = 1.5;
+        let tp_pct: f64 = 3.0;
+        let sl_price = entry * (1.0 + sl_pct / 100.0);
+        let tp_price = entry * (1.0 - tp_pct / 100.0);
+        assert!((sl_price - 101.5).abs() < 1e-6);
+        assert!((tp_price - 97.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_max_positions_check() {
+        assert!(check_max_positions(2, 3).is_ok());
+        assert!(check_max_positions(3, 3).is_err());
+        assert!(check_max_positions(5, 3).is_err());
+    }
+
+    #[test]
+    fn test_pnl_cutoff_check() {
+        // -3% loss on $10k portfolio = -$300, cutoff at 5% → OK
+        assert!(check_daily_pnl_cutoff(-300.0, 10_000.0, 5.0).is_ok());
+        // -6% loss on $10k portfolio = -$600, cutoff at 5% → blocked
+        assert!(check_daily_pnl_cutoff(-600.0, 10_000.0, 5.0).is_err());
+        // Zero portfolio → always OK (avoids division by zero)
+        assert!(check_daily_pnl_cutoff(-1000.0, 0.0, 5.0).is_ok());
     }
 }
