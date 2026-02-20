@@ -1221,20 +1221,39 @@ impl Gateway {
                 );
             }
 
+            // Determine once whether the active project is trading-related.
+            let is_trading_project = active_project
+                .as_deref()
+                .map(|p| {
+                    let lp = p.to_lowercase();
+                    lp.contains("trad")
+                        || lp.contains("quant")
+                        || lp.contains("binance")
+                        || lp.contains("crypto")
+                        || lp.contains("market")
+                })
+                .unwrap_or(false);
+
             if let Some(ref project_name) = active_project {
                 if let Some(instructions) =
                     omega_skills::get_project_instructions(&projects, project_name)
                 {
-                    prompt = format!("{instructions}\n\n---\n\n{prompt}");
+                    prompt.push_str(&format!(
+                        "\n\n---\n\n[Active project: {project_name}]\n{instructions}"
+                    ));
                 }
             }
 
             // Heartbeat awareness: show current checklist items so Claude knows
-            // what is already monitored.
-            if let Some(checklist) = read_heartbeat_file() {
-                prompt
-                    .push_str("\n\nCurrent heartbeat checklist (items monitored periodically):\n");
-                prompt.push_str(&checklist);
+            // what is already monitored — only in trading projects since the
+            // checklist is trading-heavy and would pollute casual conversations.
+            if is_trading_project {
+                if let Some(checklist) = read_heartbeat_file() {
+                    prompt.push_str(
+                        "\n\nCurrent heartbeat checklist (items monitored periodically):\n",
+                    );
+                    prompt.push_str(&checklist);
+                }
             }
 
             // Sandbox mode constraint.

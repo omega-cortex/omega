@@ -397,15 +397,20 @@ pub struct Gateway {
 **Stage 4b: Project Instruction Injection**
 - Calls `self.memory.get_fact(&incoming.sender_id, "active_project")` to check for an active project.
 - If an active project is found, calls `omega_skills::get_project_instructions(&projects, &project_name)` using the hot-reloaded project list.
-- If instructions are found, prepends them to the base system prompt with a `---` separator.
+- If instructions are found, appends them to the system prompt after a `---` separator with an `[Active project: <name>]` label. This preserves OMEGA's core identity (identity/soul/system) as the first instructions the AI reads, with project context added as supplementary domain expertise.
 - The enriched system prompt is passed to `memory.build_context()`.
 
-**Stage 4c: Heartbeat Awareness**
-- After project instruction injection, calls `read_heartbeat_file()`.
+**Stage 4c: Trading Context Detection**
+- Computes `is_trading_project` once by checking if the active project name (lowercased) contains "trad", "quant", "binance", "crypto", or "market".
+- This flag is used for heartbeat awareness gating.
+
+**Stage 4d: Heartbeat Awareness (Trading-Only)**
+- Only when `is_trading_project` is true, calls `read_heartbeat_file()`.
 - If a heartbeat checklist exists, appends its contents to the system prompt under a "Current heartbeat checklist" header.
 - This gives the provider awareness of what items are already being monitored, enabling it to avoid duplicates and to confirm removals.
+- When not in a trading project, the checklist is omitted to prevent trading context from polluting casual conversations.
 
-**Stage 4d: Sandbox Prompt Injection**
+**Stage 4e: Sandbox Prompt Injection**
 - If `self.sandbox_prompt` is `Some(constraint)`, prepends the sandbox constraint text to the system prompt.
 - This injects mode-specific instructions (e.g., "You are running in SANDBOX mode. Only operate within the workspace directory..." for sandbox mode, or "You are running in READ-ONLY mode..." for rx mode).
 - In `rwx` mode, `sandbox_prompt` is `None` and no constraint is injected.
@@ -1182,7 +1187,7 @@ All interactions are logged to SQLite with:
 19. Heartbeat loop skips API calls entirely when no checklist file (`~/.omega/HEARTBEAT.md`) is configured.
 20. Heartbeat prompt is enriched with user facts and recent conversation summaries from memory.
 21. HEARTBEAT_ADD:, HEARTBEAT_REMOVE:, and HEARTBEAT_INTERVAL: markers are stripped from the response before sending to the user. Adds are appended to `~/.omega/HEARTBEAT.md`; removes use case-insensitive partial matching and never remove comment lines. HEARTBEAT_INTERVAL: updates the shared `AtomicU64` interval (valid range: 1–1440 minutes) and sends a confirmation notification to the owner via the heartbeat channel.
-22. The current heartbeat checklist is injected into the system prompt so the provider knows what is already monitored.
+22. The current heartbeat checklist is injected into the system prompt only when the active project is trading-related (name contains "trad", "quant", "binance", "crypto", or "market"). This prevents trading context from polluting casual conversations.
 23. When `sandbox_prompt` is `Some`, the sandbox constraint text is prepended to the system prompt before context building.
 24. The startup log includes the active sandbox mode for operational visibility.
 25. After sending the text response, new image files created in the workspace by the provider are delivered via `channel.send_photo()` and then deleted from the workspace.

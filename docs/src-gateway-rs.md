@@ -209,7 +209,7 @@ Users expect to see "typing" indicators on messaging platforms. Without them, it
   - A system prompt guiding the AI to be helpful and safe.
 
 **Project Instructions:**
-Projects are hot-reloaded from disk on every message. If the user has an active project (set via `/project <name>` or autonomously via `PROJECT_ACTIVATE:` marker), the project's ROLE.md instructions are prepended to the system prompt before context building. The AI can also autonomously create projects and activate/deactivate them using `PROJECT_ACTIVATE: <name>` and `PROJECT_DEACTIVATE` markers in its response — these are stripped before delivery to the user.
+Projects are hot-reloaded from disk on every message. If the user has an active project (set via `/project <name>` or autonomously via `PROJECT_ACTIVATE:` marker), the project's ROLE.md instructions are appended to the system prompt (after identity/soul/system) with an `[Active project: <name>]` label before context building. This ensures OMEGA's core identity is established first, with project domain expertise layered on top as supplementary context. The AI can also autonomously create projects and activate/deactivate them using `PROJECT_ACTIVATE: <name>` and `PROJECT_DEACTIVATE` markers in its response — these are stripped before delivery to the user.
 
 **Why This Exists:**
 Raw AI models are stateless. They have no memory of previous conversations. The context gives the AI a chance to be conversational and personalized.

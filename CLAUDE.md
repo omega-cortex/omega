@@ -53,6 +53,13 @@ All our architecture must be monolithic and modular, like Legos.
 Apply always outour redirection to a /tmp/ folder to avoid polluting the console to later apply filters.
   command > /tmp/cmd_output.log 2>&1 && grep -iE "error|warn|fail|pass" /tmp/cmd_output.log | head -20
 
+8. **Modularization Enforcement**: No single `.rs` file may exceed **500 lines** (excluding tests). When a file approaches this limit or a new feature adds significant logic, **extract a dedicated module before implementing**. Rules:
+   - `gateway.rs` is the **orchestrator only** — it wires stages together but delegates logic to focused modules (e.g., `markers.rs`, `commands.rs`, `i18n.rs`)
+   - Each module must have a **single responsibility** — if you can't describe it in one sentence, split it
+   - Public API surface between modules should be minimal — expose functions, not internals
+   - New domain logic (e.g., a new marker type, a new processing stage) goes in its own module from day one, never inline in `gateway.rs`
+   - Before adding >50 lines to any existing file, check its line count first — if it would cross 500, extract first
+
 ## Architecture
 
 Cargo workspace with 7 crates:
@@ -69,7 +76,7 @@ Cargo workspace with 7 crates:
 
 Gateway event loop (`src/gateway.rs`, marker functions in `src/markers.rs`):
 ```
-Message → Dispatch (buffer if sender busy, ack) → Auth → Sanitize → Inbox save → Welcome (non-blocking) → Platform Hint → Group Rules → Project hot-reload → Heartbeat awareness → Sandbox constraint → Identity+Soul+System compose → Memory (context) → MCP trigger match → Classify & Route (complexity-aware Sonnet classification — routine actions=DIRECT, complex work=step list → model assignment) → [if steps: Opus executes autonomously with progress + process_markers per step] → [if direct: Sonnet handles response] → Workspace snapshot → Heads-up → Provider (--model flag + MCP settings write → async CLI + auto-resume on max_turns + status updates → MCP cleanup) → SILENT suppress → process_markers (Schedule + SCHEDULE_ACTION + Project + Lang switch + Personality + Forget conversation + Cancel task + Purge facts + Heartbeat + Heartbeat interval + Limitation + Self-heal + Self-heal resolved) → Memory (store) → Audit → Send → Workspace image diff → Inbox cleanup → Drain buffered messages
+Message → Dispatch (buffer if sender busy, ack) → Auth → Sanitize → Inbox save → Welcome (non-blocking) → Platform Hint → Group Rules → Identity+Soul+System compose → Project append (hot-reload, `[Active project: X]` framing) → Trading context gate → Heartbeat awareness (trading-only) → Sandbox constraint → Memory (context) → MCP trigger match → Classify & Route (complexity-aware Sonnet classification — routine actions=DIRECT, complex work=step list → model assignment) → [if steps: Opus executes autonomously with progress + process_markers per step] → [if direct: Sonnet handles response] → Workspace snapshot → Heads-up → Provider (--model flag + MCP settings write → async CLI + auto-resume on max_turns + status updates → MCP cleanup) → SILENT suppress → process_markers (Schedule + SCHEDULE_ACTION + Project + Lang switch + Personality + Forget conversation + Cancel task + Purge facts + Heartbeat + Heartbeat interval + Limitation + Self-heal + Self-heal resolved) → Memory (store) → Audit → Send → Workspace image diff → Inbox cleanup → Drain buffered messages
 ```
 
 Non-blocking message handling: Gateway wraps in `Arc<Self>`, spawns each message as a concurrent task via `tokio::spawn`. Messages from the same sender are serialized — if a sender has an active provider call, new messages are buffered with a "Got it, I'll get to this next." ack, then processed in order after the active call completes.
