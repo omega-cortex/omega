@@ -111,7 +111,11 @@ pub trait Channel: Send + Sync {
     async fn send_typing(&self, _target: &str) -> Result<(), OmegaError> {
         Ok(())
     }
+    async fn send_photo(&self, _target: &str, _image: &[u8], _caption: &str) -> Result<(), OmegaError> {
+        Ok(())
+    }
     async fn stop(&self) -> Result<(), OmegaError>;
+    fn as_any(&self) -> &dyn Any;
 }
 ```
 
@@ -129,7 +133,9 @@ pub trait Channel: Send + Sync {
 | `start` | Yes | No | `async fn start(&self) -> Result<Receiver<IncomingMessage>, OmegaError>` | `Result<mpsc::Receiver<IncomingMessage>, OmegaError>` | Starts the channel's listener (e.g. long polling, webhook). Returns an mpsc `Receiver` that yields `IncomingMessage` values. The channel internally spawns a tokio task for polling. |
 | `send` | Yes | No | `async fn send(&self, message: OutgoingMessage) -> Result<(), OmegaError>` | `Result<(), OmegaError>` | Sends a response back through the platform. The `OutgoingMessage.reply_target` field carries the platform-specific routing info (e.g. Telegram chat_id). |
 | `send_typing` | Yes | **Yes** | `async fn send_typing(&self, _target: &str) -> Result<(), OmegaError>` | `Result<(), OmegaError>` | Sends a typing indicator. Default implementation is a no-op that returns `Ok(())`. Channels that support typing indicators override this. |
+| `send_photo` | Yes | **Yes** | `async fn send_photo(&self, _target: &str, _image: &[u8], _caption: &str) -> Result<(), OmegaError>` | `Result<(), OmegaError>` | Sends a photo (PNG bytes) with a caption. Default implementation is a no-op. Used by the gateway for QR codes and workspace images. |
 | `stop` | Yes | No | `async fn stop(&self) -> Result<(), OmegaError>` | `Result<(), OmegaError>` | Graceful shutdown. Called during gateway shutdown to clean up resources. |
+| `as_any` | No | No | `fn as_any(&self) -> &dyn Any` | `&dyn Any` | Returns a reference to the concrete type for downcasting. Enables the gateway to access channel-specific methods (e.g., `WhatsAppChannel::pairing_channels()`). |
 
 ### Default Method
 `send_typing` has a default implementation:
@@ -226,8 +232,8 @@ fn complete<'life0, 'life1, 'async_trait>(
 This enables dynamic dispatch through `dyn Provider` / `dyn Channel` while maintaining `Send` on the returned future.
 
 ## File Statistics
-- **Lines of code:** 51
+- **Lines of code:** 65
 - **Traits defined:** 2 (`Provider`, `Channel`)
-- **Total methods:** 9 (4 on `Provider`, 5 on `Channel`)
-- **Default implementations:** 1 (`Channel::send_typing`)
-- **External dependencies:** `async_trait`
+- **Total methods:** 11 (4 on `Provider`, 7 on `Channel`)
+- **Default implementations:** 2 (`Channel::send_typing`, `Channel::send_photo`)
+- **External dependencies:** `async_trait`, `std::any::Any`

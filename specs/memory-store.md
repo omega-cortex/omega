@@ -43,7 +43,7 @@ pub struct Store {
 
 ## Database Schema
 
-The store manages five tables and one virtual table created across seven migrations. A seventh table (`_migrations`) tracks migration state.
+The store manages six tables and one virtual table created across eight migrations. A tracking table (`_migrations`) tracks migration state.
 
 ### Table: `_migrations`
 
@@ -253,6 +253,24 @@ CREATE TABLE IF NOT EXISTS limitations (
 **Indexes:**
 - `idx_limitations_title` on `(title COLLATE NOCASE)` — case-insensitive unique index for deduplication.
 
+### Table: `user_aliases`
+
+Created by `008_user_aliases.sql`. Maps alternative sender IDs to a canonical sender ID for cross-channel user identity.
+
+```sql
+CREATE TABLE IF NOT EXISTS user_aliases (
+    alias_sender_id     TEXT PRIMARY KEY,
+    canonical_sender_id TEXT NOT NULL
+);
+```
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `alias_sender_id` | `TEXT` | `PRIMARY KEY` | The alternative sender ID (e.g., WhatsApp phone number). |
+| `canonical_sender_id` | `TEXT` | `NOT NULL` | The canonical sender ID that all facts are stored under (e.g., Telegram numeric ID). |
+
+**Design:** The first channel to connect creates the canonical ID (via the `welcomed` fact). When a new channel connects and finds an existing welcomed user, an alias is created mapping the new sender_id to the existing canonical sender_id. All fact operations then use the canonical ID, while conversations keep using the original channel-specific sender_id.
+
 ## Migrations
 
 ### Migration Tracking
@@ -274,6 +292,7 @@ Migrations are tracked via the `_migrations` table. The system handles three sce
 | `005_scheduled_tasks` | `migrations/005_scheduled_tasks.sql` | Creates `scheduled_tasks` table with indexes for user-scheduled reminders and recurring tasks. |
 | `006_limitations` | `migrations/006_limitations.sql` | Creates `limitations` table with case-insensitive unique index for autonomous self-introspection. |
 | `007_task_type` | `migrations/007_task_type.sql` | Adds `task_type` column to `scheduled_tasks` for distinguishing reminder vs action tasks. |
+| `008_user_aliases` | `migrations/008_user_aliases.sql` | Creates `user_aliases` table for cross-channel user identity resolution. |
 
 ### Bootstrap Detection Logic
 
@@ -1034,6 +1053,72 @@ INSERT OR IGNORE INTO limitations (id, title, description, proposed_plan) VALUES
 
 ---
 
+#### `async fn resolve_sender_id(&self, sender_id: &str) -> Result<String, OmegaError>`
+
+**Purpose:** Resolve a sender_id to its canonical form via the `user_aliases` table.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sender_id` | `&str` | The sender ID to resolve. |
+
+**Returns:** `Result<String, OmegaError>` -- the canonical sender_id if an alias exists, otherwise the original sender_id.
+
+**SQL:**
+```sql
+SELECT canonical_sender_id FROM user_aliases WHERE alias_sender_id = ?
+```
+
+**Called by:** `gateway.rs::handle_message()` at the top of the pipeline, before any fact operations.
+
+---
+
+#### `async fn create_alias(&self, alias_id: &str, canonical_id: &str) -> Result<(), OmegaError>`
+
+**Purpose:** Create a mapping from an alias sender_id to a canonical sender_id.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `alias_id` | `&str` | The alternative sender ID (e.g., WhatsApp phone number). |
+| `canonical_id` | `&str` | The canonical sender ID (e.g., Telegram numeric ID). |
+
+**Returns:** `Result<(), OmegaError>`.
+
+**SQL:**
+```sql
+INSERT OR IGNORE INTO user_aliases (alias_sender_id, canonical_sender_id) VALUES (?, ?)
+```
+
+**Note:** Uses `INSERT OR IGNORE` — if the alias already exists, the insert is silently ignored (idempotent).
+
+**Called by:** `gateway.rs::handle_message()` when a new user is detected on a second channel and an existing welcomed user is found.
+
+---
+
+#### `async fn find_canonical_user(&self, exclude_sender_id: &str) -> Result<Option<String>, OmegaError>`
+
+**Purpose:** Find an existing welcomed user's sender_id, excluding the given sender_id. Used to create cross-channel aliases.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `exclude_sender_id` | `&str` | The sender ID to exclude from the search. |
+
+**Returns:** `Result<Option<String>, OmegaError>` -- `Some(canonical_sender_id)` if found, `None` if no other welcomed user exists.
+
+**SQL:**
+```sql
+SELECT sender_id FROM facts WHERE key = 'welcomed' AND sender_id != ? LIMIT 1
+```
+
+**Called by:** `gateway.rs::handle_message()` during first-time user detection to check for cross-channel identity.
+
+---
+
 #### `async fn get_open_limitations(&self) -> Result<Vec<(String, String, String)>, OmegaError>`
 
 **Purpose:** Get all open (unresolved) limitations for heartbeat context enrichment.
@@ -1082,6 +1167,7 @@ let migrations: &[(&str, &str)] = &[
     ("005_scheduled_tasks", include_str!("../migrations/005_scheduled_tasks.sql")),
     ("006_limitations", include_str!("../migrations/006_limitations.sql")),
     ("007_task_type", include_str!("../migrations/007_task_type.sql")),
+    ("008_user_aliases", include_str!("../migrations/008_user_aliases.sql")),
 ];
 ```
 
@@ -1548,6 +1634,11 @@ All tests use an in-memory SQLite store (`sqlite::memory:`) with migrations appl
 | `test_create_task_with_action_type` | Creates a task with `task_type = "action"`, verifies it appears in `get_tasks_for_sender()` with the correct task_type. |
 | `test_get_due_tasks_returns_task_type` | Creates reminder and action tasks, verifies `get_due_tasks()` returns `task_type` as the 6th tuple element. |
 | `test_build_system_prompt_shows_action_badge` | Verifies that `build_system_prompt()` includes an `[action]` badge for tasks with `task_type = "action"` in the pending tasks section. |
+| `test_resolve_sender_id_no_alias` | Verifies `resolve_sender_id()` returns original ID when no alias exists. |
+| `test_create_and_resolve_alias` | Creates an alias, verifies `resolve_sender_id()` returns canonical ID. |
+| `test_create_alias_idempotent` | Creates same alias twice, verifies idempotent behavior (INSERT OR IGNORE). |
+| `test_find_canonical_user` | Verifies `find_canonical_user()` returns None when empty, returns existing welcomed user, excludes self. |
+| `test_alias_shares_facts` | Creates alias, verifies facts stored under canonical ID are accessible via resolved alias. |
 
 ## Invariants
 

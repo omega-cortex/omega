@@ -1028,7 +1028,7 @@ impl Gateway {
     }
 
     /// Process a single incoming message through the full pipeline.
-    async fn handle_message(&self, incoming: IncomingMessage) {
+    async fn handle_message(&self, mut incoming: IncomingMessage) {
         let preview = if incoming.text.chars().count() > 60 {
             let truncated: String = incoming.text.chars().take(60).collect();
             format!("{truncated}...")
@@ -1104,20 +1104,48 @@ impl Gateway {
             Vec::new()
         };
 
-        // --- 2b. FIRST-TIME USER DETECTION ---
-        // No separate welcome message — the AI handles introduction via onboarding hint.
-        // We still detect language and mark the user as welcomed for onboarding tracking.
+        // --- 2b. CROSS-CHANNEL USER IDENTITY ---
+        // Resolve sender_id to canonical form (alias table). If a new sender_id
+        // arrives from a different channel but the same owner, create an alias
+        // so all fact operations share one identity.
+        let original_sender_id = incoming.sender_id.clone();
         if let Ok(true) = self.memory.is_new_user(&incoming.sender_id).await {
-            let lang = detect_language(&clean_incoming.text);
-            let _ = self
-                .memory
-                .store_fact(&incoming.sender_id, "welcomed", "true")
-                .await;
-            let _ = self
-                .memory
-                .store_fact(&incoming.sender_id, "preferred_language", lang)
-                .await;
-            info!("new user detected {} ({})", incoming.sender_id, lang);
+            // Check if an existing welcomed user already exists on another channel.
+            if let Ok(Some(canonical_id)) =
+                self.memory.find_canonical_user(&incoming.sender_id).await
+            {
+                // Same owner on a different channel — create an alias.
+                let _ = self
+                    .memory
+                    .create_alias(&incoming.sender_id, &canonical_id)
+                    .await;
+                incoming.sender_id = canonical_id.clone();
+                clean_incoming.sender_id = canonical_id;
+                info!(
+                    "aliased {} → {} (cross-channel identity)",
+                    original_sender_id, incoming.sender_id
+                );
+            } else {
+                // Truly new user — detect language and start onboarding.
+                let lang = detect_language(&clean_incoming.text);
+                let _ = self
+                    .memory
+                    .store_fact(&incoming.sender_id, "welcomed", "true")
+                    .await;
+                let _ = self
+                    .memory
+                    .store_fact(&incoming.sender_id, "preferred_language", lang)
+                    .await;
+                info!("new user detected {} ({})", incoming.sender_id, lang);
+            }
+        } else {
+            // Existing user — resolve alias (may be identity, that's fine).
+            if let Ok(resolved) = self.memory.resolve_sender_id(&incoming.sender_id).await {
+                if resolved != incoming.sender_id {
+                    incoming.sender_id = resolved.clone();
+                    clean_incoming.sender_id = resolved;
+                }
+            }
         }
 
         // --- 3. COMMAND DISPATCH ---
@@ -1587,76 +1615,104 @@ impl Gateway {
         }
     }
 
-    /// Handle the WHATSAPP_QR flow: start pairing, send QR image, wait for result.
+    /// Handle the WHATSAPP_QR flow: use the running bot's event stream for pairing.
     async fn handle_whatsapp_qr(&self, incoming: &IncomingMessage) {
+        use omega_channels::whatsapp::WhatsAppChannel;
+
+        // Downcast the whatsapp channel to access pairing_channels().
+        let wa_channel = match self.channels.get("whatsapp") {
+            Some(ch) => match ch.as_any().downcast_ref::<WhatsAppChannel>() {
+                Some(wa) => wa,
+                None => {
+                    self.send_text(incoming, "WhatsApp channel not available.")
+                        .await;
+                    return;
+                }
+            },
+            None => {
+                self.send_text(incoming, "WhatsApp channel not configured.")
+                    .await;
+                return;
+            }
+        };
+
+        // If already connected, no need to pair again.
+        if wa_channel.is_connected().await {
+            self.send_text(
+                incoming,
+                "WhatsApp is already connected! Send yourself a message to test.",
+            )
+            .await;
+            return;
+        }
+
         self.send_text(incoming, "Starting WhatsApp pairing...")
             .await;
 
-        match whatsapp::start_pairing(&self.data_dir).await {
-            Ok((mut qr_rx, mut done_rx)) => {
-                // Wait for the first QR code (with timeout).
-                let qr_timeout =
-                    tokio::time::timeout(std::time::Duration::from_secs(30), qr_rx.recv());
+        // Delete stale session and restart bot so it generates fresh QR codes.
+        // This handles the case where WhatsApp was unlinked from the phone —
+        // the library won't generate QR codes with invalidated session keys.
+        if let Err(e) = wa_channel.restart_for_pairing().await {
+            warn!("WhatsApp restart_for_pairing failed: {e}");
+            self.send_text(incoming, &format!("WhatsApp pairing failed: {e}"))
+                .await;
+            return;
+        }
 
-                match qr_timeout.await {
-                    Ok(Some(qr_data)) => {
-                        // Generate QR image and send it.
-                        match whatsapp::generate_qr_image(&qr_data) {
-                            Ok(png_bytes) => {
-                                if let Some(channel) = self.channels.get(&incoming.channel) {
-                                    let target = incoming.reply_target.as_deref().unwrap_or("");
-                                    if let Err(e) = channel
-                                        .send_photo(
-                                            target,
-                                            &png_bytes,
-                                            "Scan with WhatsApp (Link a Device > QR Code)",
-                                        )
-                                        .await
-                                    {
-                                        warn!("failed to send QR image: {e}");
-                                        self.send_text(
-                                            incoming,
-                                            &format!("Failed to send QR image: {e}"),
-                                        )
-                                        .await;
-                                        return;
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                self.send_text(incoming, &format!("QR generation failed: {e}"))
+        // Get fresh receivers from the restarted bot.
+        let (mut qr_rx, mut done_rx) = wa_channel.pairing_channels().await;
+
+        // Wait for the first QR code (with timeout).
+        let qr_timeout = tokio::time::timeout(std::time::Duration::from_secs(30), qr_rx.recv());
+
+        match qr_timeout.await {
+            Ok(Some(qr_data)) => {
+                // Generate QR image and send it.
+                match whatsapp::generate_qr_image(&qr_data) {
+                    Ok(png_bytes) => {
+                        if let Some(channel) = self.channels.get(&incoming.channel) {
+                            let target = incoming.reply_target.as_deref().unwrap_or("");
+                            if let Err(e) = channel
+                                .send_photo(
+                                    target,
+                                    &png_bytes,
+                                    "Scan with WhatsApp (Link a Device > QR Code)",
+                                )
+                                .await
+                            {
+                                warn!("failed to send QR image: {e}");
+                                self.send_text(incoming, &format!("Failed to send QR image: {e}"))
                                     .await;
                                 return;
                             }
                         }
+                    }
+                    Err(e) => {
+                        self.send_text(incoming, &format!("QR generation failed: {e}"))
+                            .await;
+                        return;
+                    }
+                }
 
-                        // Wait for pairing confirmation (up to 60s).
-                        let pair_timeout = tokio::time::timeout(
-                            std::time::Duration::from_secs(60),
-                            done_rx.recv(),
-                        );
+                // Wait for pairing confirmation (up to 60s).
+                let pair_timeout =
+                    tokio::time::timeout(std::time::Duration::from_secs(60), done_rx.recv());
 
-                        match pair_timeout.await {
-                            Ok(Some(true)) => {
-                                self.send_text(incoming, "WhatsApp connected!").await;
-                            }
-                            _ => {
-                                self.send_text(
-                                    incoming,
-                                    "WhatsApp pairing timed out. Try /whatsapp again.",
-                                )
-                                .await;
-                            }
-                        }
+                match pair_timeout.await {
+                    Ok(Some(true)) => {
+                        self.send_text(incoming, "WhatsApp connected!").await;
                     }
                     _ => {
-                        self.send_text(incoming, "Failed to generate QR code. Try again.")
-                            .await;
+                        self.send_text(
+                            incoming,
+                            "WhatsApp pairing timed out. Try /whatsapp again.",
+                        )
+                        .await;
                     }
                 }
             }
-            Err(e) => {
-                self.send_text(incoming, &format!("WhatsApp pairing failed: {e}"))
+            _ => {
+                self.send_text(incoming, "Failed to generate QR code. Try again.")
                     .await;
             }
         }

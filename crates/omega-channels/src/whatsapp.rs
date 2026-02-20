@@ -33,6 +33,15 @@ pub struct WhatsAppChannel {
     client: Arc<Mutex<Option<Arc<Client>>>>,
     /// Message IDs we sent — used to ignore our own echo in self-chat.
     sent_ids: Arc<Mutex<HashSet<String>>>,
+    /// Sender for QR code events from the running bot (for gateway-initiated pairing).
+    qr_tx: Arc<Mutex<Option<mpsc::Sender<String>>>>,
+    /// Sender for pairing-done events from the running bot.
+    pair_done_tx: Arc<Mutex<Option<mpsc::Sender<bool>>>>,
+    /// Last QR code data — buffered so `pairing_channels()` can replay it
+    /// even if the QR event fired before the gateway started listening.
+    last_qr: Arc<Mutex<Option<String>>>,
+    /// Message sender — stored so `restart_for_pairing()` can reuse it.
+    msg_tx: Arc<Mutex<Option<mpsc::Sender<IncomingMessage>>>>,
 }
 
 impl WhatsAppChannel {
@@ -43,7 +52,67 @@ impl WhatsAppChannel {
             data_dir: data_dir.to_string(),
             client: Arc::new(Mutex::new(None)),
             sent_ids: Arc::new(Mutex::new(HashSet::new())),
+            qr_tx: Arc::new(Mutex::new(None)),
+            pair_done_tx: Arc::new(Mutex::new(None)),
+            last_qr: Arc::new(Mutex::new(None)),
+            msg_tx: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Check if the WhatsApp client is currently connected.
+    pub async fn is_connected(&self) -> bool {
+        self.client.lock().await.is_some()
+    }
+
+    /// Create fresh pairing channels. Returns `(qr_rx, done_rx)` receivers
+    /// that forward QR code and pairing-done events from the running bot.
+    ///
+    /// If a QR code was already generated before this call (e.g., during startup),
+    /// it is immediately replayed into the `qr_rx` channel.
+    ///
+    /// Calling this replaces any previous senders (stale receivers get dropped).
+    pub async fn pairing_channels(&self) -> (mpsc::Receiver<String>, mpsc::Receiver<bool>) {
+        let (qr_tx, qr_rx) = mpsc::channel::<String>(4);
+        let (done_tx, done_rx) = mpsc::channel::<bool>(1);
+
+        // Replay the last buffered QR code if one exists.
+        if let Some(ref qr) = *self.last_qr.lock().await {
+            let _ = qr_tx.send(qr.clone()).await;
+        }
+
+        *self.qr_tx.lock().await = Some(qr_tx);
+        *self.pair_done_tx.lock().await = Some(done_tx);
+        (qr_rx, done_rx)
+    }
+
+    /// Delete the stale session, build a fresh bot, and run it.
+    ///
+    /// Used when WhatsApp was unlinked from the phone and the session is
+    /// invalidated — the library won't generate new QR codes with stale keys.
+    /// Deletes `{data_dir}/whatsapp_session/`, creates a fresh backend + bot,
+    /// and runs it. New QR codes flow via the shared `qr_tx` / `pair_done_tx`.
+    pub async fn restart_for_pairing(&self) -> Result<(), OmegaError> {
+        // Delete stale session so the library starts fresh (generates QR codes).
+        let dir = omega_core::config::shellexpand(&self.data_dir);
+        let session_dir = format!("{dir}/whatsapp_session");
+        if std::path::Path::new(&session_dir).exists() {
+            info!("deleting stale WhatsApp session at {session_dir}");
+            let _ = std::fs::remove_dir_all(&session_dir);
+        }
+
+        // Clear client — old bot is now orphaned.
+        *self.client.lock().await = None;
+        // Clear buffered QR — stale.
+        *self.last_qr.lock().await = None;
+
+        let tx = self
+            .msg_tx
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| OmegaError::Channel("WhatsApp not started yet".into()))?;
+
+        self.build_and_run_bot(tx).await
     }
 
     /// Get the session database path.
@@ -53,6 +122,118 @@ impl WhatsAppChannel {
         // Ensure directory exists.
         let _ = std::fs::create_dir_all(&session_dir);
         format!("{session_dir}/whatsapp.db")
+    }
+
+    /// Build a WhatsApp bot with the event handler and run it in the background.
+    ///
+    /// Shared by `start()` and `restart_for_pairing()`. The event handler
+    /// updates the same `Arc`-wrapped fields regardless of which bot is running.
+    async fn build_and_run_bot(
+        &self,
+        tx: mpsc::Sender<IncomingMessage>,
+    ) -> Result<(), OmegaError> {
+        let db_path = self.session_db_path();
+        let allowed_users = self.config.allowed_users.clone();
+        let client_handle = self.client.clone();
+
+        info!("WhatsApp bot building (session: {db_path})...");
+
+        let backend = Arc::new(
+            SqlxWhatsAppStore::new(&db_path)
+                .await
+                .map_err(|e| OmegaError::Channel(format!("whatsapp store init failed: {e}")))?,
+        );
+
+        let tx_events = tx;
+        let client_for_event = client_handle.clone();
+        let sent_ids_for_event = self.sent_ids.clone();
+        let whisper_api_key = self.config.whisper_api_key.clone();
+        let qr_tx_handle = self.qr_tx.clone();
+        let pair_done_tx_handle = self.pair_done_tx.clone();
+        let last_qr_handle = self.last_qr.clone();
+
+        let mut bot = Bot::builder()
+            .with_backend(backend)
+            .with_transport_factory(TokioWebSocketTransportFactory::new())
+            .with_http_client(UreqHttpClient::new())
+            .with_device_props(
+                Some("OMEGA".to_string()),
+                None,
+                Some(waproto::whatsapp::device_props::PlatformType::Desktop),
+            )
+            .on_event(move |event, client| {
+                let tx = tx_events.clone();
+                let allowed = allowed_users.clone();
+                let client_store = client_for_event.clone();
+                let sent_ids = sent_ids_for_event.clone();
+                let whisper_key = whisper_api_key.clone();
+                let qr_fwd = qr_tx_handle.clone();
+                let pair_done_fwd = pair_done_tx_handle.clone();
+                let last_qr_buf = last_qr_handle.clone();
+                async move {
+                    match event {
+                        Event::PairingQrCode { code, .. } => {
+                            info!("WhatsApp QR code generated (scan to pair)");
+                            debug!("QR data: {code}");
+                            // Always buffer the latest QR code for replay.
+                            *last_qr_buf.lock().await = Some(code.clone());
+                            // Forward to gateway if it's listening for pairing.
+                            if let Some(sender) = qr_fwd.lock().await.as_ref() {
+                                let _ = sender.send(code).await;
+                            }
+                        }
+                        Event::PairSuccess(_) => {
+                            info!("WhatsApp pairing successful!");
+                            // Notify gateway that pairing succeeded.
+                            if let Some(sender) = pair_done_fwd.lock().await.as_ref() {
+                                let _ = sender.send(true).await;
+                            }
+                        }
+                        Event::Connected(_) => {
+                            info!("WhatsApp connected");
+                            // Store client reference for sending.
+                            *client_store.lock().await = Some(client);
+                            // Clear QR buffer — session is valid, no more QR needed.
+                            *last_qr_buf.lock().await = None;
+                            // Also notify gateway — Connected fires after PairSuccess.
+                            if let Some(sender) = pair_done_fwd.lock().await.as_ref() {
+                                let _ = sender.send(true).await;
+                            }
+                        }
+                        Event::Disconnected(_) => {
+                            warn!("WhatsApp disconnected");
+                            *client_store.lock().await = None;
+                        }
+                        Event::LoggedOut(_) => {
+                            warn!("WhatsApp logged out — session invalidated");
+                            *client_store.lock().await = None;
+                        }
+                        Event::Message(msg, info) => {
+                            handle_whatsapp_message(
+                                *msg, info, &tx, &allowed, &client_store, &sent_ids,
+                                &whisper_key,
+                            )
+                            .await;
+                        }
+                        _ => {}
+                    }
+                }
+            })
+            .build()
+            .await
+            .map_err(|e| OmegaError::Channel(format!("whatsapp bot build failed: {e}")))?;
+
+        // Store client reference immediately if already connected.
+        *client_handle.lock().await = Some(bot.client());
+
+        // Run bot in background.
+        let _handle = bot
+            .run()
+            .await
+            .map_err(|e| OmegaError::Channel(format!("whatsapp bot run failed: {e}")))?;
+
+        info!("WhatsApp bot started");
+        Ok(())
     }
 
     /// Send a photo (image bytes) with a caption to a JID.
@@ -132,264 +313,8 @@ impl Channel for WhatsAppChannel {
 
     async fn start(&self) -> Result<mpsc::Receiver<IncomingMessage>, OmegaError> {
         let (tx, rx) = mpsc::channel(64);
-        let db_path = self.session_db_path();
-        let allowed_users = self.config.allowed_users.clone();
-        let client_handle = self.client.clone();
-
-        info!("WhatsApp channel starting (session: {db_path})...");
-
-        let backend = Arc::new(
-            SqlxWhatsAppStore::new(&db_path)
-                .await
-                .map_err(|e| OmegaError::Channel(format!("whatsapp store init failed: {e}")))?,
-        );
-
-        let tx_events = tx.clone();
-        let client_for_event = client_handle.clone();
-        let sent_ids_for_event = self.sent_ids.clone();
-        let whisper_api_key = self.config.whisper_api_key.clone();
-
-        let mut bot = Bot::builder()
-            .with_backend(backend)
-            .with_transport_factory(TokioWebSocketTransportFactory::new())
-            .with_http_client(UreqHttpClient::new())
-            .with_device_props(
-                Some("OMEGA".to_string()),
-                None,
-                Some(waproto::whatsapp::device_props::PlatformType::Desktop),
-            )
-            .on_event(move |event, client| {
-                let tx = tx_events.clone();
-                let allowed = allowed_users.clone();
-                let client_store = client_for_event.clone();
-                let sent_ids = sent_ids_for_event.clone();
-                let whisper_key = whisper_api_key.clone();
-                async move {
-                    match event {
-                        Event::PairingQrCode { code, .. } => {
-                            info!("WhatsApp QR code generated (scan to pair)");
-                            debug!("QR data: {code}");
-                        }
-                        Event::PairSuccess(_) => {
-                            info!("WhatsApp pairing successful!");
-                        }
-                        Event::Connected(_) => {
-                            info!("WhatsApp connected");
-                            // Store client reference for sending.
-                            *client_store.lock().await = Some(client);
-                        }
-                        Event::Disconnected(_) => {
-                            warn!("WhatsApp disconnected");
-                            *client_store.lock().await = None;
-                        }
-                        Event::LoggedOut(_) => {
-                            warn!("WhatsApp logged out — session invalidated");
-                            *client_store.lock().await = None;
-                        }
-                        Event::Message(msg, info) => {
-                            let is_group = info.source.is_group;
-
-                            if is_group {
-                                // In groups: skip our own messages.
-                                if info.source.is_from_me {
-                                    return;
-                                }
-                            } else {
-                                // Personal: only process self-chat (messages we send to ourselves).
-                                if !info.source.is_from_me {
-                                    return;
-                                }
-                                if info.source.sender.user != info.source.chat.user {
-                                    return;
-                                }
-                            }
-
-                            let msg_id = info.id.clone();
-                            let phone = info.source.sender.user.clone();
-
-                            // Skip messages we sent (echo prevention).
-                            if sent_ids.lock().await.remove(&msg_id) {
-                                debug!("skipping own echo: {msg_id}");
-                                return;
-                            }
-
-                            // Auth check.
-                            if !allowed.is_empty() && !allowed.contains(&phone) {
-                                warn!("ignoring whatsapp message from unauthorized {phone}");
-                                return;
-                            }
-
-                            // Unwrap nested wrappers (device_sent, ephemeral, view_once).
-                            let inner = msg
-                                .device_sent_message
-                                .as_ref()
-                                .and_then(|d| d.message.as_deref())
-                                .or_else(|| {
-                                    msg.ephemeral_message
-                                        .as_ref()
-                                        .and_then(|e| e.message.as_deref())
-                                })
-                                .or_else(|| {
-                                    msg.view_once_message
-                                        .as_ref()
-                                        .and_then(|v| v.message.as_deref())
-                                })
-                                .unwrap_or(&msg);
-
-                            // Extract text from the (possibly unwrapped) message.
-                            let text = inner
-                                .conversation
-                                .as_deref()
-                                .or_else(|| {
-                                    inner
-                                        .extended_text_message
-                                        .as_ref()
-                                        .and_then(|e| e.text.as_deref())
-                                })
-                                .unwrap_or("")
-                                .to_string();
-
-                            // Check for image message.
-                            let (text, attachments) = if let Some(ref img) = inner.image_message {
-                                let caption =
-                                    img.caption.as_deref().unwrap_or("[Photo]").to_string();
-                                // Download the image via the client.
-                                let wa_client = {
-                                    let guard = client_store.lock().await;
-                                    guard.clone()
-                                };
-                                if let Some(wa_client) = wa_client {
-                                    match wa_client.download(img.as_ref()).await {
-                                        Ok(bytes) => {
-                                            let ext = img
-                                                .mimetype
-                                                .as_deref()
-                                                .and_then(|m| m.split('/').nth(1))
-                                                .unwrap_or("jpg");
-                                            let filename = format!("{}.{ext}", Uuid::new_v4());
-                                            let attachment = Attachment {
-                                                file_type: AttachmentType::Image,
-                                                url: None,
-                                                data: Some(bytes),
-                                                filename: Some(filename),
-                                            };
-                                            info!("downloaded whatsapp image");
-                                            (caption, vec![attachment])
-                                        }
-                                        Err(e) => {
-                                            warn!("whatsapp image download failed: {e}");
-                                            return;
-                                        }
-                                    }
-                                } else {
-                                    warn!("whatsapp client not available for image download");
-                                    return;
-                                }
-                            } else if let Some(ref audio) = inner.audio_message {
-                                // Voice message transcription via Whisper.
-                                match whisper_key.as_deref() {
-                                    Some(key) if !key.is_empty() => {
-                                        let wa_client = {
-                                            let guard = client_store.lock().await;
-                                            guard.clone()
-                                        };
-                                        if let Some(wa_client) = wa_client {
-                                            match wa_client.download(audio.as_ref()).await {
-                                                Ok(bytes) => {
-                                                    let http = reqwest::Client::new();
-                                                    match crate::whisper::transcribe_whisper(
-                                                        &http, key, &bytes,
-                                                    )
-                                                    .await
-                                                    {
-                                                        Ok(transcript) => {
-                                                            let secs = audio
-                                                                .seconds
-                                                                .unwrap_or(0);
-                                                            info!(
-                                                                "transcribed whatsapp voice ({secs}s)"
-                                                            );
-                                                            (
-                                                                format!(
-                                                                    "[Voice message] {transcript}"
-                                                                ),
-                                                                Vec::new(),
-                                                            )
-                                                        }
-                                                        Err(e) => {
-                                                            warn!(
-                                                                "whatsapp voice transcription failed: {e}"
-                                                            );
-                                                            return;
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    warn!(
-                                                        "whatsapp audio download failed: {e}"
-                                                    );
-                                                    return;
-                                                }
-                                            }
-                                        } else {
-                                            warn!(
-                                                "whatsapp client not available for audio download"
-                                            );
-                                            return;
-                                        }
-                                    }
-                                    _ => {
-                                        debug!("skipping whatsapp voice (no whisper key)");
-                                        return;
-                                    }
-                                }
-                            } else if text.is_empty() {
-                                return;
-                            } else {
-                                (text, Vec::new())
-                            };
-
-                            let chat_jid = info.source.chat.to_string();
-                            let sender_name = if info.push_name.is_empty() {
-                                phone.clone()
-                            } else {
-                                info.push_name.clone()
-                            };
-
-                            let incoming = IncomingMessage {
-                                id: Uuid::new_v4(),
-                                channel: "whatsapp".to_string(),
-                                sender_id: phone.clone(),
-                                sender_name: Some(sender_name),
-                                text,
-                                timestamp: chrono::Utc::now(),
-                                reply_to: None,
-                                attachments,
-                                reply_target: Some(chat_jid),
-                                is_group,
-                            };
-
-                            if tx.send(incoming).await.is_err() {
-                                info!("whatsapp channel receiver dropped");
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            })
-            .build()
-            .await
-            .map_err(|e| OmegaError::Channel(format!("whatsapp bot build failed: {e}")))?;
-
-        // Store client reference immediately if already connected.
-        *client_handle.lock().await = Some(bot.client());
-
-        // Run bot in background.
-        let _handle = bot
-            .run()
-            .await
-            .map_err(|e| OmegaError::Channel(format!("whatsapp bot run failed: {e}")))?;
-
+        *self.msg_tx.lock().await = Some(tx.clone());
+        self.build_and_run_bot(tx).await?;
         info!("WhatsApp channel started");
         Ok(rx)
     }
@@ -427,6 +352,190 @@ impl Channel for WhatsAppChannel {
         info!("WhatsApp channel stopped");
         *self.client.lock().await = None;
         Ok(())
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+// --- Message handling (extracted for reuse across bot instances) ---
+
+/// Process an incoming WhatsApp message event.
+///
+/// Handles filtering (self-chat vs group, auth, echo prevention),
+/// message unwrapping, image/voice downloads, and forwarding to the gateway.
+async fn handle_whatsapp_message(
+    msg: waproto::whatsapp::Message,
+    info: wacore::types::message::MessageInfo,
+    tx: &mpsc::Sender<IncomingMessage>,
+    allowed: &[String],
+    client_store: &Arc<Mutex<Option<Arc<Client>>>>,
+    sent_ids: &Arc<Mutex<HashSet<String>>>,
+    whisper_key: &Option<String>,
+) {
+    let is_group = info.source.is_group;
+
+    debug!(
+        "WA msg: is_group={}, is_from_me={}, sender={}, chat={}",
+        is_group,
+        info.source.is_from_me,
+        info.source.sender.user,
+        info.source.chat.user,
+    );
+
+    if is_group {
+        if info.source.is_from_me {
+            return;
+        }
+    } else {
+        if !info.source.is_from_me {
+            return;
+        }
+        if info.source.sender.user != info.source.chat.user {
+            debug!(
+                "WA filtered: sender '{}' != chat '{}'",
+                info.source.sender.user, info.source.chat.user
+            );
+            return;
+        }
+    }
+
+    let msg_id = info.id.clone();
+    let phone = info.source.sender.user.clone();
+
+    if sent_ids.lock().await.remove(&msg_id) {
+        debug!("skipping own echo: {msg_id}");
+        return;
+    }
+
+    if !allowed.is_empty() && !allowed.contains(&phone) {
+        warn!("ignoring whatsapp message from unauthorized {phone}");
+        return;
+    }
+
+    // Unwrap nested wrappers (device_sent, ephemeral, view_once).
+    let inner = msg
+        .device_sent_message
+        .as_ref()
+        .and_then(|d| d.message.as_deref())
+        .or_else(|| {
+            msg.ephemeral_message
+                .as_ref()
+                .and_then(|e| e.message.as_deref())
+        })
+        .or_else(|| {
+            msg.view_once_message
+                .as_ref()
+                .and_then(|v| v.message.as_deref())
+        })
+        .unwrap_or(&msg);
+
+    let text = inner
+        .conversation
+        .as_deref()
+        .or_else(|| {
+            inner
+                .extended_text_message
+                .as_ref()
+                .and_then(|e| e.text.as_deref())
+        })
+        .unwrap_or("")
+        .to_string();
+
+    let (text, attachments) = if let Some(ref img) = inner.image_message {
+        let caption = img.caption.as_deref().unwrap_or("[Photo]").to_string();
+        let wa_client = { client_store.lock().await.clone() };
+        if let Some(wa_client) = wa_client {
+            match wa_client.download(img.as_ref()).await {
+                Ok(bytes) => {
+                    let ext = img
+                        .mimetype
+                        .as_deref()
+                        .and_then(|m| m.split('/').nth(1))
+                        .unwrap_or("jpg");
+                    let filename = format!("{}.{ext}", Uuid::new_v4());
+                    let attachment = Attachment {
+                        file_type: AttachmentType::Image,
+                        url: None,
+                        data: Some(bytes),
+                        filename: Some(filename),
+                    };
+                    info!("downloaded whatsapp image");
+                    (caption, vec![attachment])
+                }
+                Err(e) => {
+                    warn!("whatsapp image download failed: {e}");
+                    return;
+                }
+            }
+        } else {
+            warn!("whatsapp client not available for image download");
+            return;
+        }
+    } else if let Some(ref audio) = inner.audio_message {
+        match whisper_key.as_deref() {
+            Some(key) if !key.is_empty() => {
+                let wa_client = { client_store.lock().await.clone() };
+                if let Some(wa_client) = wa_client {
+                    match wa_client.download(audio.as_ref()).await {
+                        Ok(bytes) => {
+                            let http = reqwest::Client::new();
+                            match crate::whisper::transcribe_whisper(&http, key, &bytes).await {
+                                Ok(transcript) => {
+                                    let secs = audio.seconds.unwrap_or(0);
+                                    info!("transcribed whatsapp voice ({secs}s)");
+                                    (format!("[Voice message] {transcript}"), Vec::new())
+                                }
+                                Err(e) => {
+                                    warn!("whatsapp voice transcription failed: {e}");
+                                    return;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!("whatsapp audio download failed: {e}");
+                            return;
+                        }
+                    }
+                } else {
+                    warn!("whatsapp client not available for audio download");
+                    return;
+                }
+            }
+            _ => {
+                debug!("skipping whatsapp voice (no whisper key)");
+                return;
+            }
+        }
+    } else if text.is_empty() {
+        return;
+    } else {
+        (text, Vec::new())
+    };
+
+    let chat_jid = info.source.chat.to_string();
+    let sender_name = if info.push_name.is_empty() {
+        phone.clone()
+    } else {
+        info.push_name.clone()
+    };
+
+    let incoming = IncomingMessage {
+        id: Uuid::new_v4(),
+        channel: "whatsapp".to_string(),
+        sender_id: phone.clone(),
+        sender_name: Some(sender_name),
+        text,
+        timestamp: chrono::Utc::now(),
+        reply_to: None,
+        attachments,
+        reply_target: Some(chat_jid),
+        is_group,
+    };
+
+    if tx.send(incoming).await.is_err() {
+        info!("whatsapp channel receiver dropped");
     }
 }
 

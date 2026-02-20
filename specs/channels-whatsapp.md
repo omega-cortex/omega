@@ -60,11 +60,18 @@ pub struct WhatsAppChannel {
     data_dir: String,
     client: Arc<Mutex<Option<Arc<Client>>>>,
     sent_ids: Arc<Mutex<HashSet<String>>>,
+    qr_tx: Arc<Mutex<Option<mpsc::Sender<String>>>>,
+    pair_done_tx: Arc<Mutex<Option<mpsc::Sender<bool>>>>,
+    last_qr: Arc<Mutex<Option<String>>>,
+    msg_tx: Arc<Mutex<Option<mpsc::Sender<IncomingMessage>>>>,
 }
 ```
 
 - `client` — set during the `Connected` event and cleared on disconnect/logout.
 - `sent_ids` — tracks sent message IDs to prevent echo loops in self-chat.
+- `qr_tx` / `pair_done_tx` — optional senders for forwarding QR/pairing events from the running bot to the gateway (set by `pairing_channels()`).
+- `last_qr` — buffers the last QR code data so `pairing_channels()` can replay it even if the QR event fired before the gateway started listening.
+- `msg_tx` — stored message sender from `start()`, reused by `restart_for_pairing()` to build a new bot on the same message channel.
 
 ---
 
@@ -85,12 +92,12 @@ pub struct WhatsAppChannel {
 
 | Event | Action |
 |-------|--------|
-| `PairingQrCode { code, .. }` | Logs QR availability |
-| `PairSuccess` | Logs success |
-| `Connected` | Stores `Arc<Client>` for sending |
+| `PairingQrCode { code, .. }` | Buffers in `last_qr`, forwards `code` to `qr_tx` if set |
+| `PairSuccess` | Logs success, sends `true` to `pair_done_tx` if set |
+| `Connected` | Stores `Arc<Client>` for sending, clears `last_qr`, sends `true` to `pair_done_tx` if set |
 | `Disconnected` | Clears client reference |
 | `LoggedOut` | Clears client reference, warns about invalidated session |
-| `Message(msg, info)` | Group-aware filter, echo prevention, message unwrapping, text/image/voice extraction, auth check, forward to gateway |
+| `Message(msg, info)` | Delegates to `handle_whatsapp_message()` — group-aware filter, echo prevention, message unwrapping, text/image/voice extraction, auth check, forward to gateway |
 
 ### Message Processing Pipeline
 
@@ -124,15 +131,29 @@ pub struct WhatsAppChannel {
 |----------|-----------|---------|
 | `generate_qr_terminal` | `fn(qr_data: &str) -> Result<String, OmegaError>` | Unicode QR for terminal display |
 | `generate_qr_image` | `fn(qr_data: &str) -> Result<Vec<u8>, OmegaError>` | PNG bytes for sending as photo |
-| `start_pairing` | `async fn(data_dir: &str) -> Result<(Receiver<String>, Receiver<bool>), OmegaError>` | Pairing flow: yields QR data strings + completion signal |
+| `start_pairing` | `async fn(data_dir: &str) -> Result<(Receiver<String>, Receiver<bool>), OmegaError>` | Standalone pairing flow for CLI (`omega init`) — creates a separate bot. **Not used by gateway** (see `pairing_channels()`). |
+
+### Instance Methods
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `is_connected` | `async fn(&self) -> bool` | Returns `true` if the WhatsApp client is currently connected. |
+| `pairing_channels` | `async fn(&self) -> (Receiver<String>, Receiver<bool>)` | Creates fresh `(qr_rx, done_rx)` receivers that forward events from the running bot. Replays buffered `last_qr` if available. Calling this replaces any previous senders. |
+| `restart_for_pairing` | `async fn(&self) -> Result<(), OmegaError>` | Deletes the stale session directory, clears the client, and builds+runs a fresh bot on the same message channel. Used when WhatsApp was unlinked from the phone — the library won't generate QR codes with invalidated session keys. |
+
+### Internal Helper
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `build_and_run_bot` | `async fn(&self, tx: Sender<IncomingMessage>) -> Result<(), OmegaError>` | Builds the WhatsApp bot with event handler and runs it in background. Shared by `start()` and `restart_for_pairing()`. |
 
 ---
 
 ## Pairing Entry Points
 
-1. **CLI (`omega init`)**: Terminal QR code, blocks until scan or timeout.
-2. **Telegram `/whatsapp` command**: QR sent as image via `send_photo()`.
-3. **Conversational trigger**: AI responds with `WHATSAPP_QR` marker, gateway intercepts and runs the same flow.
+1. **CLI (`omega init`)**: Uses `start_pairing()` (creates a separate bot). Terminal QR code, blocks until scan or timeout. No conflict since the gateway isn't running.
+2. **Telegram `/whatsapp` command**: Gateway downcasts to `WhatsAppChannel`, calls `pairing_channels()` to get receivers from the running bot, sends QR image via `send_photo()`. No second bot created.
+3. **Conversational trigger**: AI responds with `WHATSAPP_QR` marker, gateway intercepts and runs the same `pairing_channels()` flow.
 
 ---
 
@@ -145,11 +166,16 @@ WhatsApp uses `allowed_users: Vec<String>` (phone numbers). Empty = allow all.
 ### WHATSAPP_QR Marker
 
 The gateway extracts `WHATSAPP_QR` lines from AI responses (like `SCHEDULE:` and `LANG_SWITCH:`). When detected:
-1. Calls `whatsapp::start_pairing(data_dir)`
-2. Waits for QR data
-3. Renders QR as PNG via `generate_qr_image()`
-4. Sends image via `channel.send_photo()`
-5. Waits for pairing confirmation (60s timeout)
+1. Downcasts `channels["whatsapp"]` to `WhatsAppChannel` via `as_any()`
+2. If already connected → tells user, returns
+3. Calls `restart_for_pairing()` — deletes stale session + builds fresh bot (generates new QR codes)
+4. Calls `pairing_channels()` to get receivers from the fresh bot
+5. Waits for QR data (30s timeout)
+6. Renders QR as PNG via `generate_qr_image()`
+7. Sends image via `channel.send_photo()`
+8. Waits for pairing confirmation (60s timeout)
+
+No second bot is created — `restart_for_pairing()` replaces the current bot in-process. This handles both first-time pairing and re-pairing after unlinking from the phone.
 
 ---
 

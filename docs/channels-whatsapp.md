@@ -126,14 +126,18 @@ The `whatsapp` module exports public functions for QR code generation:
 
 - `generate_qr_terminal(data)` — Unicode string for terminal display
 - `generate_qr_image(data)` — PNG bytes for sending as an image
-- `start_pairing(data_dir)` — Full pairing flow with QR + completion channels
+- `start_pairing(data_dir)` — Standalone pairing flow for CLI (`omega init`), creates a separate bot
+- `pairing_channels()` — Instance method: returns receivers from the running bot for in-process pairing (used by gateway)
+- `restart_for_pairing()` — Instance method: deletes stale session and rebuilds the bot so it generates fresh QR codes (used by gateway when re-pairing after unlinking)
 
 ---
 
 ## Troubleshooting
 
-### Session expired
-If WhatsApp logs out the device (from phone settings), delete `~/.omega/whatsapp_session/` and re-pair:
+### Session expired / Re-pairing after unlinking
+If WhatsApp logs out the device (from phone settings), simply send `/whatsapp` again via Telegram. The gateway automatically deletes the stale session and generates a fresh QR code — no manual cleanup or service restart needed.
+
+For manual cleanup:
 ```bash
 rm -rf ~/.omega/whatsapp_session/
 omega init  # or /whatsapp from Telegram
@@ -142,7 +146,13 @@ omega init  # or /whatsapp from Telegram
 ### QR code not appearing
 Check that the `whatsapp-rust` dependencies are correctly installed. The library needs network access to WhatsApp servers.
 
-### Messages not received
+### Messages not received after pairing
+If you paired WhatsApp via `/whatsapp` but messages don't flow:
+- The gateway uses the running bot's event stream — no restart should be needed
+- Check logs for "WhatsApp connected" after scanning the QR code
+- If the session was previously invalidated, send `/whatsapp` again — the gateway automatically deletes the stale session and rebuilds the bot
+
+### Messages not received (general)
 - In personal mode, WhatsApp only processes self-chat messages (messages you send to yourself). In group chats, it responds to other participants.
 - Text, image, and voice messages are supported. Other media types (video, documents) are not yet processed and will be silently skipped.
 - Voice transcription requires `whisper_api_key` in config. Without it, voice messages are silently skipped.

@@ -4,6 +4,7 @@ use crate::{
     message::{IncomingMessage, OutgoingMessage},
 };
 use async_trait::async_trait;
+use std::any::Any;
 
 /// AI Provider trait — the brain.
 ///
@@ -57,4 +58,7 @@ pub trait Channel: Send + Sync {
 
     /// Graceful shutdown.
     async fn stop(&self) -> Result<(), OmegaError>;
+
+    /// Downcast support — enables the gateway to access channel-specific methods.
+    fn as_any(&self) -> &dyn Any;
 }

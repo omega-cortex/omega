@@ -133,6 +133,10 @@ impl Store {
                 "007_task_type",
                 include_str!("../migrations/007_task_type.sql"),
             ),
+            (
+                "008_user_aliases",
+                include_str!("../migrations/008_user_aliases.sql"),
+            ),
         ];
 
         for (name, sql) in migrations {
@@ -969,6 +973,52 @@ impl Store {
                 .map_err(|e| OmegaError::Memory(format!("query failed: {e}")))?;
 
         Ok(row.is_none())
+    }
+
+    /// Resolve a sender_id to its canonical form via the user_aliases table.
+    /// Returns the canonical sender_id if an alias exists, otherwise the original.
+    pub async fn resolve_sender_id(&self, sender_id: &str) -> Result<String, OmegaError> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT canonical_sender_id FROM user_aliases WHERE alias_sender_id = ?",
+        )
+        .bind(sender_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| OmegaError::Memory(format!("resolve alias failed: {e}")))?;
+
+        Ok(row.map(|(id,)| id).unwrap_or_else(|| sender_id.to_string()))
+    }
+
+    /// Create an alias mapping: alias_id → canonical_id.
+    pub async fn create_alias(&self, alias_id: &str, canonical_id: &str) -> Result<(), OmegaError> {
+        sqlx::query(
+            "INSERT OR IGNORE INTO user_aliases (alias_sender_id, canonical_sender_id) \
+             VALUES (?, ?)",
+        )
+        .bind(alias_id)
+        .bind(canonical_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| OmegaError::Memory(format!("create alias failed: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Find an existing welcomed user different from `sender_id` and return their sender_id.
+    /// Used to create cross-channel aliases (e.g., WhatsApp phone → Telegram ID).
+    pub async fn find_canonical_user(
+        &self,
+        exclude_sender_id: &str,
+    ) -> Result<Option<String>, OmegaError> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT sender_id FROM facts WHERE key = 'welcomed' AND sender_id != ? LIMIT 1",
+        )
+        .bind(exclude_sender_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| OmegaError::Memory(format!("query failed: {e}")))?;
+
+        Ok(row.map(|(id,)| id))
     }
 }
 
@@ -2069,5 +2119,87 @@ mod tests {
             !ctx3.system_prompt.contains("Onboarding hint"),
             "no hint when stage hasn't changed"
         );
+    }
+
+    // --- User alias tests ---
+
+    #[tokio::test]
+    async fn test_resolve_sender_id_no_alias() {
+        let store = test_store().await;
+        // No alias → returns original.
+        let resolved = store.resolve_sender_id("phone123").await.unwrap();
+        assert_eq!(resolved, "phone123");
+    }
+
+    #[tokio::test]
+    async fn test_create_and_resolve_alias() {
+        let store = test_store().await;
+        store.create_alias("phone123", "telegram456").await.unwrap();
+        let resolved = store.resolve_sender_id("phone123").await.unwrap();
+        assert_eq!(resolved, "telegram456");
+    }
+
+    #[tokio::test]
+    async fn test_create_alias_idempotent() {
+        let store = test_store().await;
+        store.create_alias("phone123", "telegram456").await.unwrap();
+        // Second insert is a no-op (INSERT OR IGNORE).
+        store.create_alias("phone123", "telegram456").await.unwrap();
+        let resolved = store.resolve_sender_id("phone123").await.unwrap();
+        assert_eq!(resolved, "telegram456");
+    }
+
+    #[tokio::test]
+    async fn test_find_canonical_user() {
+        let store = test_store().await;
+        // No users → None.
+        assert!(store
+            .find_canonical_user("new_user")
+            .await
+            .unwrap()
+            .is_none());
+
+        // Add an existing welcomed user.
+        store
+            .store_fact("telegram456", "welcomed", "true")
+            .await
+            .unwrap();
+
+        // find_canonical_user from a different sender → returns the existing one.
+        let canonical = store
+            .find_canonical_user("phone123")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(canonical, "telegram456");
+
+        // Excluding the existing user → None.
+        assert!(store
+            .find_canonical_user("telegram456")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn test_alias_shares_facts() {
+        let store = test_store().await;
+        // Store facts under canonical ID.
+        store
+            .store_fact("telegram456", "name", "Alice")
+            .await
+            .unwrap();
+        store
+            .store_fact("telegram456", "welcomed", "true")
+            .await
+            .unwrap();
+
+        // Create alias.
+        store.create_alias("phone123", "telegram456").await.unwrap();
+
+        // Resolve alias and read facts using canonical ID.
+        let resolved = store.resolve_sender_id("phone123").await.unwrap();
+        let facts = store.get_facts(&resolved).await.unwrap();
+        assert!(facts.iter().any(|(k, v)| k == "name" && v == "Alice"));
     }
 }

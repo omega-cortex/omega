@@ -492,6 +492,10 @@ impl Channel for TelegramChannel {
         info!("Telegram channel stopped");
         Ok(())
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 /// Download a file from Telegram servers by file_id.
