@@ -77,6 +77,7 @@ pub fn strip_all_remaining_markers(text: &str) -> String {
         "LANG_SWITCH:",
         "PERSONALITY:",
         "CANCEL_TASK:",
+        "UPDATE_TASK:",
         "PROJECT_ACTIVATE:",
         "PROJECT_DEACTIVATE",
         "SCHEDULE_ACTION:",
@@ -246,6 +247,59 @@ pub fn extract_cancel_task(text: &str) -> Option<String> {
 pub fn strip_cancel_task(text: &str) -> String {
     text.lines()
         .filter(|line| !line.trim().starts_with("CANCEL_TASK:"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+// ---------------------------------------------------------------------------
+// UPDATE_TASK
+// ---------------------------------------------------------------------------
+
+/// Extract the first `UPDATE_TASK:` line from response text.
+pub fn extract_update_task(text: &str) -> Option<String> {
+    text.lines()
+        .find(|line| line.trim().starts_with("UPDATE_TASK:"))
+        .map(|line| line.trim().to_string())
+}
+
+/// Parse an update task line: `UPDATE_TASK: id | desc | due_at | repeat`.
+///
+/// Empty fields (between pipes) are returned as `None`, meaning "keep existing".
+#[allow(clippy::type_complexity)]
+pub fn parse_update_task_line(
+    line: &str,
+) -> Option<(String, Option<String>, Option<String>, Option<String>)> {
+    let content = line.strip_prefix("UPDATE_TASK:")?.trim();
+    let parts: Vec<&str> = content.splitn(4, '|').collect();
+    if parts.len() != 4 {
+        return None;
+    }
+    let id = parts[0].trim().to_string();
+    if id.is_empty() {
+        return None;
+    }
+    let desc = non_empty_field(parts[1]);
+    let due_at = non_empty_field(parts[2]);
+    let repeat = non_empty_field(parts[3]);
+    Some((id, desc, due_at, repeat))
+}
+
+/// Return `Some(trimmed)` if the field is non-empty after trimming, else `None`.
+fn non_empty_field(s: &str) -> Option<String> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Strip all `UPDATE_TASK:` lines from response text.
+pub fn strip_update_task(text: &str) -> String {
+    text.lines()
+        .filter(|line| !line.trim().starts_with("UPDATE_TASK:"))
         .collect::<Vec<_>>()
         .join("\n")
         .trim()
@@ -1776,6 +1830,67 @@ mod tests {
     fn test_strip_cancel_task() {
         let text = "Cancelled.\nCANCEL_TASK: abc123\nDone.";
         assert_eq!(strip_cancel_task(text), "Cancelled.\nDone.");
+    }
+
+    // --- UPDATE_TASK ---
+
+    #[test]
+    fn test_extract_update_task() {
+        let text = "I've updated that.\nUPDATE_TASK: a1b2c3d4 | New description | 2026-03-01T09:00:00 | daily";
+        assert_eq!(
+            extract_update_task(text),
+            Some(
+                "UPDATE_TASK: a1b2c3d4 | New description | 2026-03-01T09:00:00 | daily".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_extract_update_task_none() {
+        assert!(extract_update_task("Just a normal response.").is_none());
+    }
+
+    #[test]
+    fn test_parse_update_task_line_all_fields() {
+        let line = "UPDATE_TASK: abc123 | New desc | 2026-03-01T09:00:00 | daily";
+        let (id, desc, due_at, repeat) = parse_update_task_line(line).unwrap();
+        assert_eq!(id, "abc123");
+        assert_eq!(desc, Some("New desc".to_string()));
+        assert_eq!(due_at, Some("2026-03-01T09:00:00".to_string()));
+        assert_eq!(repeat, Some("daily".to_string()));
+    }
+
+    #[test]
+    fn test_parse_update_task_line_empty_fields() {
+        let line = "UPDATE_TASK: abc123 | | | daily";
+        let (id, desc, due_at, repeat) = parse_update_task_line(line).unwrap();
+        assert_eq!(id, "abc123");
+        assert!(desc.is_none());
+        assert!(due_at.is_none());
+        assert_eq!(repeat, Some("daily".to_string()));
+    }
+
+    #[test]
+    fn test_parse_update_task_line_only_description() {
+        let line = "UPDATE_TASK: abc123 | Updated reminder text | | ";
+        let (id, desc, due_at, repeat) = parse_update_task_line(line).unwrap();
+        assert_eq!(id, "abc123");
+        assert_eq!(desc, Some("Updated reminder text".to_string()));
+        assert!(due_at.is_none());
+        assert!(repeat.is_none());
+    }
+
+    #[test]
+    fn test_parse_update_task_line_invalid() {
+        assert!(parse_update_task_line("UPDATE_TASK: missing pipes").is_none());
+        assert!(parse_update_task_line("not an update line").is_none());
+        assert!(parse_update_task_line("UPDATE_TASK:  | desc | time | once").is_none());
+    }
+
+    #[test]
+    fn test_strip_update_task() {
+        let text = "Updated.\nUPDATE_TASK: abc123 | | | daily\nDone.";
+        assert_eq!(strip_update_task(text), "Updated.\nDone.");
     }
 
     // --- PURGE_FACTS ---

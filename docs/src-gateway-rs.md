@@ -414,7 +414,23 @@ FORGET_CONVERSATION
 CANCEL_TASK: a1b2c3d4
 ```
 
-### Stage 6c-5: Purge Facts Marker
+### Stage 6c-5: Update Task Marker
+
+**What happens:** The gateway scans for an `UPDATE_TASK:` marker. If found, it updates the matching pending task's fields (description, due_at, repeat). Empty fields are left unchanged.
+
+**Implementation:**
+- Calls `extract_update_task(&response.text)` to find an `UPDATE_TASK:` line.
+- If found, calls `parse_update_task_line()` to extract (id, desc?, due_at?, repeat?).
+- Calls `memory.update_task(&id_prefix, sender_id, desc, due_at, repeat)`.
+- Calls `strip_update_task()` to remove the marker.
+
+**Marker Format:**
+```
+UPDATE_TASK: abc123 | New description | 2026-03-01T09:00:00 | daily
+UPDATE_TASK: abc123 | | | daily          (changes only recurrence)
+```
+
+### Stage 6c-6: Purge Facts Marker
 
 **What happens:** The gateway scans for a `PURGE_FACTS` marker — the conversational equivalent of `/purge`. If found, it deletes all non-system facts (preserving `welcomed`, `preferred_language`, `active_project`, `personality`).
 
@@ -432,7 +448,7 @@ PURGE_FACTS
 ```
 
 **Why These Exist:**
-Users shouldn't need to memorize slash commands. When a user says "be more casual", "forget this conversation", "cancel that reminder", or "delete everything you know about me", OMEGA acts via these markers — providing a zero-friction conversational UX.
+Users shouldn't need to memorize slash commands. When a user says "be more casual", "forget this conversation", "cancel that reminder", "make that reminder daily", or "delete everything you know about me", OMEGA acts via these markers — providing a zero-friction conversational UX.
 
 ### Stage 6d: Heartbeat Marker Extraction
 

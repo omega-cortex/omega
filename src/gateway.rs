@@ -1982,6 +1982,28 @@ impl Gateway {
             *text = strip_cancel_task(text);
         }
 
+        // UPDATE_TASK
+        if let Some(update_line) = extract_update_task(text) {
+            if let Some((id_prefix, desc, due_at, repeat)) = parse_update_task_line(&update_line) {
+                match self
+                    .memory
+                    .update_task(
+                        &id_prefix,
+                        &incoming.sender_id,
+                        desc.as_deref(),
+                        due_at.as_deref(),
+                        repeat.as_deref(),
+                    )
+                    .await
+                {
+                    Ok(true) => info!("task updated via marker: {id_prefix}"),
+                    Ok(false) => warn!("no matching task for update marker: {id_prefix}"),
+                    Err(e) => error!("failed to update task via marker: {e}"),
+                }
+            }
+            *text = strip_update_task(text);
+        }
+
         // PURGE_FACTS
         if has_purge_marker(text) {
             // Save system facts first.

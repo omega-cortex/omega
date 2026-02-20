@@ -840,6 +840,57 @@ impl Store {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Update fields of a pending task by ID prefix (must match sender).
+    ///
+    /// Only non-`None` fields are updated. Returns `true` if a row was modified.
+    pub async fn update_task(
+        &self,
+        id_prefix: &str,
+        sender_id: &str,
+        description: Option<&str>,
+        due_at: Option<&str>,
+        repeat: Option<&str>,
+    ) -> Result<bool, OmegaError> {
+        let mut sets = Vec::new();
+        let mut values: Vec<String> = Vec::new();
+
+        if let Some(d) = description {
+            sets.push("description = ?");
+            values.push(d.to_string());
+        }
+        if let Some(d) = due_at {
+            sets.push("due_at = ?");
+            values.push(d.to_string());
+        }
+        if let Some(r) = repeat {
+            sets.push("repeat = ?");
+            values.push(r.to_string());
+        }
+
+        if sets.is_empty() {
+            return Ok(false);
+        }
+
+        let sql = format!(
+            "UPDATE scheduled_tasks SET {} WHERE id LIKE ? AND sender_id = ? AND status = 'pending'",
+            sets.join(", ")
+        );
+
+        let mut query = sqlx::query(&sql);
+        for v in &values {
+            query = query.bind(v);
+        }
+        query = query.bind(format!("{id_prefix}%"));
+        query = query.bind(sender_id);
+
+        let result = query
+            .execute(&self.pool)
+            .await
+            .map_err(|e| OmegaError::Memory(format!("update task failed: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
     /// Get all facts across all users — for heartbeat context enrichment.
     pub async fn get_all_facts(&self) -> Result<Vec<(String, String)>, OmegaError> {
         let rows: Vec<(String, String)> =
@@ -1430,6 +1481,111 @@ mod tests {
         // Task still exists.
         let tasks = store.get_tasks_for_sender("user1").await.unwrap();
         assert_eq!(tasks.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_update_task_description() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "Old desc",
+                "2099-12-31T00:00:00",
+                None,
+                "reminder",
+            )
+            .await
+            .unwrap();
+
+        let prefix = &id[..8];
+        let updated = store
+            .update_task(prefix, "user1", Some("New desc"), None, None)
+            .await
+            .unwrap();
+        assert!(updated);
+
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert_eq!(tasks[0].1, "New desc");
+    }
+
+    #[tokio::test]
+    async fn test_update_task_repeat() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "My task",
+                "2099-12-31T00:00:00",
+                Some("once"),
+                "reminder",
+            )
+            .await
+            .unwrap();
+
+        let prefix = &id[..8];
+        let updated = store
+            .update_task(prefix, "user1", None, None, Some("daily"))
+            .await
+            .unwrap();
+        assert!(updated);
+
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert_eq!(tasks[0].3, Some("daily".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_update_task_wrong_sender() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "My task",
+                "2099-12-31T00:00:00",
+                None,
+                "reminder",
+            )
+            .await
+            .unwrap();
+
+        let prefix = &id[..8];
+        let updated = store
+            .update_task(prefix, "user2", Some("Hacked"), None, None)
+            .await
+            .unwrap();
+        assert!(!updated);
+
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert_eq!(tasks[0].1, "My task");
+    }
+
+    #[tokio::test]
+    async fn test_update_task_no_fields() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "My task",
+                "2099-12-31T00:00:00",
+                None,
+                "reminder",
+            )
+            .await
+            .unwrap();
+
+        let prefix = &id[..8];
+        let updated = store
+            .update_task(prefix, "user1", None, None, None)
+            .await
+            .unwrap();
+        assert!(!updated);
     }
 
     #[tokio::test]

@@ -626,11 +626,12 @@ pub struct Gateway {
 6. PERSONALITY — set/reset personality preference (conversational `/personality`)
 7. FORGET_CONVERSATION — close current conversation (conversational `/forget`)
 8. CANCEL_TASK — cancel a scheduled task by ID prefix (conversational `/cancel`)
-9. PURGE_FACTS — delete all non-system facts, preserving system keys (conversational `/purge`)
-10. HEARTBEAT_ADD / HEARTBEAT_REMOVE / HEARTBEAT_INTERVAL — update heartbeat checklist or interval
-11. LIMITATION — store limitation, alert owner, add to heartbeat
-12. SELF_HEAL — create/update self-healing state, notify owner, schedule verification
-13. SELF_HEAL_RESOLVED — delete self-healing state, notify owner
+9. UPDATE_TASK — update fields of a pending task by ID prefix (description, due_at, repeat; empty fields keep existing values)
+10. PURGE_FACTS — delete all non-system facts, preserving system keys (conversational `/purge`)
+11. HEARTBEAT_ADD / HEARTBEAT_REMOVE / HEARTBEAT_INTERVAL — update heartbeat checklist or interval
+12. LIMITATION — store limitation, alert owner, add to heartbeat
+13. SELF_HEAL — create/update self-healing state, notify owner, schedule verification
+14. SELF_HEAL_RESOLVED — delete self-healing state, notify owner
 
 **Logic:** For each marker type: extract from text, process side effects (DB writes, notifications, file updates), strip the marker from text. Mutates `text` in place.
 
@@ -1199,9 +1200,9 @@ All interactions are logged to SQLite with:
 31. Model routing: `context.model` is set by classify-and-route before the provider call. The provider resolves the effective model via `context.model.as_deref().unwrap_or(&self.model)`.
 32. SELF_HEAL: markers (format: `SELF_HEAL: description | verification test`) are processed after LIMITATION markers. The gateway parses both description and verification test, creates or updates `~/.omega/self-healing.json` (including the `verification` field), enforces max 10 iterations in code, schedules follow-up action tasks (2 min delay) with the verification test embedded in the prompt, and sends owner notifications via heartbeat channel. At max iterations, sends escalation alert and preserves state file. Processed in `handle_message` (direct), `execute_steps` (multi-step), and `scheduler_loop` — all via `process_markers()`.
 33. SELF_HEAL_RESOLVED markers trigger deletion of `~/.omega/self-healing.json` and send a resolution notification to the owner via heartbeat channel. Processed in `handle_message` (direct), `execute_steps` (multi-step), and `scheduler_loop` — all via `process_markers()`.
-34. All response markers (SCHEDULE, SCHEDULE_ACTION, PROJECT, LANG_SWITCH, PERSONALITY, FORGET_CONVERSATION, CANCEL_TASK, PURGE_FACTS, HEARTBEAT, LIMITATION, SELF_HEAL, SELF_HEAL_RESOLVED) are processed via the unified `process_markers()` method, ensuring they work in both the direct response path (`handle_message`) and the multi-step execution path (`execute_steps`).
+34. All response markers (SCHEDULE, SCHEDULE_ACTION, PROJECT, LANG_SWITCH, PERSONALITY, FORGET_CONVERSATION, CANCEL_TASK, UPDATE_TASK, PURGE_FACTS, HEARTBEAT, LIMITATION, SELF_HEAL, SELF_HEAL_RESOLVED) are processed via the unified `process_markers()` method, ensuring they work in both the direct response path (`handle_message`) and the multi-step execution path (`execute_steps`).
 35. All system markers must use their exact English prefix regardless of conversation language. The gateway parses markers as literal string prefixes — a translated or paraphrased marker is a silent failure. The system prompt explicitly instructs the AI: "Speak to the user in their language; speak to the system in markers."
-36. Conversational command markers (PERSONALITY, FORGET_CONVERSATION, CANCEL_TASK, PURGE_FACTS) provide zero-friction equivalents of slash commands — users can say "be more casual" instead of `/personality casual`. The AI emits the marker; `process_markers()` handles it identically to the slash command.
+36. Conversational command markers (PERSONALITY, FORGET_CONVERSATION, CANCEL_TASK, UPDATE_TASK, PURGE_FACTS) provide zero-friction equivalents of slash commands — users can say "be more casual" instead of `/personality casual`. The AI emits the marker; `process_markers()` handles it identically to the slash command.
 37. PURGE_FACTS preserves system fact keys (`welcomed`, `preferred_language`, `active_project`, `personality`) — same logic as `/purge` in `commands.rs`.
 
 ## Tests
