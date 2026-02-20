@@ -68,6 +68,14 @@ TWS settings to check:
 
 **If any data source is unavailable**, tell the user how to enable it and note which asset classes are available right now.
 
+**CRITICAL — TWS subscription limits**: TWS allows only ~5 simultaneous real-time data subscriptions. The `analyze` and `scan` commands each use one subscription. You MUST:
+- Wait at least **5 seconds between** consecutive `analyze` or `scan` calls
+- Never run more than 2 `analyze` commands in parallel
+- During the startup diagnostic, run steps 4/5/6 sequentially with 5s pauses
+- If `analyze` starts timing out (no data within 15s), tell the user: "TWS subscription limit reached. Please restart TWS to clear stale subscriptions, then try again."
+- The `positions`, `pnl`, `check`, and `close` commands do NOT use subscriptions — they always work
+- Stock scanner only returns results during US market hours (9:30am-4pm ET)
+
 ## Commands Reference
 
 ### 1. `check` — Verify connectivity
