@@ -128,20 +128,45 @@ omega --config /path/to/config.toml ask "Your question here"
 **When to use:** Quick queries without starting the full agent. Useful for scripts, one-off tasks, or testing that Claude is working.
 
 ### 4. omega init
-**Purpose:** Interactive setup wizard
+**Purpose:** Interactive setup wizard or non-interactive deployment
 
+**Interactive mode** (default, no deployment args):
 ```bash
 omega init
 ```
 
+**Non-interactive mode** (when `--telegram-token` or `--allowed-users` is provided):
+```bash
+# Minimal non-interactive deployment
+omega init --telegram-token "123:ABC" --allowed-users "842277204,123456"
+
+# Via environment variables
+OMEGA_TELEGRAM_TOKEN="123:ABC" OMEGA_ALLOWED_USERS="842277204" omega init
+
+# Full options
+omega init --telegram-token "123:ABC" --allowed-users "842277204" \
+  --claude-setup-token "..." --whisper-key "sk-..." --sandbox rx \
+  --google-credentials ~/client_secret.json --google-email user@gmail.com
+```
+
+**Available CLI arguments** (all support `OMEGA_` env var prefix):
+
+| Argument | Env Var | Purpose |
+|----------|---------|---------|
+| `--telegram-token` | `OMEGA_TELEGRAM_TOKEN` | Telegram bot token |
+| `--allowed-users` | `OMEGA_ALLOWED_USERS` | Comma-separated Telegram user IDs |
+| `--claude-setup-token` | `OMEGA_CLAUDE_SETUP_TOKEN` | Anthropic setup token for headless auth |
+| `--whisper-key` | `OMEGA_WHISPER_KEY` | OpenAI API key for Whisper transcription |
+| `--sandbox` | `OMEGA_SANDBOX` | Sandbox mode: `sandbox`, `rx`, or `rwx` |
+| `--google-credentials` | `OMEGA_GOOGLE_CREDENTIALS` | Path to Google OAuth client_secret.json |
+| `--google-email` | `OMEGA_GOOGLE_EMAIL` | Gmail address for Google Workspace |
+
 **What it does:**
-- Guides you through configuration step-by-step
-- Asks for provider selection
-- Asks for Telegram bot token (if enabling Telegram)
-- Asks for other settings
+- **Interactive:** Guides you through configuration step-by-step with cliclack-styled prompts
+- **Non-interactive:** Validates inputs, creates `~/.omega/`, generates `config.toml`, installs service -- all without user interaction
 - Creates or updates your `config.toml` file
 
-**When to use:** First-time setup, or when reconfiguring from scratch.
+**When to use:** First-time setup (interactive), automated/scripted deployments (non-interactive), or when reconfiguring from scratch.
 
 ### 5. omega pair
 **Purpose:** Pair (or re-pair) WhatsApp by scanning a QR code
@@ -294,13 +319,27 @@ Exit
 
 #### If `omega init`:
 ```
-Run interactive setup wizard
-    ↓
-Guide user through questions
-    ↓
-Create config.toml
-    ↓
-Exit
+Check: --telegram-token or --allowed-users provided?
+    ├─ Yes → Non-interactive deployment (init::run_noninteractive)
+    │        ↓
+    │   Parse --allowed-users (comma-separated i64 values)
+    │   Validate --sandbox mode (sandbox/rx/rwx)
+    │        ↓
+    │   Create ~/.omega, validate Claude CLI
+    │   Apply --claude-setup-token if provided
+    │   Register --google-credentials if provided
+    │        ↓
+    │   Generate config.toml, install service quietly
+    │        ↓
+    │   Exit
+    │
+    └─ No  → Interactive setup wizard (init::run)
+             ↓
+        Guide user through questions (cliclack prompts)
+             ↓
+        Create config.toml
+             ↓
+        Exit
 ```
 
 ## Important Security Notes
@@ -453,7 +492,7 @@ For full details, see the [service documentation](src-service-rs.md).
 | `omega start` | Launch the agent | Run continuously (via LaunchAgent) |
 | `omega status` | Health check | Verify setup before starting |
 | `omega ask` | One-shot query | Quick question, scripting |
-| `omega init` | Setup wizard | First-time configuration |
+| `omega init` | Setup wizard / deployment | First-time config (interactive or non-interactive) |
 | `omega pair` | WhatsApp QR pairing | Link/re-link WhatsApp |
 | `omega service install` | Install system service | Auto-start on login |
 | `omega service uninstall` | Remove system service | Clean removal |

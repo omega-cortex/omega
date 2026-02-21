@@ -18,22 +18,86 @@ The wizard eliminates these friction points through guided, interactive setup.
 
 ## What is `omega init`?
 
-`omega init` is the **onboarding command** for Omega. It's the first thing a new user runs after cloning the repository.
+`omega init` is the **onboarding command** for Omega. It's the first thing a new user runs after cloning the repository. It supports two modes: **interactive** (guided wizard) and **non-interactive** (programmatic deployment via CLI args or env vars).
 
 ### Command Usage
+
+**Interactive mode** (default):
 ```bash
 omega init
+```
+
+**Non-interactive mode** (when `--telegram-token` or `--allowed-users` is provided):
+```bash
+omega init --telegram-token "123:ABC" --allowed-users "842277204,123456"
 ```
 
 ### Execution Context
 - **Requires:** Rust environment (user has already built/run Omega)
 - **Runs:** Synchronously in the terminal where user types
-- **Duration:** 1-3 minutes including user input time
-- **Output:** cliclack-styled prompts, spinners, confirmations, and next-step instructions
+- **Duration:** 1-3 minutes including user input time (interactive); seconds (non-interactive)
+- **Output:** cliclack-styled prompts, spinners, confirmations, and next-step instructions (interactive); tracing log messages (non-interactive)
 - **Side Effects:** Creates `~/.omega/`, generates `config.toml`, validates Claude CLI, optionally pairs WhatsApp, optionally connects Google Workspace
 
 ### Success Criteria
 User can run `omega start` immediately after and have a working bot.
+
+---
+
+## Non-Interactive Mode (Programmatic Deployment)
+
+When `--telegram-token` or `--allowed-users` is provided via CLI arguments or `OMEGA_` environment variables, `omega init` skips the interactive wizard entirely and performs a programmatic deployment. This is useful for:
+
+- Automated server provisioning (Docker, CI/CD)
+- Scripted deployments
+- Headless machines without TTY
+
+### Usage Examples
+
+**Minimal deployment with CLI args:**
+```bash
+omega init --telegram-token "123:ABC" --allowed-users "842277204,123456"
+```
+
+**Using environment variables:**
+```bash
+OMEGA_TELEGRAM_TOKEN="123:ABC" OMEGA_ALLOWED_USERS="842277204" omega init
+```
+
+**Full deployment with all options:**
+```bash
+omega init --telegram-token "123:ABC" --allowed-users "842277204" \
+  --claude-setup-token "..." --whisper-key "sk-..." --sandbox rx \
+  --google-credentials ~/client_secret.json --google-email user@gmail.com
+```
+
+### Available Arguments
+
+| Argument | Env Var | Default | Purpose |
+|----------|---------|---------|---------|
+| `--telegram-token` | `OMEGA_TELEGRAM_TOKEN` | — | Telegram bot token from @BotFather |
+| `--allowed-users` | `OMEGA_ALLOWED_USERS` | — | Comma-separated Telegram user IDs |
+| `--claude-setup-token` | `OMEGA_CLAUDE_SETUP_TOKEN` | — | Anthropic setup token for headless Claude CLI auth |
+| `--whisper-key` | `OMEGA_WHISPER_KEY` | — | OpenAI API key for Whisper voice transcription |
+| `--sandbox` | `OMEGA_SANDBOX` | `sandbox` | Sandbox mode: `sandbox`, `rx`, or `rwx` |
+| `--google-credentials` | `OMEGA_GOOGLE_CREDENTIALS` | — | Path to Google OAuth `client_secret.json` |
+| `--google-email` | `OMEGA_GOOGLE_EMAIL` | — | Gmail address for Google Workspace |
+
+### Non-Interactive Flow Steps
+
+1. **Parse arguments** -- Validate `--allowed-users` (comma-separated integers) and `--sandbox` (must be `sandbox`, `rx`, or `rwx`)
+2. **Create data directory** -- `~/.omega/` created if missing
+3. **Validate Claude CLI** -- Same check as interactive mode (`claude --version`)
+4. **Apply setup token** -- If `--claude-setup-token` provided, runs `claude setup-token <token>`
+5. **Register Google credentials** -- If `--google-credentials` provided, runs `gog auth credentials <path>`
+6. **Generate config** -- Writes `config.toml` from provided arguments (skips if file exists)
+7. **Install service** -- Calls `service::install_quiet()` for non-interactive service installation
+
+### Error Handling
+- Invalid `--allowed-users` (non-numeric values) causes immediate failure with a descriptive error
+- Invalid `--sandbox` mode causes immediate failure listing valid options
+- Missing Claude CLI is fatal (same as interactive mode)
+- Google credential failures are non-fatal (warning logged, deployment continues)
 
 ---
 

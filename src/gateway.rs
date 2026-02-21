@@ -9,7 +9,10 @@ use crate::markers::*;
 use crate::task_confirmation::{self, MarkerResult};
 use omega_channels::whatsapp;
 use omega_core::{
-    config::{shellexpand, AuthConfig, ChannelConfig, HeartbeatConfig, Prompts, SchedulerConfig},
+    config::{
+        shellexpand, ApiConfig, AuthConfig, ChannelConfig, HeartbeatConfig, Prompts,
+        SchedulerConfig,
+    },
     context::{Context, ContextEntry},
     message::{IncomingMessage, MessageMetadata, OutgoingMessage},
     sanitize,
@@ -88,6 +91,7 @@ pub struct Gateway {
     channel_config: ChannelConfig,
     heartbeat_config: HeartbeatConfig,
     scheduler_config: SchedulerConfig,
+    api_config: ApiConfig,
     prompts: Prompts,
     data_dir: String,
     skills: Vec<omega_skills::Skill>,
@@ -117,6 +121,7 @@ impl Gateway {
         channel_config: ChannelConfig,
         heartbeat_config: HeartbeatConfig,
         scheduler_config: SchedulerConfig,
+        api_config: ApiConfig,
         prompts: Prompts,
         data_dir: String,
         skills: Vec<omega_skills::Skill>,
@@ -137,6 +142,7 @@ impl Gateway {
             channel_config,
             heartbeat_config,
             scheduler_config,
+            api_config,
             prompts,
             data_dir,
             skills,
@@ -281,6 +287,18 @@ impl Gateway {
             None
         };
 
+        // Spawn HTTP API server.
+        let api_handle = if self.api_config.enabled {
+            let api_cfg = self.api_config.clone();
+            let api_channels = self.channels.clone();
+            let api_uptime = self.uptime;
+            Some(tokio::spawn(async move {
+                crate::api::serve(api_cfg, api_channels, api_uptime).await;
+            }))
+        } else {
+            None
+        };
+
         // Main event loop with graceful shutdown.
         loop {
             tokio::select! {
@@ -298,8 +316,14 @@ impl Gateway {
         }
 
         // Graceful shutdown.
-        self.shutdown(&bg_handle, &sched_handle, &hb_handle, &claudemd_handle)
-            .await;
+        self.shutdown(
+            &bg_handle,
+            &sched_handle,
+            &hb_handle,
+            &claudemd_handle,
+            &api_handle,
+        )
+        .await;
         Ok(())
     }
 
@@ -1010,6 +1034,7 @@ impl Gateway {
         sched_handle: &Option<tokio::task::JoinHandle<()>>,
         hb_handle: &Option<tokio::task::JoinHandle<()>>,
         claudemd_handle: &Option<tokio::task::JoinHandle<()>>,
+        api_handle: &Option<tokio::task::JoinHandle<()>>,
     ) {
         info!("Shutting down...");
 
@@ -1022,6 +1047,9 @@ impl Gateway {
             h.abort();
         }
         if let Some(h) = claudemd_handle {
+            h.abort();
+        }
+        if let Some(h) = api_handle {
             h.abort();
         }
 

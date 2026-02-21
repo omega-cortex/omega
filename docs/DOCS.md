@@ -36,6 +36,9 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 - [memory-migration-007.md](memory-migration-007.md) — Task type column for action scheduler
 - [memory-migration-009.md](memory-migration-009.md) — Task retry columns for action failure handling
 
+### HTTP API
+- [api.md](api.md) — HTTP API for SaaS dashboard integration (health, WhatsApp QR pairing)
+
 ### Operations
 - [operations.md](operations.md) — LaunchAgent setup, logging, self-check, graceful shutdown
 - [service.md](service.md) — OS-aware service management (install, uninstall, status)

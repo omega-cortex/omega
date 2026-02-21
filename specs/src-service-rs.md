@@ -12,7 +12,8 @@ The `service.rs` module contains:
 - `generate_plist(binary, config, working_dir, data_dir) -> String` — Public pure function generating macOS LaunchAgent plist content
 - `generate_systemd_unit(binary, config, working_dir, data_dir) -> String` — Public pure function generating Linux systemd user unit content
 - `service_file_path() -> PathBuf` — Private helper returning the OS-specific service file location
-- `install(config_path) -> Result<()>` — Public interactive function to install the service
+- `install(config_path) -> Result<()>` — Public interactive function to install the service (uses cliclack prompts)
+- `install_quiet(config_path) -> Result<()>` — Public non-interactive function to install the service without cliclack prompts; used by `omega init --telegram-token ...` non-interactive deployment path. Performs the same steps as `install()` but logs via `tracing` instead of cliclack, skips the overwrite confirmation (always overwrites), and never prompts for user input.
 - `uninstall() -> Result<()>` — Public interactive function to remove the service
 - `status() -> Result<()>` — Public interactive function to check service status
 - `stop_service(path)` — Private helper to deactivate the service
@@ -78,7 +79,7 @@ Home directory is resolved from the `HOME` environment variable.
 
 ---
 
-## Install Flow
+## Install Flow (Interactive)
 
 1. `cliclack::intro("omega service install")`
 2. Resolve binary path via `std::env::current_exe()` + `canonicalize()`
@@ -91,6 +92,14 @@ Home directory is resolved from the `HOME` environment variable.
 9. Create parent directories, write file
 10. Activate via `launchctl load` or `systemctl --user enable --now`
 11. `cliclack::outro("Omega will now start automatically on login")`
+
+## Install Flow (Non-Interactive — `install_quiet`)
+
+Same steps as the interactive flow, but:
+- No `cliclack::intro`/`cliclack::outro` — uses `tracing::info!` for status messages
+- If service file already exists, always overwrites without prompting (stops old service first)
+- No user confirmation required at any step
+- Called by `init::run_noninteractive()` for programmatic deployments
 
 ## Uninstall Flow
 
@@ -160,7 +169,7 @@ All subprocess calls use `std::process::Command` with `.output()`. Failures are 
 
 ## Called By
 - `src/main.rs` — `Commands::Service { action }` match arm
-- `src/init.rs` — Optional service install at end of wizard
+- `src/init.rs` — `install()` for optional service install at end of interactive wizard; `install_quiet()` for non-interactive deployment
 
 ## Files Created/Modified
 - `~/Library/LaunchAgents/com.omega-cortex.omega.plist` (macOS)

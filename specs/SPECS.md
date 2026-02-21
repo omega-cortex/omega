@@ -17,10 +17,12 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [src-markers-rs.md](src-markers-rs.md) — Marker extraction, parsing, stripping (40+ functions extracted from gateway)
 - [src-task-confirmation-rs.md](src-task-confirmation-rs.md) — Task scheduling confirmation (anti-hallucination, duplicate detection, localized confirmation messages)
 - [binary-commands.md](binary-commands.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, purge, help)
-- [binary-init.md](binary-init.md) — Interactive setup wizard
+- [src-init-rs.md](src-init-rs.md) — Setup wizard (interactive + non-interactive modes), config generation
+- [src-init-wizard-rs.md](src-init-wizard-rs.md) — **New** — Interactive-only init helpers (browser detection, Anthropic auth, WhatsApp QR, Google OAuth)
 - [binary-selfcheck.md](binary-selfcheck.md) — Startup health checks
 - [binary-service.md](binary-service.md) — OS-aware service management (macOS LaunchAgent / Linux systemd)
 - [src-claudemd-rs.md](src-claudemd-rs.md) — Workspace CLAUDE.md maintenance (init + periodic refresh via claude CLI subprocess)
+- [src-api-rs.md](src-api-rs.md) — HTTP API server (axum, health check, WhatsApp QR pairing for SaaS dashboards)
 
 ### Milestone 3: omega-core
 - [core-lib.md](core-lib.md) — Core crate overview, module re-exports
@@ -76,8 +78,8 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 │                   omega (binary)                 │
 │  main.rs → gateway.rs → commands.rs             │
 │              markers.rs  task_confirmation.rs    │
-│              claudemd.rs init.rs  selfcheck.rs   │
-│              service.rs  i18n.rs                 │
+│              claudemd.rs init.rs  init_wizard.rs │
+│              selfcheck.rs  service.rs  i18n.rs   │
 ├─────────────────────────────────────────────────┤
 │  omega-core     │ omega-providers │ omega-channels│
 │  config.rs      │ claude_code.rs  │ telegram.rs   │

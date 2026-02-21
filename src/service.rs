@@ -315,6 +315,63 @@ fn is_running() -> bool {
     }
 }
 
+/// Install Omega as a system service without interactive prompts.
+///
+/// Same logic as `install()` but uses `println!` instead of cliclack,
+/// auto-overwrites existing service files, and has no spinner animations.
+pub fn install_quiet(config_path: &str) -> anyhow::Result<()> {
+    // 1. Resolve binary path.
+    let binary = std::env::current_exe()
+        .and_then(|p| p.canonicalize())
+        .map_err(|e| anyhow::anyhow!("cannot resolve binary path: {e}"))?;
+    let binary_str = binary.display().to_string();
+
+    // 2. Resolve config path.
+    let config_abs = Path::new(config_path).canonicalize().map_err(|_| {
+        anyhow::anyhow!("config file '{config_path}' not found — run `omega init` first")
+    })?;
+    let config_str = config_abs.display().to_string();
+
+    // 3. Working directory = parent of config file.
+    let working_dir = config_abs
+        .parent()
+        .unwrap_or(Path::new("/"))
+        .display()
+        .to_string();
+
+    // 4. Data directory.
+    let data_dir = omega_core::shellexpand("~/.omega");
+
+    // 5. Determine service file path.
+    let svc_path = service_file_path()?;
+
+    // 6. If file exists, stop old service before overwriting.
+    if svc_path.exists() {
+        stop_service(&svc_path);
+    }
+
+    // 7. Generate content.
+    let content = if cfg!(target_os = "macos") {
+        generate_plist(&binary_str, &config_str, &working_dir, &data_dir)
+    } else {
+        generate_systemd_unit(&binary_str, &config_str, &working_dir, &data_dir)
+    };
+
+    // 8. Write file.
+    if let Some(parent) = svc_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&svc_path, &content)?;
+
+    // 9. Activate.
+    let activated = activate_service(&svc_path);
+    if !activated {
+        anyhow::bail!("service activation failed — check logs");
+    }
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

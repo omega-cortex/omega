@@ -23,6 +23,8 @@ pub struct Config {
     pub heartbeat: HeartbeatConfig,
     #[serde(default)]
     pub scheduler: SchedulerConfig,
+    #[serde(default)]
+    pub api: ApiConfig,
 }
 
 /// Authentication configuration.
@@ -328,6 +330,31 @@ impl Default for SchedulerConfig {
     }
 }
 
+/// HTTP API configuration — lightweight server for SaaS dashboard integration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_api_host")]
+    pub host: String,
+    #[serde(default = "default_api_port")]
+    pub port: u16,
+    /// Bearer token for API authentication. Empty = no auth (for local-only use).
+    #[serde(default)]
+    pub api_key: String,
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: default_api_host(),
+            port: default_api_port(),
+            api_key: String::new(),
+        }
+    }
+}
+
 // --- Default value functions ---
 
 fn default_name() -> String {
@@ -386,6 +413,12 @@ fn default_heartbeat_interval() -> u64 {
 }
 fn default_poll_interval() -> u64 {
     60
+}
+fn default_api_host() -> String {
+    "127.0.0.1".to_string()
+}
+fn default_api_port() -> u16 {
+    3000
 }
 fn default_timeout_secs() -> u64 {
     3600
@@ -694,6 +727,7 @@ pub fn load(path: &str) -> Result<Config, OmegaError> {
             sandbox: SandboxConfig::default(),
             heartbeat: HeartbeatConfig::default(),
             scheduler: SchedulerConfig::default(),
+            api: ApiConfig::default(),
         });
     }
 

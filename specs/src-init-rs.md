@@ -4,21 +4,26 @@
 `src/init.rs`
 
 ## Purpose
-Interactive setup wizard for new Omega users. Provides a guided onboarding experience using the `cliclack` crate for polished terminal UX. The wizard creates the data directory structure, validates Claude CLI availability, collects Telegram credentials, offers WhatsApp pairing, runs Google Workspace setup via the `gog` CLI, generates the configuration file, and provides next steps. This is the entry point for the `omega init` command.
+Interactive setup wizard and non-interactive deployment for new Omega users. Provides a guided onboarding experience using the `cliclack` crate for polished terminal UX (interactive mode), or programmatic deployment via CLI arguments and environment variables (non-interactive mode). The wizard creates the data directory structure, validates Claude CLI availability, collects Telegram credentials, offers WhatsApp pairing, runs Google Workspace setup via the `gog` CLI, generates the configuration file, and provides next steps. This is the entry point for the `omega init` command.
 
 ## Module Overview
 The `init.rs` module contains:
-- `run()` — Main wizard orchestration function
-- `generate_config(bot_token, user_id, whatsapp_enabled, google_email, sandbox_mode) -> String` — Public pure function that builds `config.toml` content (extracted for testability)
-- `run_anthropic_auth()` — Private function that handles Anthropic authentication (setup-token flow)
-- `run_whatsapp_setup()` — Private function that handles WhatsApp QR-code pairing
-- `run_google_setup()` — Private function that handles Google Workspace OAuth setup via `gog` CLI
-- `detect_private_browsers()` — Private function that detects installed browsers with incognito/private mode support (macOS)
-- `create_incognito_script(browser)` — Private function that creates a temp shell script for opening URLs in incognito mode
-- `PrivateBrowser` — Private struct holding browser label, app name, and incognito flag
-- `PRIVATE_BROWSERS` — Constant array of known browsers with incognito support (Chrome, Brave, Firefox, Edge)
+- `run()` — Main interactive wizard orchestration function
+- `run_noninteractive(args) -> Result<()>` — Non-interactive deployment path, triggered when `--telegram-token` or `--allowed-users` CLI args are provided
+- `generate_config(bot_token, user_ids, whatsapp_enabled, google_email, sandbox_mode) -> String` — Public pure function that builds `config.toml` content (extracted for testability). Note: `user_id: Option<i64>` was changed to `user_ids: &[i64]` to support multiple allowed users.
+- `parse_allowed_users(input) -> Result<Vec<i64>>` — Public function that parses a comma-separated string of user IDs into a Vec, with validation (rejects non-numeric, empty segments)
+- `validate_sandbox_mode(mode) -> Result<String>` — Public function that validates a sandbox mode string is one of `sandbox`, `rx`, or `rwx`
 - Uses `omega_core::shellexpand()` for home directory expansion (imported, not local)
 - Uses `omega_channels::whatsapp` for WhatsApp pairing flow
+
+Interactive wizard helpers have been extracted to `src/init_wizard.rs`:
+- `run_anthropic_auth()` — Handles Anthropic authentication (setup-token flow)
+- `run_whatsapp_setup()` — Handles WhatsApp QR-code pairing
+- `run_google_setup()` — Handles Google Workspace OAuth setup via `gog` CLI
+- `detect_private_browsers()` — Detects installed browsers with incognito/private mode support (macOS)
+- `create_incognito_script(browser)` — Creates a temp shell script for opening URLs in incognito mode
+- `PrivateBrowser` — Struct holding browser label, app name, and incognito flag
+- `PRIVATE_BROWSERS` — Constant array of known browsers with incognito support (Chrome, Brave, Firefox, Edge)
 
 ### UX Layer: cliclack
 All user interaction uses the `cliclack` crate instead of raw `println!`/stdin. The following cliclack primitives are used throughout the wizard:
@@ -238,7 +243,7 @@ See [Google Workspace Setup Flow](#google-workspace-setup-flow-run_google_setup)
 **Logic Flow:**
 1. Check if `config.toml` already exists
 2. If exists: Warn via `cliclack::log::warning(...)` and skip generation
-3. If missing: Call `generate_config(bot_token, user_id, whatsapp_enabled, google_email, sandbox_mode)` and write to file
+3. If missing: Call `generate_config(bot_token, user_ids, whatsapp_enabled, google_email, sandbox_mode)` and write to file
 
 **Skip Output (if exists):**
 ```
@@ -415,13 +420,64 @@ fn run_google_setup() -> anyhow::Result<Option<String>>
 
 ---
 
+## Non-Interactive Deployment (`run_noninteractive`)
+
+### Signature
+```rust
+pub async fn run_noninteractive(args: &InitArgs) -> anyhow::Result<()>
+```
+
+### Purpose
+Programmatic deployment path triggered when `--telegram-token` or `--allowed-users` CLI arguments (or their `OMEGA_` environment variable equivalents) are provided. Skips the interactive wizard entirely.
+
+### Flow
+1. Parse and validate `--allowed-users` via `parse_allowed_users()` (comma-separated i64 values)
+2. Validate `--sandbox` mode via `validate_sandbox_mode()` (defaults to `"sandbox"`)
+3. Create `~/.omega` data directory if missing
+4. Validate Claude CLI is accessible (`claude --version`)
+5. If `--claude-setup-token` is provided, run `claude setup-token <token>`
+6. If `--google-credentials` is provided, run `gog auth credentials <path>`
+7. Generate `config.toml` via `generate_config()` with the parsed arguments
+8. Write `config.toml` (skip if already exists)
+9. Call `service::install_quiet()` for non-interactive service installation
+
+### CLI Arguments (all optional, support `OMEGA_` env var prefix)
+
+| Argument | Env Var | Purpose |
+|----------|---------|---------|
+| `--telegram-token` | `OMEGA_TELEGRAM_TOKEN` | Telegram bot token |
+| `--allowed-users` | `OMEGA_ALLOWED_USERS` | Comma-separated Telegram user IDs |
+| `--claude-setup-token` | `OMEGA_CLAUDE_SETUP_TOKEN` | Anthropic setup token for headless auth |
+| `--whisper-key` | `OMEGA_WHISPER_KEY` | OpenAI API key for Whisper transcription |
+| `--sandbox` | `OMEGA_SANDBOX` | Sandbox mode: `sandbox`, `rx`, or `rwx` |
+| `--google-credentials` | `OMEGA_GOOGLE_CREDENTIALS` | Path to Google OAuth `client_secret.json` |
+| `--google-email` | `OMEGA_GOOGLE_EMAIL` | Gmail address for Google Workspace |
+
+### Error Handling
+- Invalid `--allowed-users` format (non-numeric values) returns an error
+- Invalid `--sandbox` mode returns an error
+- Missing Claude CLI is fatal (same as interactive mode)
+- Google credential/auth failures are non-fatal
+
+---
+
+## Helper Functions
+
+### `parse_allowed_users(input: &str) -> Result<Vec<i64>>`
+Parses a comma-separated string of user IDs into a vector. Trims whitespace around each ID. Rejects non-numeric values with a descriptive error. Empty input returns an empty vector.
+
+### `validate_sandbox_mode(mode: &str) -> Result<String>`
+Validates that the provided sandbox mode is one of `sandbox`, `rx`, or `rwx`. Returns the validated string on success, or an error with the list of valid options.
+
+---
+
 ## Config Generation (`generate_config`)
 
 ### Signature
 ```rust
 pub fn generate_config(
     bot_token: &str,
-    user_id: Option<i64>,
+    user_ids: &[i64],
     whatsapp_enabled: bool,
     google_email: Option<&str>,
     sandbox_mode: &str,
@@ -437,8 +493,8 @@ Public pure function that builds the `config.toml` content string. Extracted fro
 |-----------|--------------|
 | `bot_token` (empty) | `[channel.telegram] enabled = false`, `bot_token = ""` |
 | `bot_token` (non-empty) | `[channel.telegram] enabled = true`, `bot_token = "<value>"` |
-| `user_id = Some(id)` | `allowed_users = [<id>]` |
-| `user_id = None` | `allowed_users = []` |
+| `user_ids` (non-empty) | `allowed_users = [<id1>, <id2>, ...]` |
+| `user_ids` (empty) | `allowed_users = []` |
 | `whatsapp_enabled = true` | `[channel.whatsapp] enabled = true` |
 | `whatsapp_enabled = false` | `[channel.whatsapp] enabled = false` |
 | `google_email = Some(email)` | Appends `[google] account = "<email>"` section |
@@ -501,23 +557,33 @@ account = "{email}"
 
 ## Unit Tests
 
-### Test Suite: `tests` (11 tests)
+### Test Suite: `tests` (18 tests)
 
-Tests exercise `generate_config()`, `detect_private_browsers()`, and `create_incognito_script()`. No I/O mocking required.
+Tests exercise `generate_config()`, `parse_allowed_users()`, and `validate_sandbox_mode()` in `init.rs`. Browser-related tests (`detect_private_browsers`, `create_incognito_script`, `PRIVATE_BROWSERS`) have moved to `init_wizard.rs`. No I/O mocking required.
 
 | Test | Parameters | Assertions |
 |------|-----------|------------|
-| `test_generate_config_full` | `("123:ABC", Some(42), true, Some("me@gmail.com"), "sandbox")` | Token present, user ID in array, telegram enabled, whatsapp enabled, google section present with email, sandbox mode present |
-| `test_generate_config_minimal` | `("", None, false, None, "sandbox")` | Empty token, empty allowed_users, telegram disabled, whatsapp disabled, no google section, sandbox mode present |
-| `test_generate_config_telegram_only` | `("tok:EN", Some(999), false, None, "sandbox")` | Token present, user ID in array, telegram enabled, whatsapp disabled, no google section |
-| `test_generate_config_google_only` | `("", None, false, Some("test@example.com"), "sandbox")` | Telegram disabled, google section present with email |
-| `test_generate_config_whatsapp_only` | `("", None, true, None, "sandbox")` | Whatsapp enabled, telegram disabled, no google section |
+| `test_generate_config_full` | `("123:ABC", &[42], true, Some("me@gmail.com"), "sandbox")` | Token present, user ID in array, telegram enabled, whatsapp enabled, google section present with email, sandbox mode present |
+| `test_generate_config_minimal` | `("", &[], false, None, "sandbox")` | Empty token, empty allowed_users, telegram disabled, whatsapp disabled, no google section, sandbox mode present |
+| `test_generate_config_telegram_only` | `("tok:EN", &[999], false, None, "sandbox")` | Token present, user ID in array, telegram enabled, whatsapp disabled, no google section |
+| `test_generate_config_google_only` | `("", &[], false, Some("test@example.com"), "sandbox")` | Telegram disabled, google section present with email |
+| `test_generate_config_whatsapp_only` | `("", &[], true, None, "sandbox")` | Whatsapp enabled, telegram disabled, no google section |
 | `test_generate_config_sandbox_modes` | rx and rwx modes | Verifies `mode = "rx"` and `mode = "rwx"` appear correctly |
-| `test_generate_config_with_whisper` | `("tok:EN", Some(42), Some("sk-abc"), ...)` | Whisper API key present in config |
-| `test_generate_config_without_whisper` | `("tok:EN", Some(42), None, ...)` | Commented whisper_api_key with OPENAI_API_KEY hint |
-| `test_private_browsers_constant_has_entries` | — | PRIVATE_BROWSERS has entries with non-empty label/app/flag |
-| `test_detect_private_browsers_returns_valid_indices` | — | All returned indices are within PRIVATE_BROWSERS bounds |
-| `test_create_incognito_script` | Chrome browser | Script file created, has shebang, contains app name and flag, is executable (0o755), cleaned up after |
+| `test_generate_config_with_whisper` | `("tok:EN", &[42], Some("sk-abc"), ...)` | Whisper API key present in config |
+| `test_generate_config_without_whisper` | `("tok:EN", &[42], None, ...)` | Commented whisper_api_key with OPENAI_API_KEY hint |
+| `test_generate_config_multiple_users` | `("tok:EN", &[111, 222, 333], false, None, "sandbox")` | All three user IDs appear in allowed_users array |
+| `test_parse_allowed_users_single` | `"842277204"` | Returns `vec![842277204]` |
+| `test_parse_allowed_users_multiple` | `"842277204,123456"` | Returns `vec![842277204, 123456]` |
+| `test_parse_allowed_users_with_spaces` | `" 842277204 , 123456 "` | Returns `vec![842277204, 123456]` (whitespace trimmed) |
+| `test_parse_allowed_users_empty` | `""` | Returns empty vec |
+| `test_parse_allowed_users_invalid` | `"abc,123"` | Returns error (non-numeric value rejected) |
+| `test_validate_sandbox_mode_valid` | `"sandbox"`, `"rx"`, `"rwx"` | All return Ok with the validated string |
+| `test_validate_sandbox_mode_invalid` | `"full"` | Returns error with list of valid options |
+| `test_private_browsers_constant_has_entries` | — | *(Moved to init_wizard.rs)* |
+| `test_detect_private_browsers_returns_valid_indices` | — | *(Moved to init_wizard.rs)* |
+| `test_create_incognito_script` | — | *(Moved to init_wizard.rs)* |
+
+**Note:** Browser-related tests (`test_private_browsers_constant_has_entries`, `test_detect_private_browsers_returns_valid_indices`, `test_create_incognito_script`) are now in `src/init_wizard.rs` alongside the functions they test.
 
 ---
 
@@ -679,21 +745,25 @@ The `init.rs` module follows these error handling principles:
 
 ## Related Components
 
-**Called by:** `src/main.rs` in the `init` command handler
+**Called by:** `src/main.rs` in the `init` command handler. `main.rs` dispatches to `run_noninteractive()` when deployment CLI args are provided, or `run()` for the interactive wizard.
 
-**Reads from:** stdin (via cliclack interactive prompts)
+**Companion module:** `src/init_wizard.rs` -- contains interactive wizard helpers extracted from `init.rs` (browser detection, Anthropic auth, WhatsApp setup, Google setup)
+
+**Reads from:** stdin (via cliclack interactive prompts in interactive mode), CLI args and env vars (in non-interactive mode)
 
 **Writes to:**
 - Filesystem: `~/.omega/` directory, `config.toml` file
-- stdout: All prompts and messages (via cliclack)
+- stdout: All prompts and messages (via cliclack in interactive mode, via tracing in non-interactive mode)
 
 **Dependencies:**
-- `cliclack` -- Terminal UX primitives (intro, outro, input, confirm, spinner, note, log)
+- `cliclack` -- Terminal UX primitives (intro, outro, input, confirm, spinner, note, log) — interactive mode only
+- `clap` -- CLI argument parsing with `env` feature for `OMEGA_` env var support
 - `omega_core::shellexpand` -- Home directory expansion
-- `omega_channels::whatsapp` -- WhatsApp QR pairing flow
+- `omega_channels::whatsapp` -- WhatsApp QR pairing flow (interactive mode)
 - `std::process::Command` -- Subprocess execution (`claude --version`, `gog` commands)
 - `std::fs` -- Directory and file operations
 - `tokio::runtime::Runtime` -- Short-lived async runtime for WhatsApp pairing
 - `anyhow` -- Error handling
+- `crate::service` -- `install_quiet()` for non-interactive service installation
 
 **Used by:** `omega init` CLI command only; not called by other modules

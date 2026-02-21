@@ -20,7 +20,8 @@ The main entry point for the Omega binary. Orchestrates CLI argument parsing, ro
 - `crate::claudemd` — Workspace CLAUDE.md maintenance (init + periodic refresh)
 - `crate::commands` — Command handlers submodule
 - `crate::gateway` — Event loop gateway
-- `crate::init` — Interactive setup wizard
+- `crate::init` — Interactive setup wizard and non-interactive deployment
+- `crate::init_wizard` — Interactive wizard helpers (browser detection, Anthropic auth, WhatsApp setup, Google setup)
 - `crate::selfcheck` — Pre-startup health checks
 - `crate::service` — OS-aware service management
 - `omega_channels::telegram::TelegramChannel` — Telegram integration
@@ -52,7 +53,7 @@ The main entry point for the Omega binary. Orchestrates CLI argument parsing, ro
 - `Start` — Launch the Omega agent daemon (connects to channels, runs gateway loop)
 - `Status` — Health check: verify provider availability and channel configuration
 - `Ask { message: Vec<String> }` — One-shot query: send a message and exit (no persistent gateway)
-- `Init` — Interactive setup wizard
+- `Init { telegram_token, allowed_users, claude_setup_token, whisper_key, sandbox, google_credentials, google_email }` — Interactive setup wizard or non-interactive deployment. When `--telegram-token` or `--allowed-users` is provided (via CLI or `OMEGA_` env vars), dispatches to `init::run_noninteractive()`. Otherwise runs the interactive wizard via `init::run()`. All fields are `Option<String>` and support env vars via clap's `env` feature (e.g., `OMEGA_TELEGRAM_TOKEN`).
 - `Pair` — Standalone WhatsApp QR pairing (or re-pairing)
 - `Service { action: ServiceAction }` — Manage the system service (install, uninstall, status)
 
@@ -84,7 +85,7 @@ The main entry point for the Omega binary. Orchestrates CLI argument parsing, ro
    - **Start:** Load config → deploy bundled prompts → load prompts → deploy bundled skills → build provider → verify availability → build channels → initialize memory → run self-checks → start gateway (wrapped in `Arc::new()`)
    - **Status:** Load config → print provider and channel status information
    - **Ask:** Parse message → load config → build provider → create context → invoke provider → print response
-   - **Init:** Run interactive setup wizard
+   - **Init:** If `telegram_token` or `allowed_users` is `Some(...)`, dispatch to `init::run_noninteractive()` for programmatic deployment; otherwise run interactive setup wizard via `init::run()`
    - **Service:** Dispatch to `service::install`, `service::uninstall`, or `service::status` based on `ServiceAction` subcommand
 5. Return `Ok(())` on success or propagate errors
 
@@ -156,9 +157,11 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
 - Non-blocking, exits after receiving response
 
 **`omega init`**
-- No arguments
-- Launches interactive setup wizard
-- Guides user through config creation
+- Optional arguments: `--telegram-token`, `--allowed-users`, `--claude-setup-token`, `--whisper-key`, `--sandbox`, `--google-credentials`, `--google-email`
+- All arguments also accept `OMEGA_` prefixed env vars (e.g., `OMEGA_TELEGRAM_TOKEN`)
+- Without deployment arguments: launches interactive setup wizard
+- With `--telegram-token` or `--allowed-users`: runs non-interactive deployment via `init::run_noninteractive()`
+- Guides user through config creation (interactive) or generates config programmatically (non-interactive)
 
 **`omega pair`**
 - No arguments
@@ -327,9 +330,10 @@ Root check, provider availability, channel credentials, and self-checks all happ
 ## Module Dependencies
 - `commands` — Currently unused in main.rs (defined but not referenced)
 - `gateway` — Core event loop orchestrator
-- `init` — Setup wizard
+- `init` — Setup wizard and non-interactive deployment
+- `init_wizard` — Interactive wizard helpers (browser detection, auth, pairing, Google setup)
 - `selfcheck` — Pre-flight verification
-- External crates provide: CLI parsing, async runtime, logging, error handling, platform FFI
+- External crates provide: CLI parsing (clap with `env` feature), async runtime, logging, error handling, platform FFI
 
 ---
 

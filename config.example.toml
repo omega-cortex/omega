@@ -94,6 +94,14 @@ reply_target = ""               # Chat ID for delivery
 # No config.toml section needed. Settings stored in SQLite facts table.
 # Requires IB Gateway running locally (paper: port 4002, live: port 4001).
 
+# --- HTTP API (for SaaS dashboard integration) ---
+
+[api]
+enabled = false
+host = "127.0.0.1"              # Localhost only — use reverse proxy for external access
+port = 3000
+api_key = ""                    # Bearer token auth. Empty = no auth (for local-only use).
+
 # --- Security ---
 
 [sandbox]

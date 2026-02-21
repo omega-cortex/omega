@@ -20,7 +20,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 thiserror = "2"
 anyhow = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
@@ -67,3 +67,9 @@ serde = { workspace = true }
 libc = "0.2"
 cliclack = "0.3"
 console = "0.15"
+axum = "0.8"
+base64 = "0.22"
+
+[dev-dependencies]
+tower = "0.5"
+http-body-util = "0.1"

@@ -130,6 +130,15 @@ The `omega init` wizard offers service installation as its final step (Phase 8),
 
 If the user accepts, the service is installed immediately. If it fails, the wizard continues with a warning and suggests running `omega service install` later.
 
+### Non-Interactive Mode
+
+When `omega init` runs in non-interactive mode (with `--telegram-token` or `--allowed-users`), the service is installed automatically via `install_quiet()`. This function performs the same steps as the interactive `install()` but:
+- Logs via `tracing` instead of `cliclack` prompts
+- Always overwrites an existing service file without prompting
+- Never requires user input
+
+This enables fully automated deployments (Docker, CI/CD, scripted provisioning).
+
 ---
 
 ## Service File Contents

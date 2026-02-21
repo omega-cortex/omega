@@ -339,6 +339,7 @@ Background loops (spawned in `gateway::run()`):
 - **Scheduler**: polls `scheduled_tasks` table every 60s, delivers due reminders via channel, executes action tasks via provider with full tool/MCP access. Action tasks include outcome verification (`ACTION_OUTCOME:` marker), audit logging (`[ACTION]` prefix), and retry logic (up to 3 retries with 2-minute delays via `fail_task()`).
 - **Heartbeat**: clock-aligned periodic context-aware provider check-in (default 30min, fires at clean boundaries like :00/:30, dynamic via `HEARTBEAT_INTERVAL:` marker + `Arc<AtomicU64>`), enriched with user facts + recent summaries, full Identity/Soul/System prompt attached (same as scheduler action tasks), skips when no `~/.omega/prompts/HEARTBEAT.md` checklist is configured, suppresses `HEARTBEAT_OK`, alerts otherwise. Current interval is injected into the system prompt so OMEGA can report it when asked. Interval-change notifications are localized via `i18n::heartbeat_interval_updated()`.
 - **CLAUDE.md maintenance** (`src/claudemd.rs`): On startup, if provider is `claude-code` and `~/.omega/workspace/CLAUDE.md` doesn't exist, spawns `claude -p` to create it (explores workspace, skills, projects). Background loop refreshes it every 24 hours. Direct subprocess call (not Provider trait). Non-fatal — warnings on failure, never blocks startup.
+- **HTTP API** (`src/api.rs`): Lightweight axum server for SaaS dashboard integration. Disabled by default (`api.enabled = false`). Binds to `127.0.0.1:3000` (configurable). Bearer token auth when `api_key` is set. Three endpoints: `GET /api/health` (uptime + WhatsApp status), `POST /api/pair` (trigger pairing, return QR as base64 PNG), `GET /api/pair/status` (long-poll 60s for pairing completion). Reuses `WhatsAppChannel::pairing_channels()`, `restart_for_pairing()`, `generate_qr_image()` via `as_any()` downcasting.
 
 Proactive self-scheduling: After every action it takes, the AI evaluates: "Does this need follow-up?" If yes, it uses SCHEDULE (for time-based checks) or HEARTBEAT_ADD (for ongoing monitoring) autonomously — no user request needed. This applies universally to any context, not just specific domains. The Identity section and injected marker instructions both reinforce this: an autonomous agent closes its own loops.
 
@@ -350,7 +351,15 @@ Bot commands (`src/commands.rs`): `/help`, `/forget`, `/tasks`, `/cancel <id>`, 
 
 Init wizard Google Workspace: auto-detects installed browsers with incognito/private mode (Chrome, Brave, Firefox, Edge), offers to open OAuth URL in incognito via `BROWSER` env var on the `gog auth add` subprocess, cleans up temp script after.
 
-CLI commands: `start`, `status`, `ask`, `init`, `pair`, `service install|uninstall|status`
+CLI commands: `start`, `status`, `ask`, `init` (interactive or non-interactive with `--telegram-token`/`--allowed-users`), `pair`, `service install|uninstall|status`
+
+Non-interactive init for programmatic deployment:
+```bash
+omega init --telegram-token "123:ABC" --allowed-users "842277204,123456"
+# Or via env vars: OMEGA_TELEGRAM_TOKEN, OMEGA_ALLOWED_USERS, OMEGA_CLAUDE_SETUP_TOKEN,
+#   OMEGA_WHISPER_KEY, OMEGA_SANDBOX, OMEGA_GOOGLE_CREDENTIALS, OMEGA_GOOGLE_EMAIL
+```
+When any deployment param is provided → skip wizard, generate config, install service, done. Interactive helpers (browser detection, WhatsApp QR, Google OAuth) live in `src/init_wizard.rs`.
 
 ## Build & Test
 

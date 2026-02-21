@@ -1,8 +1,10 @@
+mod api;
 mod claudemd;
 mod commands;
 mod gateway;
 mod i18n;
 mod init;
+mod init_wizard;
 mod markers;
 mod selfcheck;
 mod service;
@@ -54,8 +56,36 @@ enum Commands {
         #[arg(trailing_var_arg = true)]
         message: Vec<String>,
     },
-    /// Interactive setup wizard.
-    Init,
+    /// Interactive setup wizard (or non-interactive with --telegram-token).
+    Init {
+        /// Telegram bot token (from @BotFather). Enables non-interactive mode.
+        #[arg(long, env = "OMEGA_TELEGRAM_TOKEN")]
+        telegram_token: Option<String>,
+
+        /// Comma-separated allowed Telegram user IDs.
+        #[arg(long, env = "OMEGA_ALLOWED_USERS")]
+        allowed_users: Option<String>,
+
+        /// Claude CLI setup-token for fresh machines.
+        #[arg(long, env = "OMEGA_CLAUDE_SETUP_TOKEN")]
+        claude_setup_token: Option<String>,
+
+        /// OpenAI API key for Whisper voice transcription.
+        #[arg(long, env = "OMEGA_WHISPER_KEY")]
+        whisper_key: Option<String>,
+
+        /// Sandbox mode: sandbox (default), rx, or rwx.
+        #[arg(long, env = "OMEGA_SANDBOX", default_value = "sandbox")]
+        sandbox: String,
+
+        /// Path to Google OAuth client_secret.json file.
+        #[arg(long, env = "OMEGA_GOOGLE_CREDENTIALS")]
+        google_credentials: Option<String>,
+
+        /// Gmail address for Google Workspace integration.
+        #[arg(long, env = "OMEGA_GOOGLE_EMAIL")]
+        google_email: Option<String>,
+    },
     /// Pair WhatsApp by scanning a QR code.
     Pair,
     /// Manage the system service (install, uninstall, status).
@@ -217,6 +247,7 @@ async fn main() -> anyhow::Result<()> {
                 cfg.channel.clone(),
                 cfg.heartbeat.clone(),
                 cfg.scheduler.clone(),
+                cfg.api.clone(),
                 prompts,
                 cfg.omega.data_dir.clone(),
                 skills,
@@ -298,9 +329,29 @@ async fn main() -> anyhow::Result<()> {
             let response = provider.complete(&context).await?;
             println!("{}", response.text);
         }
-        Commands::Init => {
+        Commands::Init {
+            telegram_token,
+            allowed_users,
+            claude_setup_token,
+            whisper_key,
+            sandbox,
+            google_credentials,
+            google_email,
+        } => {
             init_stdout_tracing("error");
-            init::run().await?;
+            if telegram_token.is_some() || allowed_users.is_some() {
+                init::run_noninteractive(
+                    telegram_token.as_deref().unwrap_or(""),
+                    allowed_users.as_deref().unwrap_or(""),
+                    claude_setup_token.as_deref(),
+                    whisper_key.as_deref(),
+                    &sandbox,
+                    google_credentials.as_deref(),
+                    google_email.as_deref(),
+                )?;
+            } else {
+                init::run().await?;
+            }
         }
         Commands::Pair => {
             init_stdout_tracing("error");
