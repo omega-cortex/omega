@@ -205,6 +205,7 @@ impl TelegramChannel {
                 { "command": "project", "description": "Show, activate, or deactivate a project" },
                 { "command": "purge", "description": "Delete all learned facts (clean slate)" },
                 { "command": "whatsapp", "description": "Connect WhatsApp via QR code" },
+                { "command": "heartbeat", "description": "Heartbeat status and watchlist" },
             ]
         });
 

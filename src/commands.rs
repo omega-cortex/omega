@@ -1,6 +1,7 @@
 //! Built-in bot commands — instant responses, no provider call.
 
 use crate::i18n;
+use crate::markers::read_heartbeat_file;
 use omega_memory::Store;
 use std::time::Instant;
 
@@ -15,6 +16,8 @@ pub struct CommandContext<'a> {
     pub skills: &'a [omega_skills::Skill],
     pub projects: &'a [omega_skills::Project],
     pub sandbox_mode: &'a str,
+    pub heartbeat_enabled: bool,
+    pub heartbeat_interval_mins: u64,
 }
 
 /// Known bot commands.
@@ -33,6 +36,7 @@ pub enum Command {
     Project,
     Purge,
     WhatsApp,
+    Heartbeat,
     Help,
 }
 
@@ -58,6 +62,7 @@ impl Command {
             "/project" => Some(Self::Project),
             "/purge" => Some(Self::Purge),
             "/whatsapp" => Some(Self::WhatsApp),
+            "/heartbeat" => Some(Self::Heartbeat),
             "/help" => Some(Self::Help),
             _ => None,
         }
@@ -111,6 +116,9 @@ pub async fn handle(cmd: Command, ctx: &CommandContext<'_>) -> String {
         }
         Command::Purge => handle_purge(ctx.store, ctx.sender_id, &lang).await,
         Command::WhatsApp => handle_whatsapp(),
+        Command::Heartbeat => {
+            handle_heartbeat(ctx.heartbeat_enabled, ctx.heartbeat_interval_mins, &lang)
+        }
         Command::Help => handle_help(&lang),
     }
 }
@@ -435,9 +443,44 @@ fn handle_whatsapp() -> String {
     "WHATSAPP_QR".to_string()
 }
 
+/// Handle /heartbeat — show heartbeat status, interval, and watchlist items.
+fn handle_heartbeat(enabled: bool, interval_mins: u64, lang: &str) -> String {
+    let status_label = i18n::t("heartbeat_status", lang);
+    let status_value = if enabled {
+        i18n::t("heartbeat_enabled", lang)
+    } else {
+        i18n::t("heartbeat_disabled", lang)
+    };
+
+    let mut out = format!(
+        "{}\n\n{} {}\n{} {} {}",
+        i18n::t("heartbeat_header", lang),
+        status_label,
+        status_value,
+        i18n::t("heartbeat_interval", lang),
+        interval_mins,
+        i18n::t("heartbeat_minutes", lang),
+    );
+
+    match read_heartbeat_file() {
+        Some(content) => {
+            out.push_str(&format!(
+                "\n\n{}\n{}",
+                i18n::t("heartbeat_watchlist", lang),
+                content.trim()
+            ));
+        }
+        None => {
+            out.push_str(&format!("\n\n{}", i18n::t("heartbeat_no_watchlist", lang)));
+        }
+    }
+    out
+}
+
 fn handle_help(lang: &str) -> String {
     format!(
         "{}\n\n\
+         {}\n\
          {}\n\
          {}\n\
          {}\n\
@@ -468,6 +511,7 @@ fn handle_help(lang: &str) -> String {
         i18n::t("help_projects", lang),
         i18n::t("help_project", lang),
         i18n::t("help_whatsapp", lang),
+        i18n::t("help_heartbeat", lang),
         i18n::t("help_help", lang),
     )
 }
@@ -557,6 +601,10 @@ mod tests {
         assert!(matches!(
             Command::parse("/whatsapp"),
             Some(Command::WhatsApp)
+        ));
+        assert!(matches!(
+            Command::parse("/heartbeat"),
+            Some(Command::Heartbeat)
         ));
         assert!(matches!(Command::parse("/help"), Some(Command::Help)));
     }
@@ -718,6 +766,61 @@ mod tests {
         assert!(
             result.contains("No hay conversación activa"),
             "should show Spanish empty state: {result}"
+        );
+    }
+
+    #[test]
+    fn test_parse_heartbeat_command() {
+        assert!(matches!(
+            Command::parse("/heartbeat"),
+            Some(Command::Heartbeat)
+        ));
+        assert!(matches!(
+            Command::parse("/heartbeat@omega_bot"),
+            Some(Command::Heartbeat)
+        ));
+    }
+
+    #[test]
+    fn test_heartbeat_enabled() {
+        let result = handle_heartbeat(true, 30, "English");
+        assert!(result.contains("Heartbeat"), "should have header: {result}");
+        assert!(result.contains("active"), "should show active: {result}");
+        assert!(result.contains("30"), "should show interval: {result}");
+        assert!(
+            result.contains("minutes"),
+            "should show minutes label: {result}"
+        );
+    }
+
+    #[test]
+    fn test_heartbeat_disabled() {
+        let result = handle_heartbeat(false, 15, "English");
+        assert!(
+            result.contains("disabled"),
+            "should show disabled: {result}"
+        );
+    }
+
+    #[test]
+    fn test_heartbeat_localized() {
+        let result = handle_heartbeat(true, 60, "Spanish");
+        assert!(
+            result.contains("activo"),
+            "should show Spanish status: {result}"
+        );
+        assert!(
+            result.contains("Intervalo:"),
+            "should show Spanish interval label: {result}"
+        );
+    }
+
+    #[test]
+    fn test_help_includes_heartbeat() {
+        let result = handle_help("English");
+        assert!(
+            result.contains("/heartbeat"),
+            "help should list /heartbeat: {result}"
         );
     }
 }

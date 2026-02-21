@@ -418,15 +418,11 @@ pub struct Gateway {
 - If instructions are found, appends them to the system prompt after a `---` separator with an `[Active project: <name>]` label. This preserves OMEGA's core identity (identity/soul/system) as the first instructions the AI reads, with project context added as supplementary domain expertise.
 - The enriched system prompt is passed to `memory.build_context()`.
 
-**Stage 4c: Trading Context Detection**
-- Computes `is_trading_project` once by checking if the active project name (lowercased) contains "trad", "quant", "binance", "crypto", or "market".
-- This flag is used for heartbeat awareness gating.
-
-**Stage 4d: Heartbeat Awareness (Trading-Only)**
-- Only when `is_trading_project` is true, calls `read_heartbeat_file()`.
-- If a heartbeat checklist exists, appends its contents to the system prompt under a "Current heartbeat checklist" header.
-- This gives the provider awareness of what items are already being monitored, enabling it to avoid duplicates and to confirm removals.
-- When not in a trading project, the checklist is omitted to prevent trading context from polluting casual conversations.
+**Stage 4c: Heartbeat Awareness (Keyword-Triggered)**
+- When `heartbeat_config.enabled` is true, checks the user's message for monitoring-related keywords ("heartbeat", "watchlist", "monitoring", "checklist").
+- Only when a keyword matches, calls `read_heartbeat_file()` and appends its contents to the system prompt under a "Current heartbeat checklist" header.
+- This gives the provider awareness of monitored items only when the user asks about them, avoiding token waste on unrelated conversations.
+- Zero tokens added to 99% of messages; ~58 lines injected only when the user asks about monitoring.
 
 **Stage 4e: Heartbeat Pulse Injection**
 - When `heartbeat_config.enabled` is true, injects the current heartbeat interval (from the shared `AtomicU64`) into the system prompt as a "Heartbeat pulse: every N minutes" line.
@@ -468,7 +464,7 @@ pub struct Gateway {
 
 **Stage 5: Classify and Route (Model Selection)**
 - After SILENT suppression check:
-- Call `self.classify_and_route()` unconditionally (no word-count gate). This sends a complexity-aware classification prompt enriched with lightweight context (active project name, last 3 history messages truncated to 80 chars, available skill names) to the provider (no system prompt, no MCP servers) with `ctx.max_turns = Some(1)`, `ctx.allowed_tools = Some(vec![])` (disables all tool use), and `ctx.model = Some(self.model_fast.clone())` (classification always uses the fast model). The prompt routes DIRECT for simple questions, conversations, and routine actions (reminders, scheduling, lookups) regardless of quantity, and only produces a step list for genuinely complex work (multi-file code changes, deep research, building, sequential dependencies). When in doubt, prefers DIRECT.
+- Call `self.classify_and_route()` unconditionally (no word-count gate). This sends a complexity-aware classification prompt enriched with lightweight context (active project name, last 3 history messages truncated to 80 chars, available skill names) to the provider (no system prompt, no MCP servers) with `ctx.max_turns = Some(25)` (generous limit — classification is best-effort, falls through to DIRECT on failure), `ctx.allowed_tools = Some(vec![])` (disables all tool use), and `ctx.model = Some(self.model_fast.clone())` (classification always uses the fast model). The prompt routes DIRECT for simple questions, conversations, and routine actions (reminders, scheduling, lookups) regardless of quantity, and only produces a step list for genuinely complex work (multi-file code changes, deep research, building, sequential dependencies). When in doubt, prefers DIRECT.
   - The classification response is parsed by `parse_plan_response()`:
     - If the response contains "DIRECT" (any case) → returns `None`.
     - If the response contains only a single step → returns `None`.
@@ -586,7 +582,7 @@ pub struct Gateway {
 **Logic:**
 1. Call `build_classification_context()` to produce a lightweight context block (~90 tokens) from the active project, last 3 history messages (truncated to 80 chars each), and skill names. Empty inputs produce an empty block (identical to previous behavior).
 2. Build the complexity-aware classification prompt: routes DIRECT for simple questions, conversations, and routine actions (reminders, scheduling, lookups) regardless of quantity; produces a step list only for genuinely complex work (multi-file code changes, deep research, building, sequential dependencies); defaults to DIRECT when in doubt. The context block is injected between the instructions and the user's request.
-3. Set `ctx.max_turns = Some(1)` (single-shot, no agentic loops), `ctx.allowed_tools = Some(vec![])` (disables all tool use via `--allowedTools ""`), and `ctx.model = Some(self.model_fast.clone())` so classification uses the fast model with no tool access.
+3. Set `ctx.max_turns = Some(25)` (generous limit — classification is best-effort, falls through to DIRECT on failure), `ctx.allowed_tools = Some(vec![])` (disables all tool use via `--allowedTools ""`), and `ctx.model = Some(self.model_fast.clone())` so classification uses the fast model with no tool access.
 4. Call `provider.complete()` with this minimal context (no system prompt, no MCP servers, no tools).
 5. On success, pass the response text to `parse_plan_response()`.
 6. On error, log the error and return `None` (falls through to normal single provider call).
@@ -1138,7 +1134,7 @@ All interactions are logged to SQLite with:
 19. Heartbeat loop skips API calls entirely when no checklist file (`~/.omega/prompts/HEARTBEAT.md`) is configured.
 20. Heartbeat prompt is enriched with user facts and recent conversation summaries from memory.
 21. HEARTBEAT_ADD:, HEARTBEAT_REMOVE:, and HEARTBEAT_INTERVAL: markers are stripped from the response before sending to the user. Adds are appended to `~/.omega/prompts/HEARTBEAT.md`; removes use case-insensitive partial matching and never remove comment lines. HEARTBEAT_INTERVAL: updates the shared `AtomicU64` interval (valid range: 1–1440 minutes) and sends a localized confirmation notification (via `i18n::heartbeat_interval_updated()`) to the owner via the heartbeat channel.
-22. The current heartbeat checklist is injected into the system prompt only when the active project is trading-related (name contains "trad", "quant", "binance", "crypto", or "market"). This prevents trading context from polluting casual conversations.
+22. The current heartbeat checklist is injected into the system prompt only when the user's message contains monitoring-related keywords ("heartbeat", "watchlist", "monitoring", "checklist"). This prevents token waste on unrelated conversations while ensuring OMEGA has awareness when the user asks about monitoring.
 23. When `sandbox_prompt` is `Some`, the sandbox constraint text is prepended to the system prompt before context building.
 24. The startup log includes the active sandbox mode for operational visibility.
 25. After sending the text response, new image files created in the workspace by the provider are delivered via `channel.send_photo()` and then deleted from the workspace.

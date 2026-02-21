@@ -1229,6 +1229,8 @@ impl Gateway {
                 skills: &self.skills,
                 projects: &projects,
                 sandbox_mode: &self.sandbox_mode,
+                heartbeat_enabled: self.heartbeat_config.enabled,
+                heartbeat_interval_mins: self.heartbeat_interval.load(Ordering::Relaxed),
             };
             let response = commands::handle(cmd, &ctx).await;
 
@@ -1303,19 +1305,6 @@ impl Gateway {
                 _ => {}
             }
 
-            // Determine once whether the active project is trading-related.
-            let is_trading_project = active_project
-                .as_deref()
-                .map(|p| {
-                    let lp = p.to_lowercase();
-                    lp.contains("trad")
-                        || lp.contains("quant")
-                        || lp.contains("binance")
-                        || lp.contains("crypto")
-                        || lp.contains("market")
-                })
-                .unwrap_or(false);
-
             if let Some(ref project_name) = active_project {
                 if let Some(instructions) =
                     omega_skills::get_project_instructions(&projects, project_name)
@@ -1326,15 +1315,20 @@ impl Gateway {
                 }
             }
 
-            // Heartbeat awareness: show current checklist items so Claude knows
-            // what is already monitored — only in trading projects since the
-            // checklist is trading-heavy and would pollute casual conversations.
-            if is_trading_project {
-                if let Some(checklist) = read_heartbeat_file() {
-                    prompt.push_str(
-                        "\n\nCurrent heartbeat checklist (items monitored periodically):\n",
-                    );
-                    prompt.push_str(&checklist);
+            // Heartbeat awareness: inject checklist only when user asks about
+            // monitoring-related topics (keyword match) — avoids token waste.
+            if self.heartbeat_config.enabled {
+                let msg_lower = clean_incoming.text.to_lowercase();
+                let needs_heartbeat = ["heartbeat", "watchlist", "monitoring", "checklist"]
+                    .iter()
+                    .any(|kw| msg_lower.contains(kw));
+                if needs_heartbeat {
+                    if let Some(checklist) = read_heartbeat_file() {
+                        prompt.push_str(
+                            "\n\nCurrent heartbeat checklist (items monitored periodically):\n",
+                        );
+                        prompt.push_str(&checklist);
+                    }
                 }
             }
 
@@ -1803,7 +1797,7 @@ impl Gateway {
         );
 
         let mut ctx = Context::new(&planning_prompt);
-        ctx.max_turns = Some(1);
+        ctx.max_turns = Some(25); // Classification is best-effort — generous limit avoids noisy warnings.
         ctx.allowed_tools = Some(vec![]); // No tools during classification.
         ctx.model = Some(self.model_fast.clone());
         match self.provider.complete(&ctx).await {

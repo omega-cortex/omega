@@ -323,8 +323,8 @@ stdout from CLI
 | CLI binary not found / spawn failure | `OmegaError::Provider` | `"failed to run claude CLI: {io_error}"` |
 | CLI exits with non-zero status | `OmegaError::Provider` | `"claude CLI exited with {status}: {stderr}"` |
 | JSON parse failure | No error (graceful degradation) | Warning logged, raw stdout used |
-| `error_max_turns` subtype with `session_id` | No error (auto-resume) | Warning logged, auto-resume loop retries with `--session-id` up to `max_resume_attempts` times |
-| `error_max_turns` subtype without `session_id` | No error (graceful degradation) | Warning logged, result extracted if available |
+| `error_max_turns` subtype with `session_id` | No error (auto-resume) | Warning logged with `effective_limit` (from caller) and `configured` (from `self.max_turns`), auto-resume loop retries with `--session-id` up to `max_resume_attempts` times |
+| `error_max_turns` subtype without `session_id` | No error (graceful degradation) | Warning logged with effective vs configured limits, result extracted if available |
 | Empty result + `is_error == true` | No error (fallback text) | `"Error from Claude: {subtype}"` |
 | Empty result + no error | No error (fallback text) | `"(No response text returned)"` |
 

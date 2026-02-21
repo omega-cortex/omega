@@ -590,6 +590,19 @@ const BUNDLED_SYSTEM_PROMPT: &str = include_str!("../../../prompts/SYSTEM_PROMPT
 /// Bundled welcome messages, embedded at compile time.
 const BUNDLED_WELCOME_TOML: &str = include_str!("../../../prompts/WELCOME.toml");
 
+/// Bundled workspace CLAUDE.md template, embedded at compile time.
+const BUNDLED_WORKSPACE_CLAUDE: &str = include_str!("../../../prompts/WORKSPACE_CLAUDE.md");
+
+/// Return the bundled workspace CLAUDE.md template.
+///
+/// Contains standard operational rules (directory structure, infrastructure,
+/// diagnostic protocol, known false diagnoses, key conventions) that survive
+/// across deployments and 24h refreshes. Dynamic content (skills/projects
+/// tables) is appended below the `<!-- DYNAMIC CONTENT BELOW -->` marker.
+pub fn bundled_workspace_claude() -> &'static str {
+    BUNDLED_WORKSPACE_CLAUDE
+}
+
 /// Deploy bundled prompt files to `{data_dir}/prompts/`, creating the directory if needed.
 ///
 /// Never overwrites existing files so user edits are preserved.

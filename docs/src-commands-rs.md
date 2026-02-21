@@ -314,6 +314,40 @@ Project deactivated. Conversation cleared.
 
 ---
 
+### `/heartbeat` — Heartbeat Status and Watchlist
+
+**What It Does:** Shows the current heartbeat monitoring status, check interval, and all items being monitored by the heartbeat loop.
+
+**Response Example (Active With Watchlist):**
+```
+*OMEGA Ω* Heartbeat
+
+Status: active
+Interval: 30 minutes
+
+Watchlist items:
+- [ ] Check BTC price
+- [ ] Monitor server uptime
+```
+
+**Response Example (Disabled):**
+```
+*OMEGA Ω* Heartbeat
+
+Status: disabled
+Interval: 30 minutes
+
+No watchlist items. Configure ~/.omega/prompts/HEARTBEAT.md
+```
+
+**Use Cases:**
+- Verify the heartbeat loop is active and running
+- See which items are being monitored periodically
+- Check the current monitoring interval
+- Confirm that items added via HEARTBEAT_ADD were saved
+
+---
+
 ### `/help` — Command Help
 
 **What It Does:** Displays a quick reference guide of all available commands with brief descriptions.
@@ -322,18 +356,22 @@ Project deactivated. Conversation cleared.
 ```
 *OMEGA Ω* Commands
 
-/status   — Uptime, provider, database info
-/memory   — Your conversation and facts stats
-/history  — Last 5 conversation summaries
-/facts    — List known facts about you
-/forget   — Clear current conversation
-/tasks    — List your scheduled tasks
-/cancel   — Cancel a task by ID
-/language — Show or set your language
-/purge    — Delete all learned facts (clean slate)
-/projects — List available projects
-/project  — Show, activate, or deactivate a project
-/help     — This message
+/status     — Uptime, provider, database info
+/memory     — Your conversation and facts stats
+/history    — Last 5 conversation summaries
+/facts      — List known facts about you
+/forget     — Clear current conversation
+/tasks      — List your scheduled tasks
+/cancel     — Cancel a task by ID
+/language   — Show or set your language
+/personality — Show or set how I behave
+/purge      — Delete all learned facts (clean slate)
+/skills     — List available skills
+/projects   — List available projects
+/project    — Show, activate, or deactivate a project
+/whatsapp   — Connect WhatsApp via QR code
+/heartbeat  — Heartbeat status and watchlist
+/help       — This message
 ```
 
 **Use Cases:**

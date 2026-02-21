@@ -182,7 +182,7 @@ impl Provider for ClaudeCodeProvider {
 
         let output = result?;
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let (mut text, mut model) = self.parse_response(&stdout);
+        let (mut text, mut model) = self.parse_response(&stdout, effective_max_turns);
         // CLI doesn't always echo the model back — fall back to what we requested.
         if model.is_none() && !effective_model.is_empty() {
             model = Some(effective_model.to_string());
@@ -220,7 +220,7 @@ impl Provider for ClaudeCodeProvider {
                             Ok(resume_output) => {
                                 let resume_stdout = String::from_utf8_lossy(&resume_output.stdout);
                                 let (resume_text, resume_model) =
-                                    self.parse_response(&resume_stdout);
+                                    self.parse_response(&resume_stdout, effective_max_turns);
                                 accumulated = format!("{accumulated}\n\n---\n\n{resume_text}");
 
                                 if resume_model.is_some() {
@@ -444,12 +444,15 @@ impl ClaudeCodeProvider {
     }
 
     /// Parse the JSON response from Claude Code CLI, with diagnostic logging.
-    fn parse_response(&self, stdout: &str) -> (String, Option<String>) {
+    fn parse_response(&self, stdout: &str, effective_max_turns: u32) -> (String, Option<String>) {
         match serde_json::from_str::<ClaudeCliResponse>(stdout) {
             Ok(resp) => {
                 // Handle error_max_turns — still extract whatever result exists.
                 if resp.subtype.as_deref() == Some("error_max_turns") {
-                    warn!("claude hit max_turns limit ({} turns)", self.max_turns);
+                    warn!(
+                        "claude hit max_turns limit | num_turns={:?} effective_limit={} configured={}",
+                        resp.num_turns, effective_max_turns, self.max_turns
+                    );
                 }
 
                 let text = match resp.result {
@@ -641,7 +644,7 @@ mod tests {
     fn test_parse_response_max_turns_with_session() {
         let provider = ClaudeCodeProvider::new();
         let json = r#"{"type":"result","subtype":"error_max_turns","result":"partial work done","session_id":"sess-123","model":"claude-sonnet-4-20250514"}"#;
-        let (text, model) = provider.parse_response(json);
+        let (text, model) = provider.parse_response(json, 100);
         assert_eq!(text, "partial work done");
         assert_eq!(model, Some("claude-sonnet-4-20250514".to_string()));
     }
@@ -650,7 +653,7 @@ mod tests {
     fn test_parse_response_success() {
         let provider = ClaudeCodeProvider::new();
         let json = r#"{"type":"result","subtype":"success","result":"all done","model":"claude-sonnet-4-20250514"}"#;
-        let (text, model) = provider.parse_response(json);
+        let (text, model) = provider.parse_response(json, 100);
         assert_eq!(text, "all done");
         assert_eq!(model, Some("claude-sonnet-4-20250514".to_string()));
     }

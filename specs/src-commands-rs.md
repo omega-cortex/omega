@@ -26,6 +26,7 @@ pub enum Command {
     Language,
     Projects,
     Project,
+    Heartbeat,
     Help,
 }
 ```
@@ -43,6 +44,7 @@ pub enum Command {
 | `Purge` | Delete all non-system facts (clean slate) |
 | `Projects` | List available projects, marking the active one |
 | `Project` | Show, activate, or deactivate a project |
+| `Heartbeat` | Show heartbeat status, interval, and watchlist items |
 | `Help` | Display all available commands |
 
 ---
@@ -73,6 +75,7 @@ pub enum Command {
 - `/purge` → `Command::Purge`
 - `/projects` → `Command::Projects`
 - `/project` → `Command::Project`
+- `/heartbeat` → `Command::Heartbeat`
 - `/help` → `Command::Help`
 
 **Example Behavior:**
@@ -103,6 +106,8 @@ pub struct CommandContext<'a> {
     pub skills: &'a [omega_skills::Skill],
     pub projects: &'a [omega_skills::Project],
     pub sandbox_mode: &'a str,
+    pub heartbeat_enabled: bool,
+    pub heartbeat_interval_mins: u64,
 }
 ```
 
@@ -117,6 +122,8 @@ pub struct CommandContext<'a> {
 | `skills` | Slice of loaded skill definitions (for `/skills` command) |
 | `projects` | Slice of loaded project definitions (for `/projects` and `/project` commands) |
 | `sandbox_mode` | Display name of the active sandbox mode (e.g., `"sandbox"`, `"rx"`, `"rwx"`). Shown in `/status` output. |
+| `heartbeat_enabled` | Whether the heartbeat background loop is active (for `/heartbeat` command) |
+| `heartbeat_interval_mins` | Current heartbeat interval in minutes (for `/heartbeat` command) |
 
 ---
 
@@ -492,13 +499,43 @@ Project 'xyz' not found. Use /projects to see available projects.
 
 ---
 
-### /help — `handle_help(lang)`
+### /heartbeat — `handle_heartbeat(enabled, interval_mins, lang)`
 
-**Location:** Lines 159–171
+**Behavior:**
+- Synchronous — no async operations, no store access
+- Reads heartbeat status and interval from `CommandContext` fields
+- Reads watchlist from `~/.omega/prompts/HEARTBEAT.md` via `markers::read_heartbeat_file()`
+- Returns multi-line response with status, interval, and watchlist items
+
+**Response Format (Enabled, With Watchlist):**
+```
+*OMEGA Ω* Heartbeat
+
+Status: active
+Interval: 30 minutes
+
+Watchlist items:
+- [ ] Check BTC price
+- [ ] Monitor server uptime
+```
+
+**Response Format (Disabled):**
+```
+*OMEGA Ω* Heartbeat
+
+Status: disabled
+Interval: 30 minutes
+
+No watchlist items. Configure ~/.omega/prompts/HEARTBEAT.md
+```
+
+---
+
+### /help — `handle_help(lang)`
 
 **Behavior:**
 - No async operations or external calls
-- Returns hardcoded help text with all nine commands and brief descriptions
+- Returns hardcoded help text with all commands and brief descriptions
 - Single-threaded, pure function
 
 **Response Format:**
@@ -515,8 +552,11 @@ Project 'xyz' not found. Use /projects to see available projects.
 /language — Show or set your language
 /personality — Show or set how I behave
 /purge    — Delete all learned facts (clean slate)
+/skills   — List available skills
 /projects — List available projects
 /project  — Show, activate, or deactivate a project
+/whatsapp — Connect WhatsApp via QR code
+/heartbeat — Heartbeat status and watchlist
 /help     — This message
 ```
 
@@ -581,6 +621,7 @@ All command handlers interact with the `omega_memory::Store` trait/type:
 | `handle_project()` | `store.store_fact(sender_id, "active_project", name)` | `Result<()>` | Set active project |
 | `handle_project()` | `store.delete_fact(sender_id, "active_project")` | `Result<bool>` | Deactivate project |
 | `handle_project()` | `store.close_current_conversation(channel, sender_id)` | `Result<bool>` | Clear conversation on project switch |
+| `handle_heartbeat()` | *(no store access — reads config and filesystem only)* | — | Show heartbeat status and watchlist |
 
 All store operations are async and return `Result` types with proper error handling.
 
