@@ -564,6 +564,28 @@ pub fn t(key: &str, lang: &str) -> &'static str {
             _ => "once",
         },
 
+        // --- Task confirmation ---
+        "task_confirmed" => match lang {
+            "Spanish" => "✓ Programada:",
+            "Portuguese" => "✓ Agendada:",
+            "French" => "✓ Planifiée:",
+            "German" => "✓ Geplant:",
+            "Italian" => "✓ Pianificata:",
+            "Dutch" => "✓ Gepland:",
+            "Russian" => "✓ Запланировано:",
+            _ => "✓ Scheduled:",
+        },
+        "task_similar_warning" => match lang {
+            "Spanish" => "⚠ Tarea similar existente:",
+            "Portuguese" => "⚠ Tarefa similar existente:",
+            "French" => "⚠ Tâche similaire existante:",
+            "German" => "⚠ Ähnliche Aufgabe vorhanden:",
+            "Italian" => "⚠ Attività simile esistente:",
+            "Dutch" => "⚠ Vergelijkbare taak bestaat al:",
+            "Russian" => "⚠ Похожая задача существует:",
+            _ => "⚠ Similar task exists:",
+        },
+
         _ => "???",
     }
 }
@@ -703,6 +725,36 @@ pub fn active_project(lang: &str, name: &str) -> String {
     }
 }
 
+/// Format the "Scheduled N tasks:" header.
+pub fn tasks_confirmed(lang: &str, n: usize) -> String {
+    match lang {
+        "Spanish" => format!("✓ {n} tareas programadas:"),
+        "Portuguese" => format!("✓ {n} tarefas agendadas:"),
+        "French" => format!("✓ {n} tâches planifiées:"),
+        "German" => format!("✓ {n} Aufgaben geplant:"),
+        "Italian" => format!("✓ {n} attività pianificate:"),
+        "Dutch" => format!("✓ {n} taken gepland:"),
+        "Russian" => format!("✓ {n} задач запланировано:"),
+        _ => format!("✓ Scheduled {n} tasks:"),
+    }
+}
+
+/// Format the task save failure message.
+pub fn task_save_failed(lang: &str, n: usize) -> String {
+    match lang {
+        "Spanish" => format!("✗ Error al guardar {n} tarea(s). Inténtalo de nuevo."),
+        "Portuguese" => format!("✗ Falha ao salvar {n} tarefa(s). Tente novamente."),
+        "French" => format!("✗ Échec de l'enregistrement de {n} tâche(s). Réessayez."),
+        "German" => {
+            format!("✗ {n} Aufgabe(n) konnten nicht gespeichert werden. Bitte erneut versuchen.")
+        }
+        "Italian" => format!("✗ Impossibile salvare {n} attività. Riprova."),
+        "Dutch" => format!("✗ {n} ta(a)k(en) opslaan mislukt. Probeer opnieuw."),
+        "Russian" => format!("✗ Не удалось сохранить {n} задач(у). Попробуйте снова."),
+        _ => format!("✗ Failed to save {n} task(s). Please try again."),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -751,6 +803,8 @@ mod tests {
             "project_deactivate_hint",
             "no_active_project_hint",
             "once",
+            "task_confirmed",
+            "task_similar_warning",
         ];
         for key in keys {
             let val = t(key, "English");
@@ -818,6 +872,14 @@ mod tests {
 
         // active_project
         assert!(active_project("English", "omega").contains("omega"));
+
+        // tasks_confirmed
+        assert!(tasks_confirmed("English", 3).contains("3 tasks"));
+        assert!(tasks_confirmed("Spanish", 2).contains("2 tareas"));
+
+        // task_save_failed
+        assert!(task_save_failed("English", 1).contains("1 task"));
+        assert!(task_save_failed("Spanish", 2).contains("2 tarea"));
     }
 
     #[test]

@@ -5,6 +5,7 @@ mod init;
 mod markers;
 mod selfcheck;
 mod service;
+mod task_confirmation;
 
 use clap::{Parser, Subcommand};
 use omega_channels::telegram::TelegramChannel;

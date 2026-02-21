@@ -106,10 +106,19 @@ pub fn strip_all_remaining_markers(text: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Extract the first `SCHEDULE:` line from response text.
+#[allow(dead_code)]
 pub fn extract_schedule_marker(text: &str) -> Option<String> {
     text.lines()
         .find(|line| line.trim().starts_with("SCHEDULE:"))
         .map(|line| line.trim().to_string())
+}
+
+/// Extract ALL `SCHEDULE:` lines from response text.
+pub fn extract_all_schedule_markers(text: &str) -> Vec<String> {
+    text.lines()
+        .filter(|line| line.trim().starts_with("SCHEDULE:"))
+        .map(|line| line.trim().to_string())
+        .collect()
 }
 
 /// Parse a schedule line: `SCHEDULE: desc | ISO datetime | repeat`
@@ -143,10 +152,19 @@ pub fn strip_schedule_marker(text: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Extract the first `SCHEDULE_ACTION:` line from response text.
+#[allow(dead_code)]
 pub fn extract_schedule_action_marker(text: &str) -> Option<String> {
     text.lines()
         .find(|line| line.trim().starts_with("SCHEDULE_ACTION:"))
         .map(|line| line.trim().to_string())
+}
+
+/// Extract ALL `SCHEDULE_ACTION:` lines from response text.
+pub fn extract_all_schedule_action_markers(text: &str) -> Vec<String> {
+    text.lines()
+        .filter(|line| line.trim().starts_with("SCHEDULE_ACTION:"))
+        .map(|line| line.trim().to_string())
+        .collect()
 }
 
 /// Parse a schedule action line: `SCHEDULE_ACTION: desc | ISO datetime | repeat`
@@ -873,6 +891,48 @@ pub fn save_attachments_to_inbox(
     paths
 }
 
+/// Resolve an inbox image path: if the file exists, return it as-is.
+/// If it does not exist (UUID mismatch), fall back to the most recently
+/// modified file in the same inbox directory so the image is still
+/// reachable by the provider instead of silently disappearing.
+pub fn resolve_inbox_path(path: &std::path::Path) -> PathBuf {
+    if path.exists() {
+        return path.to_path_buf();
+    }
+
+    // The file is missing — try to find the most recent file in the inbox dir.
+    if let Some(inbox_dir) = path.parent() {
+        if let Ok(entries) = std::fs::read_dir(inbox_dir) {
+            let newest = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_file())
+                .filter_map(|e| {
+                    e.metadata()
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .map(|t| (e.path(), t))
+                })
+                .max_by_key(|(_, t)| *t)
+                .map(|(p, _)| p);
+
+            if let Some(fallback) = newest {
+                tracing::warn!(
+                    "inbox UUID mismatch: {} not found, falling back to {}",
+                    path.display(),
+                    fallback.display()
+                );
+                return fallback;
+            }
+        }
+    }
+
+    tracing::warn!(
+        "inbox file not found and no fallback available: {}",
+        path.display()
+    );
+    path.to_path_buf()
+}
+
 /// Delete inbox images after they have been processed.
 pub fn cleanup_inbox_images(paths: &[PathBuf]) {
     for path in paths {
@@ -941,6 +1001,43 @@ mod tests {
         let text = "Line 1\nLine 2\nSCHEDULE: test | 2026-01-01T00:00:00 | once\nLine 3";
         let result = strip_schedule_marker(text);
         assert_eq!(result, "Line 1\nLine 2\nLine 3");
+    }
+
+    #[test]
+    fn test_extract_all_schedule_markers_multiple() {
+        let text = "I'll set up your reminders.\n\
+                    SCHEDULE: Cancel Hostinger | 2026-03-01T09:00:00 | once\n\
+                    SCHEDULE: Cancel Hostinger 2 | 2026-03-05T09:00:00 | once\n\
+                    SCHEDULE: Cancel Hostinger 3 | 2026-03-10T09:00:00 | once\n\
+                    Done!";
+        let result = extract_all_schedule_markers(text);
+        assert_eq!(result.len(), 3);
+        assert!(result[0].contains("Cancel Hostinger |"));
+        assert!(result[1].contains("Cancel Hostinger 2"));
+        assert!(result[2].contains("Cancel Hostinger 3"));
+    }
+
+    #[test]
+    fn test_extract_all_schedule_markers_single() {
+        let text = "Sure.\nSCHEDULE: Call John | 2026-02-17T15:00:00 | once";
+        let result = extract_all_schedule_markers(text);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_extract_all_schedule_markers_none() {
+        let text = "No schedule markers here.";
+        let result = extract_all_schedule_markers(text);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_all_schedule_markers_ignores_schedule_action() {
+        let text = "SCHEDULE: Reminder | 2026-02-17T09:00:00 | once\n\
+                    SCHEDULE_ACTION: Check price | 2026-02-17T14:00:00 | daily";
+        let result = extract_all_schedule_markers(text);
+        assert_eq!(result.len(), 1);
+        assert!(result[0].contains("Reminder"));
     }
 
     // --- LANG_SWITCH ---
@@ -1398,6 +1495,57 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    #[test]
+    fn test_resolve_inbox_path_exists() {
+        let tmp = std::env::temp_dir().join("omega_test_resolve_exists");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let file = tmp.join("abc123.jpg");
+        std::fs::write(&file, b"data").unwrap();
+
+        // When the file exists, resolve returns the same path.
+        assert_eq!(resolve_inbox_path(&file), file);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_resolve_inbox_path_fallback_to_newest() {
+        let tmp = std::env::temp_dir().join("omega_test_resolve_fallback");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // Create an older file and a newer file.
+        let old_file = tmp.join("old-uuid.jpg");
+        std::fs::write(&old_file, b"old").unwrap();
+        // Ensure a time gap so mtime differs.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let new_file = tmp.join("new-uuid.jpg");
+        std::fs::write(&new_file, b"new").unwrap();
+
+        // Ask for a UUID that does NOT exist — should fall back to the newest file.
+        let missing = tmp.join("nonexistent-uuid.jpg");
+        let resolved = resolve_inbox_path(&missing);
+        assert_eq!(resolved, new_file);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_resolve_inbox_path_empty_dir() {
+        let tmp = std::env::temp_dir().join("omega_test_resolve_empty");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // When the directory is empty, returns the original (missing) path.
+        let missing = tmp.join("nonexistent.jpg");
+        let resolved = resolve_inbox_path(&missing);
+        assert_eq!(resolved, missing);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     // --- Classification ---
 
     #[test]
@@ -1548,6 +1696,36 @@ mod tests {
             !result.contains("SCHEDULE_ACTION:"),
             "should strip SCHEDULE_ACTION lines"
         );
+    }
+
+    #[test]
+    fn test_extract_all_schedule_action_markers_multiple() {
+        let text = "Setting up monitoring.\n\
+                    SCHEDULE_ACTION: Check BTC | 2026-02-18T14:00:00 | daily\n\
+                    SCHEDULE_ACTION: Check ETH | 2026-02-18T14:05:00 | daily\n\
+                    SCHEDULE_ACTION: Check SOL | 2026-02-18T14:10:00 | daily\n\
+                    All set!";
+        let result = extract_all_schedule_action_markers(text);
+        assert_eq!(result.len(), 3);
+        assert!(result[0].contains("Check BTC"));
+        assert!(result[1].contains("Check ETH"));
+        assert!(result[2].contains("Check SOL"));
+    }
+
+    #[test]
+    fn test_extract_all_schedule_action_markers_none() {
+        let text = "No action markers here.";
+        let result = extract_all_schedule_action_markers(text);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_all_schedule_action_markers_ignores_schedule() {
+        let text = "SCHEDULE: Reminder | 2026-02-17T09:00:00 | once\n\
+                    SCHEDULE_ACTION: Check price | 2026-02-17T14:00:00 | daily";
+        let result = extract_all_schedule_action_markers(text);
+        assert_eq!(result.len(), 1);
+        assert!(result[0].contains("Check price"));
     }
 
     // --- SELF_HEAL ---

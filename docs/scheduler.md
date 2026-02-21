@@ -41,12 +41,50 @@ The `SCHEDULE:` line is a structured marker with three pipe-separated fields:
 2. **Due date** -- When to fire, in ISO 8601 format.
 3. **Repeat type** -- How often to repeat: `once`, `daily`, `weekly`, `monthly`, or `weekdays`.
 
-### Step 3: The Gateway Extracts and Stores
+### Step 3: The Gateway Extracts, Stores, and Confirms
 
-The gateway scans the provider's response for the `SCHEDULE:` marker. When found, it:
-1. Parses the three fields.
-2. Creates a task in the `scheduled_tasks` SQLite table via `store.create_task()`.
-3. Strips the `SCHEDULE:` line from the response so you only see the friendly confirmation.
+The gateway scans the provider's response for ALL `SCHEDULE:` markers (not just the first). When found, it:
+1. Parses the three fields from each marker line.
+2. Creates a task in the `scheduled_tasks` SQLite table via `store.create_task()` for each marker.
+3. Collects the result of each operation (`TaskCreated`, `TaskFailed`, or `TaskParseError`).
+4. Strips all `SCHEDULE:` lines from the response so you only see the friendly text.
+5. After sending the AI's response, sends a separate **gateway confirmation message** showing exactly what was saved.
+
+This means a single response can create multiple tasks at once — for example, asking "set 5 reminders for my Hostinger cancellation" will emit 5 `SCHEDULE:` lines and create 5 separate tasks.
+
+### Anti-Hallucination: Gateway Confirmation
+
+The AI composes its response text *before* the gateway processes markers. If a marker fails to parse or the database write errors, the AI's text would be a lie ("I've set 3 reminders" when only 1 was saved). The gateway solves this by sending its own confirmation as a follow-up message:
+
+**Single task:**
+```
+✓ Scheduled: Cancel Hostinger VPS — 2026-03-15T09:00:00 (once)
+```
+
+**Multiple tasks:**
+```
+✓ Scheduled 3 tasks:
+  • Cancel Hostinger VPS — 2026-03-15T09:00:00 (once)
+  • Daily standup — 2026-02-22T09:00:00 (daily)
+  • Call dentist — 2026-02-25T10:00:00 (once)
+```
+
+**Similar task warning:**
+```
+✓ Scheduled: Cancel VPS — 2026-03-15T09:00:00 (once)
+⚠ Similar task exists: "Cancel Hostinger VPS" — 2026-03-15T09:00:00
+```
+
+**Failure:**
+```
+✗ Failed to save 1 task(s). Please try again.
+```
+
+The confirmation is localized to the user's preferred language.
+
+### Duplicate Prevention
+
+The gateway checks all newly created tasks against the user's existing pending tasks using word-overlap similarity (`descriptions_are_similar()` in `task_confirmation.rs`). If a similar task exists, the confirmation includes a warning. The system prompt also instructs the AI to review existing tasks before creating new ones and to never pre-confirm task creation in its response text.
 
 ### Step 4: The Scheduler Delivers
 
@@ -130,7 +168,7 @@ SCHEDULE_ACTION: <description> | <ISO 8601 datetime> | <once|daily|weekly|monthl
 SCHEDULE_ACTION: Check deployment status for api-v2 | 2026-02-17T16:00:00 | once
 ```
 
-The gateway extracts `SCHEDULE_ACTION:` markers the same way it extracts `SCHEDULE:` markers. The only difference is that the task is stored with `task_type = 'action'` instead of `'reminder'`.
+The gateway extracts ALL `SCHEDULE_ACTION:` markers the same way it extracts `SCHEDULE:` markers — multiple markers in a single response each create a separate task. The only difference is that the task is stored with `task_type = 'action'` instead of `'reminder'`.
 
 ### How Action Tasks Execute
 

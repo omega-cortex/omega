@@ -15,6 +15,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [binary-main.md](binary-main.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap
 - [binary-gateway.md](binary-gateway.md) — Gateway event loop, message pipeline, auth, summarization, shutdown
 - [src-markers-rs.md](src-markers-rs.md) — Marker extraction, parsing, stripping (40+ functions extracted from gateway)
+- [src-task-confirmation-rs.md](src-task-confirmation-rs.md) — Task scheduling confirmation (anti-hallucination, duplicate detection, localized confirmation messages)
 - [binary-commands.md](binary-commands.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, purge, help)
 - [binary-init.md](binary-init.md) — Interactive setup wizard
 - [binary-selfcheck.md](binary-selfcheck.md) — Startup health checks
@@ -72,8 +73,9 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 ┌─────────────────────────────────────────────────┐
 │                   omega (binary)                 │
 │  main.rs → gateway.rs → commands.rs             │
+│              markers.rs  task_confirmation.rs    │
 │              init.rs    selfcheck.rs             │
-│              service.rs                          │
+│              service.rs  i18n.rs                 │
 ├─────────────────────────────────────────────────┤
 │  omega-core     │ omega-providers │ omega-channels│
 │  config.rs      │ claude_code.rs  │ telegram.rs   │
@@ -95,7 +97,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 ## Data Flow
 
 ```
-Message → Auth → Sanitize → Sandbox constraint → Memory (context) → Provider → SCHEDULE extract → LIMITATION extract → Memory (store) → Audit → Send
+Message → Auth → Sanitize → Sandbox constraint → Memory (context) → Provider → SCHEDULE extract (all markers) → LIMITATION extract → Memory (store) → Audit → Send
 
 Background:
   Scheduler: poll due_tasks → channel.send(reminder) → complete_task

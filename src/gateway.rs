@@ -5,6 +5,7 @@
 
 use crate::commands;
 use crate::markers::*;
+use crate::task_confirmation::{self, MarkerResult};
 use omega_channels::whatsapp;
 use omega_core::{
     config::{shellexpand, AuthConfig, ChannelConfig, HeartbeatConfig, Prompts, SchedulerConfig},
@@ -396,7 +397,7 @@ impl Gateway {
                                     let mut text = resp.text.clone();
 
                                     // Process SCHEDULE markers from action response.
-                                    if let Some(sched_line) = extract_schedule_marker(&text) {
+                                    for sched_line in extract_all_schedule_markers(&text) {
                                         if let Some((desc, due, rep)) =
                                             parse_schedule_line(&sched_line)
                                         {
@@ -425,12 +426,11 @@ impl Gateway {
                                                 ),
                                             }
                                         }
-                                        text = strip_schedule_marker(&text);
                                     }
+                                    text = strip_schedule_marker(&text);
 
                                     // Process SCHEDULE_ACTION markers from action response.
-                                    if let Some(sched_line) = extract_schedule_action_marker(&text)
-                                    {
+                                    for sched_line in extract_all_schedule_action_markers(&text) {
                                         if let Some((desc, due, rep)) =
                                             parse_schedule_action_line(&sched_line)
                                         {
@@ -459,8 +459,8 @@ impl Gateway {
                                                 ),
                                             }
                                         }
-                                        text = strip_schedule_action_markers(&text);
                                     }
+                                    text = strip_schedule_action_markers(&text);
 
                                     // Process HEARTBEAT markers.
                                     let hb_actions = extract_heartbeat_markers(&text);
@@ -1091,15 +1091,17 @@ impl Gateway {
         let inbox_images = if !incoming.attachments.is_empty() {
             let inbox = ensure_inbox_dir(&self.data_dir);
             let paths = save_attachments_to_inbox(&inbox, &incoming.attachments);
-            // Prepend image paths to the message text so the provider can read them.
-            for path in &paths {
+            // Resolve each path (fall back to most-recent inbox file on UUID mismatch)
+            // and prepend the verified paths to the message text.
+            let resolved: Vec<PathBuf> = paths.iter().map(|p| resolve_inbox_path(p)).collect();
+            for path in &resolved {
                 clean_incoming.text = format!(
                     "[Attached image: {}]\n{}",
                     path.display(),
                     clean_incoming.text
                 );
             }
-            paths
+            resolved
         } else {
             Vec::new()
         };
@@ -1478,7 +1480,7 @@ impl Gateway {
 
         // --- 5. PROCESS MARKERS ---
         let mut response = response;
-        self.process_markers(&incoming, &mut response.text).await;
+        let marker_results = self.process_markers(&incoming, &mut response.text).await;
 
         // --- 6. STORE IN MEMORY ---
         if let Err(e) = self.memory.store_exchange(&incoming, &response).await {
@@ -1511,6 +1513,12 @@ impl Gateway {
         if let Some(channel) = self.channels.get(&incoming.channel) {
             if let Err(e) = channel.send(response).await {
                 error!("failed to send response via {}: {e}", incoming.channel);
+            }
+
+            // --- 8a. SEND TASK CONFIRMATION ---
+            if !marker_results.is_empty() {
+                self.send_task_confirmation(&incoming, &marker_results)
+                    .await;
             }
 
             // --- 8b. SEND NEW WORKSPACE IMAGES ---
@@ -1826,13 +1834,18 @@ impl Gateway {
             match step_result {
                 Some(mut step_resp) => {
                     // Process markers on each step result.
-                    self.process_markers(incoming, &mut step_resp.text).await;
+                    let step_markers = self.process_markers(incoming, &mut step_resp.text).await;
 
                     completed_summary.push_str(&format!("- Step {step_num}: {step} (done)\n"));
 
                     // Send progress update.
                     let progress = format!("✓ {step} ({step_num}/{total})");
                     self.send_text(incoming, &progress).await;
+
+                    // Send task confirmation if any tasks were scheduled in this step.
+                    if !step_markers.is_empty() {
+                        self.send_task_confirmation(incoming, &step_markers).await;
+                    }
 
                     // Audit each step.
                     let _ = self
@@ -1874,9 +1887,15 @@ impl Gateway {
     /// Handles: SCHEDULE, SCHEDULE_ACTION, PROJECT_ACTIVATE/DEACTIVATE,
     /// WHATSAPP_QR, LANG_SWITCH, HEARTBEAT_ADD/REMOVE, LIMITATION,
     /// SELF_HEAL, SELF_HEAL_RESOLVED. Strips processed markers from the text.
-    async fn process_markers(&self, incoming: &IncomingMessage, text: &mut String) {
-        // SCHEDULE
-        if let Some(schedule_line) = extract_schedule_marker(text) {
+    async fn process_markers(
+        &self,
+        incoming: &IncomingMessage,
+        text: &mut String,
+    ) -> Vec<MarkerResult> {
+        let mut marker_results = Vec::new();
+
+        // SCHEDULE — process ALL markers
+        for schedule_line in extract_all_schedule_markers(text) {
             if let Some((desc, due_at, repeat)) = parse_schedule_line(&schedule_line) {
                 let reply_target = incoming.reply_target.as_deref().unwrap_or("");
                 let repeat_opt = if repeat == "once" {
@@ -1897,15 +1916,33 @@ impl Gateway {
                     )
                     .await
                 {
-                    Ok(id) => info!("scheduled task {id}: {desc} at {due_at}"),
-                    Err(e) => error!("failed to create scheduled task: {e}"),
+                    Ok(id) => {
+                        info!("scheduled task {id}: {desc} at {due_at}");
+                        marker_results.push(MarkerResult::TaskCreated {
+                            description: desc,
+                            due_at,
+                            repeat,
+                            task_type: "reminder".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        error!("failed to create scheduled task: {e}");
+                        marker_results.push(MarkerResult::TaskFailed {
+                            description: desc,
+                            reason: e.to_string(),
+                        });
+                    }
                 }
+            } else {
+                marker_results.push(MarkerResult::TaskParseError {
+                    raw_line: schedule_line,
+                });
             }
-            *text = strip_schedule_marker(text);
         }
+        *text = strip_schedule_marker(text);
 
-        // SCHEDULE_ACTION
-        if let Some(sched_line) = extract_schedule_action_marker(text) {
+        // SCHEDULE_ACTION — process ALL markers
+        for sched_line in extract_all_schedule_action_markers(text) {
             if let Some((desc, due_at, repeat)) = parse_schedule_action_line(&sched_line) {
                 let reply_target = incoming.reply_target.as_deref().unwrap_or("");
                 let repeat_opt = if repeat == "once" {
@@ -1926,12 +1963,30 @@ impl Gateway {
                     )
                     .await
                 {
-                    Ok(id) => info!("scheduled action task {id}: {desc} at {due_at}"),
-                    Err(e) => error!("failed to create action task: {e}"),
+                    Ok(id) => {
+                        info!("scheduled action task {id}: {desc} at {due_at}");
+                        marker_results.push(MarkerResult::TaskCreated {
+                            description: desc,
+                            due_at,
+                            repeat,
+                            task_type: "action".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        error!("failed to create action task: {e}");
+                        marker_results.push(MarkerResult::TaskFailed {
+                            description: desc,
+                            reason: e.to_string(),
+                        });
+                    }
                 }
+            } else {
+                marker_results.push(MarkerResult::TaskParseError {
+                    raw_line: sched_line,
+                });
             }
-            *text = strip_schedule_action_markers(text);
         }
+        *text = strip_schedule_action_markers(text);
 
         // PROJECT_ACTIVATE / PROJECT_DEACTIVATE
         if let Some(project_name) = extract_project_activate(text) {
@@ -2281,6 +2336,61 @@ impl Gateway {
         // Safety net: strip any markers still remaining (catches inline markers
         // from small models that don't put them on their own line).
         *text = strip_all_remaining_markers(text);
+
+        marker_results
+    }
+
+    /// Send task scheduling confirmation after processing markers.
+    ///
+    /// Checks for similar existing tasks and formats a confirmation message
+    /// with the actual results from the database (anti-hallucination).
+    async fn send_task_confirmation(
+        &self,
+        incoming: &IncomingMessage,
+        marker_results: &[MarkerResult],
+    ) {
+        // Resolve language for i18n.
+        let lang = self
+            .memory
+            .get_fact(&incoming.sender_id, "preferred_language")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "English".to_string());
+
+        // Check for similar existing tasks (only against tasks that existed
+        // BEFORE this batch — exclude descriptions we just created).
+        let just_created: std::collections::HashSet<&str> = marker_results
+            .iter()
+            .filter_map(|r| match r {
+                MarkerResult::TaskCreated { description, .. } => Some(description.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        let mut similar_warnings = Vec::new();
+        let mut seen_warnings = std::collections::HashSet::new();
+        if let Ok(existing_tasks) = self.memory.get_tasks_for_sender(&incoming.sender_id).await {
+            for (_, existing_desc, existing_due, _, _) in &existing_tasks {
+                // Skip tasks we just created in this batch.
+                if just_created.contains(existing_desc.as_str()) {
+                    continue;
+                }
+                // Check if any newly created task is similar to this existing one.
+                let is_similar = just_created.iter().any(|new_desc| {
+                    task_confirmation::descriptions_are_similar(new_desc, existing_desc)
+                });
+                if is_similar && seen_warnings.insert(existing_desc.clone()) {
+                    similar_warnings.push((existing_desc.clone(), existing_due.clone()));
+                }
+            }
+        }
+
+        if let Some(confirmation) =
+            task_confirmation::format_task_confirmation(marker_results, &similar_warnings, &lang)
+        {
+            self.send_text(incoming, &confirmation).await;
+        }
     }
 
     /// Send a plain text message back to the sender.
