@@ -337,7 +337,7 @@ Progressive onboarding: Stage-based system tracked by an `onboarding_stage` fact
 
 Background loops (spawned in `gateway::run()`):
 - **Scheduler**: polls `scheduled_tasks` table every 60s, delivers due reminders via channel, executes action tasks via provider with full tool/MCP access
-- **Heartbeat**: periodic context-aware provider check-in (default 30min, dynamic via `HEARTBEAT_INTERVAL:` marker + `Arc<AtomicU64>`), enriched with user facts + recent summaries, skips when no `~/.omega/HEARTBEAT.md` checklist is configured, suppresses `HEARTBEAT_OK`, alerts otherwise. Current interval is injected into the system prompt so OMEGA can report it when asked. Interval-change notifications are localized via `i18n::heartbeat_interval_updated()`.
+- **Heartbeat**: clock-aligned periodic context-aware provider check-in (default 30min, fires at clean boundaries like :00/:30, dynamic via `HEARTBEAT_INTERVAL:` marker + `Arc<AtomicU64>`), enriched with user facts + recent summaries, full Identity/Soul/System prompt attached (same as scheduler action tasks), skips when no `~/.omega/HEARTBEAT.md` checklist is configured, suppresses `HEARTBEAT_OK`, alerts otherwise. Current interval is injected into the system prompt so OMEGA can report it when asked. Interval-change notifications are localized via `i18n::heartbeat_interval_updated()`.
 
 Proactive self-scheduling: After every action it takes, the AI evaluates: "Does this need follow-up?" If yes, it uses SCHEDULE (for time-based checks) or HEARTBEAT_ADD (for ongoing monitoring) autonomously — no user request needed. This applies universally to any context, not just specific domains. The Identity section and injected marker instructions both reinforce this: an autonomous agent closes its own loops.
 

@@ -809,7 +809,7 @@ The heartbeat is a background task that performs periodic AI check-ins. It is sp
 
 ### Check-In Cycle
 
-Every `interval_minutes` minutes (default: 30), the heartbeat:
+At each clock-aligned boundary (e.g. :00 and :30 for a 30-minute interval), the heartbeat:
 
 1. **Active Hours Check** -- If `active_start` and `active_end` are configured, checks the current local time. Skips the check if outside the window.
 2. **Read Checklist** -- Reads `~/.omega/HEARTBEAT.md` if it exists. If the file is missing or empty, the entire cycle is **skipped** (no API call). This prevents wasted provider calls when no checklist is configured.
@@ -817,25 +817,26 @@ Every `interval_minutes` minutes (default: 30), the heartbeat:
    - **User facts** from `memory.get_all_facts()` (excluding internal `welcomed` markers).
    - **Recent conversation summaries** from `memory.get_all_recent_summaries(3)`.
    This gives the AI provider awareness of who the user is and what they've been working on, enabling more contextual health check responses.
-4. **Provider Call** -- Sends the enriched prompt to the AI provider for evaluation.
-5. **Suppress or Alert**:
+4. **System Prompt** -- Composes the full Identity/Soul/System prompt (plus sandbox constraints) and attaches it to the context, ensuring the AI has proper role boundaries during heartbeat calls.
+5. **Provider Call** -- Sends the enriched prompt with the full system prompt to the AI provider for evaluation.
+6. **Suppress or Alert**:
    - The response text is cleaned (markdown `*` and backtick characters are stripped) before checking for `HEARTBEAT_OK`.
    - If the cleaned response contains `HEARTBEAT_OK`, the result is logged at INFO level and no message is sent to the user.
    - If the response contains anything else, it is treated as an alert and delivered to the configured channel and reply target.
 
 ```
-┌──────────┐    ┌─────────┐    ┌───────────┐    ┌───────────┐    ┌──────────────┐
-│  Sleep   │───>│ Active  │───>│ Read      │───>│ Enrich    │───>│ Provider     │
-│  N min   │    │ hours?  │    │ HEARTBEAT │    │ with      │    │ call         │
-│          │    │ Yes ──> │    │ .md       │    │ facts +   │    │              │
-└──────────┘    │ No: skip│    │ None: skip│    │ summaries │    └──────────────┘
-     ^          └─────────┘    └───────────┘    └───────────┘          │
-     │                                                     ┌───────────┴───────────┐
-     │                                                     │ HEARTBEAT_OK?         │
-     │                                                     │ Yes: log only         │
-     │                                                     │ No: send alert        │
-     │                                                     └───────────────────────┘
-     └─────────────────────────────────────────────────────────────────┘
+┌──────────┐    ┌─────────┐    ┌───────────┐    ┌───────────┐    ┌───────────┐    ┌──────────┐
+│  Sleep   │───>│ Active  │───>│ Read      │───>│ Enrich    │───>│ Compose   │───>│ Provider │
+│  to next │    │ hours?  │    │ HEARTBEAT │    │ with      │    │ system    │    │ call     │
+│  boundary│    │ Yes ──> │    │ .md       │    │ facts +   │    │ prompt    │    │          │
+└──────────┘    │ No: skip│    │ None: skip│    │ summaries │    └───────────┘    └──────────┘
+     ^          └─────────┘    └───────────┘    └───────────┘                          │
+     │                                                                    ┌────────────┴──────┐
+     │                                                                    │ HEARTBEAT_OK?     │
+     │                                                                    │ Yes: log only     │
+     │                                                                    │ No: send alert    │
+     │                                                                    └───────────────────┘
+     └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### The HEARTBEAT.md File

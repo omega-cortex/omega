@@ -8,7 +8,7 @@ Think of it as a watchdog that uses AI reasoning instead of simple threshold che
 
 ## How It Works
 
-The heartbeat runs as a background loop inside the gateway, firing every N minutes (default: 30). Each cycle follows this sequence:
+The heartbeat runs as a background loop inside the gateway, firing at clock-aligned boundaries (e.g., :00 and :30 for a 30-minute interval). Each cycle follows this sequence:
 
 1. **Check active hours** -- If you configured an active hours window (e.g., 08:00-22:00), the heartbeat checks the current local time. Outside the window, it sleeps until the next cycle.
 2. **Read the checklist** -- Looks for `~/.omega/HEARTBEAT.md`. If the file does not exist or is empty, the entire cycle is **skipped** — no API call is made. This prevents wasted provider calls when no checklist is configured.
@@ -16,23 +16,25 @@ The heartbeat runs as a background loop inside the gateway, firing every N minut
    - **User facts** (name, timezone, interests, etc.) from all users — gives the AI awareness of who it's monitoring for.
    - **Recent conversation summaries** (last 3 closed conversations) — gives the AI context about recent activity.
    - **Skill improvement suggestions** — reminds the AI of pending skill improvement proposals. See [skill-improve.md](skill-improve.md).
-4. **Call the provider** -- Sends the enriched prompt to the AI provider for evaluation.
-5. **Evaluate the response**:
+4. **Compose system prompt** -- The heartbeat attaches the full Identity/Soul/System prompt (plus sandbox constraints if applicable) to the provider call, ensuring the AI has proper role context and behavioral boundaries — identical to how scheduled action tasks and regular messages receive the system prompt.
+5. **Call the provider** -- Sends the enriched prompt with the full system prompt to the AI provider for evaluation.
+6. **Evaluate the response**:
    - Markdown formatting characters (`*` and backticks) are stripped before checking for the keyword.
    - If the cleaned response contains `HEARTBEAT_OK`, the heartbeat logs an INFO message and sends nothing to the user.
    - If the response contains anything else, it is treated as an alert and delivered to the configured channel.
 
 ```
-Every N minutes:
+At next clock-aligned boundary (e.g. :00, :30):
   → Is it within active hours?
     → No: skip, sleep
     → Yes: read HEARTBEAT.md
       → File missing or empty? → skip, no API call
       → Has content? → Enrich prompt with user facts + recent summaries
-        → Call provider with enriched checklist prompt
-          → Strip markdown, check for "HEARTBEAT_OK"
-            → Yes: log "heartbeat: OK", done
-            → No: send response as alert to channel
+        → Compose full system prompt (Identity + Soul + System + sandbox)
+          → Call provider with enriched prompt + system prompt
+            → Strip markdown, check for "HEARTBEAT_OK"
+              → Yes: log "heartbeat: OK", done
+              → No: send response as alert to channel
 ```
 
 ## The HEARTBEAT_OK Suppression Mechanism
@@ -204,6 +206,14 @@ Notification fatigue is a real problem. A message every 30 minutes saying "every
 ### Why Use the AI Provider?
 
 Simple threshold checks (CPU > 90%, disk > 95%) can be done with shell scripts. The value of using an AI provider is that it can reason about context, correlate multiple signals, and describe issues in plain language. A shell script tells you "disk at 92%"; the AI can tell you "disk usage is at 92% and growing fast -- the backup directory has 15GB of stale snapshots that could be cleaned."
+
+### Why Clock-Aligned Timing?
+
+A naive `sleep(N minutes)` fires at times relative to process start -- if the service starts at :04, a 30-minute interval fires at :04 and :34, never at round numbers. Clock alignment computes the next clean boundary (e.g., :00 and :30 for 30-minute intervals, :00 for 60-minute intervals) and sleeps until that exact time. This makes heartbeat behavior predictable and debuggable from the logs.
+
+### Why Attach the Full System Prompt?
+
+Without the Identity/Soul/System prompt, the heartbeat provider call has no role context -- the AI behaves as a generic assistant and may produce incoherent responses (echoing stale conversation context, listing unrelated options). Attaching the full system prompt ensures the AI stays in character with proper behavioral boundaries, identical to how scheduled action tasks and regular messages receive the system prompt.
 
 ### Why Active Hours?
 

@@ -190,31 +190,33 @@ pub struct Gateway {
 - Task completion errors are logged but do not stop the loop.
 - `get_due_tasks()` errors are logged but do not stop the loop.
 
-#### `async fn heartbeat_loop(provider: Arc<dyn Provider>, channels: HashMap<String, Arc<dyn Channel>>, config: HeartbeatConfig, heartbeat_checklist_prompt: String, memory: Store, interval: Arc<AtomicU64>)`
+#### `async fn heartbeat_loop(provider: Arc<dyn Provider>, channels: HashMap<String, Arc<dyn Channel>>, config: HeartbeatConfig, prompts: Prompts, sandbox_prompt: Option<String>, memory: Store, interval: Arc<AtomicU64>)`
 **Purpose:** Background task that periodically invokes the AI provider for a context-aware health check-in. Skips the API call entirely when no checklist is configured. If the provider reports an issue, the alert is delivered via a configured channel. If everything is fine (response contains `HEARTBEAT_OK`), the response is suppressed.
 
 **Parameters:**
 - `provider: Arc<dyn Provider>` - Shared provider reference for the check-in call.
 - `channels: HashMap<String, Arc<dyn Channel>>` - Map of channel implementations for alert delivery.
 - `config: HeartbeatConfig` - Heartbeat configuration (interval, active hours, channel, reply target).
-- `heartbeat_checklist_prompt: String` - Prompt template with `{checklist}` placeholder (from `Prompts.heartbeat_checklist`).
+- `prompts: Prompts` - Full prompts struct (Identity/Soul/System + heartbeat_checklist template). The heartbeat composes the full system prompt from `prompts.identity`, `prompts.soul`, and `prompts.system` and sets it on the context, ensuring the AI has proper role boundaries during heartbeat calls.
+- `sandbox_prompt: Option<String>` - Optional sandbox constraint text appended to the system prompt.
 - `memory: Store` - Shared memory store for enriching heartbeat context with user facts and recent summaries.
 - `interval: Arc<AtomicU64>` - Shared atomic holding the current interval in minutes. Read on each iteration. Updated by `process_markers()` or `scheduler_loop` when a `HEARTBEAT_INTERVAL:` marker is processed.
 
 **Returns:** Never returns (infinite loop).
 
 **Logic:**
-1. Loop forever, reading the interval from the shared `AtomicU64` on each iteration (dynamic, not fixed at startup).
+1. Loop forever, reading the interval from the shared `AtomicU64` on each iteration (dynamic, not fixed at startup). Sleep is **clock-aligned**: computes the next clean boundary (e.g., :00, :30 for a 30-min interval) and sleeps until that exact time, preventing drift from process start time.
 2. Check active hours:
    - If both `active_start` and `active_end` are non-empty, call `is_within_active_hours()`.
    - If outside active hours, log info and skip this iteration.
 3. Read checklist from `~/.omega/HEARTBEAT.md` via `read_heartbeat_file()`.
 4. **Skip when no checklist**: If `read_heartbeat_file()` returns `None`, log info and skip this iteration entirely (no API call).
-5. Build prompt from `heartbeat_checklist_prompt` with `{checklist}` replaced by the file content.
+5. Build prompt from `prompts.heartbeat_checklist` with `{checklist}` replaced by the file content.
 6. **Context enrichment**: Enrich the prompt with memory data:
    - Call `memory.get_all_facts()` — if non-empty, append "Known about the user:" followed by key-value pairs.
    - Call `memory.get_all_recent_summaries(3)` — if non-empty, append "Recent activity:" followed by timestamped summaries.
-7. Call `provider.complete()` with the enriched prompt context.
+7. **System prompt composition**: Compose the full system prompt from `format!("{}\n\n{}\n\n{}", prompts.identity, prompts.soul, prompts.system)` and append `sandbox_prompt` if present. Set `ctx.system_prompt = system` on the context (same pattern as `scheduler_loop` action tasks).
+8. Call `provider.complete()` with the enriched prompt context and full system prompt.
 8. On success:
    - Strip markdown formatting characters (`*`, `` ` ``) from the response before checking for `HEARTBEAT_OK`.
    - If cleaned response contains `HEARTBEAT_OK`, log info and suppress (no message sent).

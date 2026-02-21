@@ -228,7 +228,8 @@ impl Gateway {
             let hb_provider = self.provider.clone();
             let hb_channels = self.channels.clone();
             let hb_config = self.heartbeat_config.clone();
-            let hb_prompt_checklist = self.prompts.heartbeat_checklist.clone();
+            let hb_prompts = self.prompts.clone();
+            let hb_sandbox_prompt = self.sandbox_prompt.clone();
             let hb_memory = self.memory.clone();
             let hb_interval = self.heartbeat_interval.clone();
             Some(tokio::spawn(async move {
@@ -236,7 +237,8 @@ impl Gateway {
                     hb_provider,
                     hb_channels,
                     hb_config,
-                    hb_prompt_checklist,
+                    hb_prompts,
+                    hb_sandbox_prompt,
                     hb_memory,
                     hb_interval,
                 )
@@ -597,13 +599,20 @@ impl Gateway {
         provider: Arc<dyn Provider>,
         channels: HashMap<String, Arc<dyn Channel>>,
         config: HeartbeatConfig,
-        heartbeat_checklist_prompt: String,
+        prompts: Prompts,
+        sandbox_prompt: Option<String>,
         memory: Store,
         interval: Arc<AtomicU64>,
     ) {
         loop {
+            // Clock-aligned sleep: fire at clean boundaries (e.g. :00, :30).
             let mins = interval.load(Ordering::Relaxed);
-            tokio::time::sleep(std::time::Duration::from_secs(mins * 60)).await;
+            let now = chrono::Local::now();
+            use chrono::Timelike;
+            let current_minute = u64::from(now.hour()) * 60 + u64::from(now.minute());
+            let next_boundary = ((current_minute / mins) + 1) * mins;
+            let wait_secs = (next_boundary - current_minute) * 60 - u64::from(now.second());
+            tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
 
             // Check active hours.
             if !config.active_start.is_empty()
@@ -623,7 +632,9 @@ impl Gateway {
                 }
             };
 
-            let mut prompt = heartbeat_checklist_prompt.replace("{checklist}", &checklist);
+            let mut prompt = prompts
+                .heartbeat_checklist
+                .replace("{checklist}", &checklist);
 
             // Enrich heartbeat context with recent memory.
             if let Ok(facts) = memory.get_all_facts().await {
@@ -643,7 +654,17 @@ impl Gateway {
                 }
             }
 
-            let ctx = Context::new(&prompt);
+            let mut system = format!(
+                "{}\n\n{}\n\n{}",
+                prompts.identity, prompts.soul, prompts.system
+            );
+            if let Some(ref sp) = sandbox_prompt {
+                system.push_str("\n\n");
+                system.push_str(sp);
+            }
+
+            let mut ctx = Context::new(&prompt);
+            ctx.system_prompt = system;
             match provider.complete(&ctx).await {
                 Ok(resp) => {
                     let cleaned: String = resp
