@@ -47,6 +47,9 @@ pub struct MessageMetadata {
     pub processing_time_ms: u64,
     /// Model identifier (if applicable).
     pub model: Option<String>,
+    /// Session ID returned by the provider (Claude Code CLI only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// A file attachment on a message.

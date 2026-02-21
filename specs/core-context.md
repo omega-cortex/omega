@@ -64,6 +64,9 @@ pub struct Context {
     /// Optional model override for this request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Session ID for conversation continuity (Claude Code CLI).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 ```
 
@@ -74,6 +77,7 @@ pub struct Context {
 | `current_message` | `String` | The user's latest message that the provider must respond to. |
 | `mcp_servers` | `Vec<McpServer>` | MCP servers to activate for this request. Populated by skill trigger matching in the gateway. Default: empty. |
 | `model` | `Option<String>` | Optional model override for this request. When `Some`, the provider uses this model instead of its default. Set by the gateway's classify-and-route logic. Default: `None`. |
+| `session_id` | `Option<String>` | Session ID for CLI conversation continuity. When set, `to_prompt_string()` skips system prompt and history (already in the session) and emits only the current message with a minimal context update. Default: `None`. |
 
 **Traits derived:** `Debug`, `Clone`, `Serialize`, `Deserialize`.
 
@@ -128,6 +132,7 @@ pub fn new(message: &str) -> Self
 - `current_message` is a clone of `message`.
 - `mcp_servers` is an empty `Vec`.
 - `model` is `None`.
+- `session_id` is `None`.
 
 **Usage sites:**
 - `src/main.rs` -- the `omega ask` CLI command creates a one-shot context for a single prompt with no history.
@@ -177,6 +182,15 @@ pub fn to_prompt_string(&self) -> String
 - If `system_prompt` is empty, the `[System]` section is omitted entirely.
 - If `history` is empty, only the system prompt (if present) and the current message appear.
 - Roles other than `"user"` (including typos or future roles) all map to `"Assistant"`.
+
+**Session continuation behavior (`session_id` is `Some`):**
+
+When `session_id` is set, the method switches to a minimal output mode for CLI session continuity:
+1. The `[System]` block and history entries are skipped entirely (they're already in the CLI session).
+2. If `system_prompt` is non-empty (contains minimal context like current time), it's prepended to the current message: `[User]\n{system_prompt}\n\n{current_message}`.
+3. If `system_prompt` is empty, only `[User]\n{current_message}` is emitted.
+
+This reduces token overhead by ~90-99% for continuation messages.
 
 **Usage sites:**
 - `crates/omega-providers/src/claude_code.rs` -- the Claude Code provider calls `context.to_prompt_string()` to produce the single prompt string passed to the `claude -p` CLI command.
@@ -328,6 +342,11 @@ Currently, serialization is not explicitly used in the codebase but is available
 - `test_context_deserialize_without_mcp_servers`: Deserializing a Context JSON without the `mcp_servers` field succeeds with an empty default (backwards compatibility).
 - `test_to_api_messages_basic`: `to_api_messages()` returns system prompt and single user message.
 - `test_to_api_messages_with_history`: `to_api_messages()` includes history entries + current message in order.
+- `test_to_prompt_string_no_session_full_output`: Verifies full `[System]+[history]+[User]` output when `session_id` is `None`.
+- `test_to_prompt_string_with_session_skips_system_and_history`: Verifies minimal `[User]` output with prepended context when `session_id` is `Some`.
+- `test_to_prompt_string_session_empty_system_prompt`: Verifies bare `[User]\nhello` when session has empty system prompt.
+- `test_session_id_serde_round_trip`: Verifies session_id serializes and deserializes correctly.
+- `test_session_id_skipped_when_none`: Verifies session_id is omitted from JSON when None.
 
 ## Invariants
 
@@ -336,3 +355,4 @@ Currently, serialization is not explicitly used in the codebase but is available
 3. Every `ContextEntry.role` is either `"user"` or `"assistant"`.
 4. The `[User]` section for `current_message` is always the last section in `to_prompt_string()` output.
 5. `to_prompt_string()` never produces an empty string (at minimum it contains the current message).
+6. When `session_id` is `Some`, `to_prompt_string()` never emits `[System]` or `[Assistant]` sections.

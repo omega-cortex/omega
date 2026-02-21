@@ -310,6 +310,9 @@ pub struct Gateway {
     heartbeat_interval: Arc<AtomicU64>,
     /// Sandbox mode enum — needed for direct subprocess calls (CLAUDE.md maintenance).
     sandbox_mode_enum: omega_core::config::SandboxMode,
+    /// Active CLI sessions per sender (channel:sender_id → session_id).
+    /// Used for session-based prompt persistence with Claude Code CLI.
+    cli_sessions: Arc<std::sync::Mutex<HashMap<String, String>>>,
 }
 
 impl Gateway {
@@ -356,6 +359,7 @@ impl Gateway {
             active_senders: Mutex::new(HashMap::new()),
             heartbeat_interval,
             sandbox_mode_enum,
+            cli_sessions: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -415,8 +419,16 @@ impl Gateway {
         let bg_provider = self.provider.clone();
         let bg_summarize = self.prompts.summarize.clone();
         let bg_facts = self.prompts.facts.clone();
+        let bg_sessions = self.cli_sessions.clone();
         let bg_handle = tokio::spawn(async move {
-            Self::background_summarizer(bg_store, bg_provider, bg_summarize, bg_facts).await;
+            Self::background_summarizer(
+                bg_store,
+                bg_provider,
+                bg_summarize,
+                bg_facts,
+                bg_sessions,
+            )
+            .await;
         });
 
         // Spawn scheduler loop.
@@ -592,13 +604,14 @@ impl Gateway {
         provider: Arc<dyn Provider>,
         summarize_prompt: String,
         facts_prompt: String,
+        cli_sessions: Arc<std::sync::Mutex<HashMap<String, String>>>,
     ) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
 
             match store.find_idle_conversations().await {
                 Ok(convos) => {
-                    for (conv_id, _channel, _sender_id) in &convos {
+                    for (conv_id, channel, sender_id) in &convos {
                         if let Err(e) = Self::summarize_conversation(
                             &store,
                             &provider,
@@ -609,6 +622,10 @@ impl Gateway {
                         .await
                         {
                             error!("failed to summarize conversation {conv_id}: {e}");
+                        }
+                        // Clear CLI session when conversation is closed due to idle timeout.
+                        if let Ok(mut sessions) = cli_sessions.lock() {
+                            sessions.remove(&format!("{channel}:{sender_id}"));
                         }
                     }
                 }
@@ -1363,6 +1380,11 @@ impl Gateway {
                     .close_current_conversation(channel, sender_id)
                     .await;
 
+                // Clear CLI session — next message starts fresh.
+                if let Ok(mut sessions) = self.cli_sessions.lock() {
+                    sessions.remove(&format!("{channel}:{sender_id}"));
+                }
+
                 // Summarize + extract facts in the background.
                 let store = self.memory.clone();
                 let provider = Arc::clone(&self.provider);
@@ -1769,6 +1791,50 @@ impl Gateway {
         let mut context = context;
         context.mcp_servers = mcp_servers;
 
+        // --- 4c. SESSION-BASED PROMPT PERSISTENCE (Claude Code CLI only) ---
+        // If we have an active CLI session for this sender, skip the heavy
+        // system prompt + history (already in the session) and send only
+        // a minimal context update: time + keyword-gated sections.
+        let sender_key = format!("{}:{}", incoming.channel, incoming.sender_id);
+        let full_system_prompt = context.system_prompt.clone();
+        let full_history = context.history.clone();
+
+        if self.provider.name() == "claude-code" {
+            if let Ok(sessions) = self.cli_sessions.lock() {
+                if let Some(sid) = sessions.get(&sender_key) {
+                    context.session_id = Some(sid.clone());
+
+                    // Minimal prompt: time + keyword-gated sections only.
+                    let mut minimal = format!(
+                        "Current time: {}",
+                        chrono::Local::now().format("%Y-%m-%d %H:%M %Z")
+                    );
+                    if needs_scheduling {
+                        minimal.push_str("\n\n");
+                        minimal.push_str(&self.prompts.scheduling);
+                    }
+                    if needs_projects {
+                        minimal.push_str("\n\n");
+                        minimal.push_str(&self.prompts.projects_rules);
+                    }
+                    if needs_meta {
+                        minimal.push_str("\n\n");
+                        minimal.push_str(&self.prompts.meta);
+                    }
+
+                    context.system_prompt = minimal;
+                    context.history.clear();
+
+                    info!(
+                        "[{}] system prompt: ~{} tokens ({} chars) [session continuation]",
+                        incoming.channel,
+                        context.system_prompt.len() / 4,
+                        context.system_prompt.len()
+                    );
+                }
+            }
+        }
+
         // --- 5. AUTONOMOUS CLASSIFICATION & MODEL ROUTING ---
         // Every message gets a fast Sonnet classification call that determines
         // whether to handle directly or decompose into steps.
@@ -1858,7 +1924,60 @@ impl Gateway {
         });
 
         // Wait for the provider result.
-        let response = match provider_task.await {
+        let provider_result = provider_task.await;
+
+        // If session call failed, retry with full context (session may be stale).
+        let response = match provider_result {
+            Ok(Err(ref _e)) if context.session_id.is_some() => {
+                warn!("session call failed, retrying with full context");
+                if let Ok(mut sessions) = self.cli_sessions.lock() {
+                    sessions.remove(&sender_key);
+                }
+                context.session_id = None;
+                context.system_prompt = full_system_prompt;
+                context.history = full_history;
+
+                let provider = self.provider.clone();
+                let retry_ctx = context.clone();
+                match provider.complete(&retry_ctx).await {
+                    Ok(mut resp) => {
+                        status_handle.abort();
+                        info!(
+                            "[{}] provider responded (retry) | model: {} | {}ms",
+                            incoming.channel,
+                            resp.metadata.model.as_deref().unwrap_or("unknown"),
+                            resp.metadata.processing_time_ms
+                        );
+                        resp.reply_target = incoming.reply_target.clone();
+                        resp
+                    }
+                    Err(e) => {
+                        status_handle.abort();
+                        error!("provider retry error: {e}");
+                        if let Some(h) = typing_handle {
+                            h.abort();
+                        }
+                        let _ = self
+                            .audit
+                            .log(&AuditEntry {
+                                channel: incoming.channel.clone(),
+                                sender_id: incoming.sender_id.clone(),
+                                sender_name: incoming.sender_name.clone(),
+                                input_text: incoming.text.clone(),
+                                output_text: Some(format!("ERROR: {e}")),
+                                provider_used: Some(self.provider.name().to_string()),
+                                model: None,
+                                processing_ms: None,
+                                status: AuditStatus::Error,
+                                denial_reason: None,
+                            })
+                            .await;
+                        let friendly = friendly_provider_error(&e.to_string());
+                        self.send_text(&incoming, &friendly).await;
+                        return;
+                    }
+                }
+            }
             Ok(Ok(mut resp)) => {
                 status_handle.abort();
                 info!(
@@ -1909,6 +2028,13 @@ impl Gateway {
                 return;
             }
         };
+
+        // Capture session_id from provider response for future continuations.
+        if let Some(ref sid) = response.metadata.session_id {
+            if let Ok(mut sessions) = self.cli_sessions.lock() {
+                sessions.insert(sender_key.clone(), sid.clone());
+            }
+        }
 
         // Stop typing indicator.
         if let Some(h) = typing_handle {
@@ -2505,6 +2631,10 @@ impl Gateway {
                     info!("no active conversation to clear for {}", incoming.sender_id)
                 }
                 Err(e) => error!("failed to clear conversation via marker: {e}"),
+            }
+            // Clear CLI session — next message starts fresh.
+            if let Ok(mut sessions) = self.cli_sessions.lock() {
+                sessions.remove(&format!("{}:{}", incoming.channel, incoming.sender_id));
             }
             *text = strip_forget_marker(text);
         }

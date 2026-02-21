@@ -64,6 +64,11 @@ pub struct Context {
     /// `--model` with this value instead of its configured default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Session ID for conversation continuity (Claude Code CLI).
+    /// When set, `to_prompt_string()` skips the system prompt and history
+    /// (already in the session) and emits only the current message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 /// A structured message for API-based providers (OpenAI, Anthropic, etc.).
@@ -86,28 +91,47 @@ impl Context {
             max_turns: None,
             allowed_tools: None,
             model: None,
+            session_id: None,
         }
     }
 
     /// Flatten the context into a single prompt string for providers
     /// that accept a single text input (e.g. Claude Code CLI).
+    ///
+    /// When `session_id` is set (continuation), the full system prompt and
+    /// history are already in the CLI session — we only send a minimal
+    /// context update (time, keyword-gated sections) prepended to the user message.
     pub fn to_prompt_string(&self) -> String {
         let mut parts = Vec::new();
 
-        if !self.system_prompt.is_empty() {
-            parts.push(format!("[System]\n{}", self.system_prompt));
-        }
+        if self.session_id.is_none() {
+            // First message: send full system prompt + history.
+            if !self.system_prompt.is_empty() {
+                parts.push(format!("[System]\n{}", self.system_prompt));
+            }
 
-        for entry in &self.history {
-            let role = if entry.role == "user" {
-                "User"
+            for entry in &self.history {
+                let role = if entry.role == "user" {
+                    "User"
+                } else {
+                    "Assistant"
+                };
+                parts.push(format!("[{}]\n{}", role, entry.content));
+            }
+
+            parts.push(format!("[User]\n{}", self.current_message));
+        } else {
+            // Continuation: system_prompt has minimal context update (time, etc.).
+            // Prepend it to the user message so the AI sees it.
+            if !self.system_prompt.is_empty() {
+                parts.push(format!(
+                    "[User]\n{}\n\n{}",
+                    self.system_prompt, self.current_message
+                ));
             } else {
-                "Assistant"
-            };
-            parts.push(format!("[{}]\n{}", role, entry.content));
+                parts.push(format!("[User]\n{}", self.current_message));
+            }
         }
-
-        parts.push(format!("[User]\n{}", self.current_message));
 
         parts.join("\n\n")
     }
@@ -180,6 +204,7 @@ mod tests {
             max_turns: None,
             allowed_tools: None,
             model: None,
+            session_id: None,
         };
         let json = serde_json::to_string(&ctx).unwrap();
         let deserialized: Context = serde_json::from_str(&json).unwrap();
@@ -224,6 +249,7 @@ mod tests {
             max_turns: None,
             allowed_tools: None,
             model: None,
+            session_id: None,
         };
         let (system, messages) = ctx.to_api_messages();
         assert_eq!(system, "Be helpful.");
@@ -234,5 +260,92 @@ mod tests {
         assert_eq!(messages[1].content, "Hello!");
         assert_eq!(messages[2].role, "user");
         assert_eq!(messages[2].content, "How are you?");
+    }
+
+    #[test]
+    fn test_to_prompt_string_no_session_full_output() {
+        let ctx = Context {
+            system_prompt: "Be helpful.".into(),
+            history: vec![ContextEntry {
+                role: "user".into(),
+                content: "Hi".into(),
+            }],
+            current_message: "How are you?".into(),
+            mcp_servers: Vec::new(),
+            max_turns: None,
+            allowed_tools: None,
+            model: None,
+            session_id: None,
+        };
+        let prompt = ctx.to_prompt_string();
+        assert!(prompt.contains("[System]\nBe helpful."));
+        assert!(prompt.contains("[User]\nHi"));
+        assert!(prompt.contains("[User]\nHow are you?"));
+    }
+
+    #[test]
+    fn test_to_prompt_string_with_session_skips_system_and_history() {
+        let ctx = Context {
+            system_prompt: "Current time: 2026-02-21".into(),
+            history: vec![ContextEntry {
+                role: "user".into(),
+                content: "Hi".into(),
+            }],
+            current_message: "How are you?".into(),
+            mcp_servers: Vec::new(),
+            max_turns: None,
+            allowed_tools: None,
+            model: None,
+            session_id: Some("sess-abc".into()),
+        };
+        let prompt = ctx.to_prompt_string();
+        // Should NOT contain [System] block or history.
+        assert!(!prompt.contains("[System]"));
+        assert!(!prompt.contains("[User]\nHi\n"));
+        // Should prepend minimal context to user message.
+        assert!(prompt.contains("[User]\nCurrent time: 2026-02-21\n\nHow are you?"));
+    }
+
+    #[test]
+    fn test_to_prompt_string_session_empty_system_prompt() {
+        let ctx = Context {
+            system_prompt: String::new(),
+            history: Vec::new(),
+            current_message: "hello".into(),
+            mcp_servers: Vec::new(),
+            max_turns: None,
+            allowed_tools: None,
+            model: None,
+            session_id: Some("sess-xyz".into()),
+        };
+        let prompt = ctx.to_prompt_string();
+        assert_eq!(prompt, "[User]\nhello");
+    }
+
+    #[test]
+    fn test_session_id_serde_round_trip() {
+        let ctx = Context {
+            system_prompt: "test".into(),
+            history: Vec::new(),
+            current_message: "hi".into(),
+            mcp_servers: Vec::new(),
+            max_turns: None,
+            allowed_tools: None,
+            model: None,
+            session_id: Some("sess-123".into()),
+        };
+        let json = serde_json::to_string(&ctx).unwrap();
+        let deserialized: Context = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.session_id, Some("sess-123".into()));
+    }
+
+    #[test]
+    fn test_session_id_skipped_when_none() {
+        let ctx = Context::new("hello");
+        let json = serde_json::to_string(&ctx).unwrap();
+        assert!(!json.contains("session_id"));
+        // But deserializing without it should give None.
+        let deserialized: Context = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.session_id, None);
     }
 }

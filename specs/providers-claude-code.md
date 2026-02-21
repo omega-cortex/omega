@@ -29,11 +29,10 @@
 
 ### `ClaudeCodeProvider`
 
-Public struct. The provider that wraps the Claude Code CLI.
+Public struct. The provider that wraps the Claude Code CLI. Session continuity is managed per-request via `Context.session_id`, not stored on the provider.
 
 | Field | Type | Visibility | Description |
 |-------|------|------------|-------------|
-| `session_id` | `Option<String>` | Private | Optional session ID passed to the CLI for conversation continuity across invocations. |
 | `max_turns` | `u32` | Private | Maximum number of agentic turns the CLI is allowed per single invocation. Default: `10`. |
 | `allowed_tools` | `Vec<String>` | Private | List of tool names the CLI is permitted to use. Default: `[]` (empty = full tool access, `--dangerously-skip-permissions` passed to bypass all permission prompts since the OS-level sandbox provides the real security boundary). When non-empty, each tool is passed as a separate `--allowedTools` argument. |
 | `timeout` | `Duration` | Private | Maximum time to wait for the CLI subprocess to complete. Constructed from `Duration::from_secs(timeout_secs)`. Default: `3600` seconds (60 minutes). |
@@ -69,7 +68,6 @@ Private struct. Deserializes the JSON output from `claude -p --output-format jso
 
 Constructs a new `ClaudeCodeProvider` with default settings:
 
-- `session_id`: `None`
 - `max_turns`: `10`
 - `allowed_tools`: `[]` (full tool access)
 - `timeout`: `Duration::from_secs(3600)` (60 minutes)
@@ -85,7 +83,7 @@ pub fn new() -> Self
 
 **Visibility:** Public
 
-Constructs a `ClaudeCodeProvider` from explicit configuration values. Sets `session_id` to `None`, `timeout` to `Duration::from_secs(timeout_secs)`, `working_dir` to the provided value, `max_resume_attempts` to the provided value, and `model` to the provided value.
+Constructs a `ClaudeCodeProvider` from explicit configuration values. Sets `timeout` to `Duration::from_secs(timeout_secs)`, `working_dir` to the provided value, `max_resume_attempts` to the provided value, and `model` to the provided value.
 
 ```rust
 pub fn from_config(max_turns: u32, allowed_tools: Vec<String>, timeout_secs: u64, working_dir: Option<PathBuf>, max_resume_attempts: u32, model: String) -> Self
@@ -189,7 +187,7 @@ The core method. Invokes the Claude Code CLI as a subprocess and parses the resu
 3. **Command assembly:** Builds the subprocess command:
    ```
    claude -p <prompt> --output-format json --max-turns <N>
-         [--session-id <id>]
+         [--session-id <context.session_id>]
          [--allowedTools <tool>]...
    ```
 
@@ -230,6 +228,7 @@ OutgoingMessage {
         tokens_used: None,          // CLI does not report token counts
         processing_time_ms: elapsed_ms,
         model,                      // From JSON response, or None
+        session_id: returned_session_id,  // From CLI response, for gateway session tracking
     },
     reply_target: None,  // Set downstream by the gateway
 }
@@ -243,9 +242,9 @@ Delegates to `Self::check_cli()`. Returns `true` if the `claude` binary is insta
 
 ## CLI Invocation Detail
 
-### `run_cli(prompt, extra_allowed_tools, model, context_disabled_tools)` (private, async)
+### `run_cli(prompt, extra_allowed_tools, model, context_disabled_tools, session_id)` (private, async)
 
-Private helper that assembles and executes the `claude` CLI subprocess. Called by `complete()`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. The `context_disabled_tools: bool` parameter is `true` when the caller explicitly set `context.allowed_tools = Some(vec![])`.
+Private helper that assembles and executes the `claude` CLI subprocess. Called by `complete()`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. The `context_disabled_tools: bool` parameter is `true` when the caller explicitly set `context.allowed_tools = Some(vec![])`. The `session_id: Option<&str>` parameter comes from `Context.session_id` — when `Some`, passes `--session-id` to the CLI for conversation continuity.
 
 Permission logic (3 branches):
 1. **Tools disabled** (`context_disabled_tools = true`): passes `--allowedTools ""` to disable all tool use (used by classification calls).
@@ -254,7 +253,7 @@ Permission logic (3 branches):
 
 ### `run_cli_with_session(prompt, extra_allowed_tools, session_id, model)` (private, async)
 
-Private helper that assembles and executes the `claude` CLI subprocess with an explicit `--session-id` argument. Called by the auto-resume loop in `complete()` when a previous invocation returned `error_max_turns` with a `session_id`. Behaves identically to `run_cli()` except it always includes `--session-id <session_id>` in the CLI arguments, overriding `self.session_id`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. Uses the same permission logic as `run_cli()`: full access (`allowed_tools` empty) → `--dangerously-skip-permissions`; explicit whitelist → `--allowedTools` per tool.
+Private helper that assembles and executes the `claude` CLI subprocess with an explicit `--session-id` argument. Called by the auto-resume loop in `complete()` when a previous invocation returned `error_max_turns` with a `session_id`. Behaves identically to `run_cli()` except it always includes `--session-id <session_id>` in the CLI arguments. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. Uses the same permission logic as `run_cli()`: full access (`allowed_tools` empty) → `--dangerously-skip-permissions`; explicit whitelist → `--allowedTools` per tool.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -269,7 +268,7 @@ The subprocess is invoked with the following arguments:
 | `--output-format` | `json` | Yes |
 | `--max-turns` | `self.max_turns` (default `10`) | Yes |
 | `--model` | Effective model string | Only if model is non-empty |
-| `--session-id` | `self.session_id` | Only if `session_id` is `Some` |
+| `--session-id` | `session_id` parameter (from Context) | Only if `session_id` is `Some` |
 | `--dangerously-skip-permissions` | (flag, no value) | Only when `allowed_tools` is empty (full access mode) |
 | `--allowedTools` | One per tool in `self.allowed_tools` + MCP patterns | Only when `allowed_tools` is non-empty, or for MCP patterns in full access mode |
 

@@ -177,7 +177,7 @@ The CLI outputs a JSON object with this shape:
 - **`model`** -- Included in the response metadata so you can see which model was used.
 - **`is_error`** -- If `true` and there is no result text, Omega generates a fallback error message.
 
-The `cost_usd`, `total_cost_usd`, `session_id`, and `num_turns` fields are deserialized but not currently surfaced. They are available in the struct for future features (cost tracking, session persistence, etc.).
+The `session_id` field is actively used: it is returned in `MessageMetadata.session_id` so the gateway can track it for session-based prompt persistence (see Session Continuity below). The `cost_usd`, `total_cost_usd`, and `num_turns` fields are deserialized but not currently surfaced. They are available in the struct for future features (cost tracking, etc.).
 
 ---
 
@@ -254,9 +254,26 @@ If the JSON parses correctly but `result` is empty or missing:
 
 ## Session Continuity
 
-The `session_id` field exists on the provider struct and is not populated by the constructors (it is always `None` initially). However, session IDs are actively used by the auto-resume feature: when the CLI returns `error_max_turns` with a `session_id`, the provider automatically retries using `run_cli_with_session()` which passes `--session-id <id>` to continue the same CLI session.
+Session IDs serve two purposes in the Claude Code CLI provider:
 
-This is separate from Omega's own memory system (which handles conversation history via SQLite and the `Context` struct). Session continuity at the CLI level allows Claude to maintain its own internal state across resumed calls within a single user request.
+### 1. Auto-Resume (max_turns recovery)
+
+When the CLI returns `error_max_turns` with a `session_id`, the provider automatically retries using `run_cli_with_session()` which passes `--session-id <id>` to continue the same CLI session. This is handled entirely within the provider's `complete()` method — transparent to the gateway.
+
+### 2. Session-Based Prompt Persistence (conversation continuity)
+
+Session IDs are passed **into** the provider via `Context.session_id`. The gateway stores the `session_id` returned in `MessageMetadata` after a successful provider call, then sets it on the `Context` for subsequent messages from the same user. This enables prompt persistence:
+
+- **First message:** `Context.session_id` is `None`. The provider sends the full flattened prompt (system prompt + history + current message) via `to_prompt_string()`.
+- **Subsequent messages:** `Context.session_id` is `Some(id)`. The provider passes `--session-id` to the CLI. `to_prompt_string()` skips the system prompt and history (already in the session) and emits only a minimal context update prepended to the user message.
+
+The response always includes `session_id` in `MessageMetadata.session_id`, extracted from the CLI's JSON output. The gateway tracks this for the next request.
+
+**Invalidation:** The gateway clears the stored session ID on `/forget`, `FORGET_CONVERSATION` marker, idle timeout, or provider error. When invalidated, the next message falls back to a full-context call, creating a new session.
+
+**Fallback:** If a session-based call fails (e.g., expired session), the gateway retries with a fresh full-context call automatically.
+
+This is complementary to Omega's own memory system (SQLite conversation history). The CLI session provides token-level savings (~90-99% for continuation messages) while the memory system provides cross-session persistence.
 
 ---
 

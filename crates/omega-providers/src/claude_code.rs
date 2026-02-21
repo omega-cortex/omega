@@ -22,8 +22,6 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(3600);
 
 /// Claude Code CLI provider configuration.
 pub struct ClaudeCodeProvider {
-    /// Optional session ID for conversation continuity.
-    session_id: Option<String>,
     /// Maximum agentic turns per invocation.
     max_turns: u32,
     /// Tools the CLI is allowed to use.
@@ -71,7 +69,6 @@ impl ClaudeCodeProvider {
     /// Create a new Claude Code provider with default settings.
     pub fn new() -> Self {
         Self {
-            session_id: None,
             max_turns: 100,
             allowed_tools: vec![],
             timeout: DEFAULT_TIMEOUT,
@@ -93,7 +90,6 @@ impl ClaudeCodeProvider {
         model: String,
     ) -> Self {
         Self {
-            session_id: None,
             max_turns,
             allowed_tools,
             timeout: Duration::from_secs(timeout_secs),
@@ -172,6 +168,7 @@ impl Provider for ClaudeCodeProvider {
                 &effective_tools,
                 effective_model,
                 tools_disabled,
+                context.session_id.as_deref(),
             )
             .await;
 
@@ -257,6 +254,9 @@ impl Provider for ClaudeCodeProvider {
 
         let elapsed_ms = start.elapsed().as_millis() as u64;
 
+        // Capture session_id from the provider response for conversation continuity.
+        let returned_session_id = parsed.as_ref().and_then(|r| r.session_id.clone());
+
         Ok(OutgoingMessage {
             text,
             metadata: MessageMetadata {
@@ -264,6 +264,7 @@ impl Provider for ClaudeCodeProvider {
                 tokens_used: None,
                 processing_time_ms: elapsed_ms,
                 model,
+                session_id: returned_session_id,
             },
             reply_target: None,
         })
@@ -276,6 +277,7 @@ impl Provider for ClaudeCodeProvider {
 
 impl ClaudeCodeProvider {
     /// Run the claude CLI subprocess with a timeout.
+    #[allow(clippy::too_many_arguments)]
     async fn run_cli(
         &self,
         prompt: &str,
@@ -284,6 +286,7 @@ impl ClaudeCodeProvider {
         allowed_tools: &[String],
         model: &str,
         context_disabled_tools: bool,
+        session_id: Option<&str>,
     ) -> Result<std::process::Output, OmegaError> {
         let mut cmd = match self.working_dir {
             Some(ref dir) => {
@@ -312,8 +315,8 @@ impl ClaudeCodeProvider {
         }
 
         // Session continuity.
-        if let Some(ref session) = self.session_id {
-            cmd.arg("--session-id").arg(session);
+        if let Some(sid) = session_id {
+            cmd.arg("--session-id").arg(sid);
         }
 
         // Tool permissions: In `-p` (non-interactive) mode, Claude Code

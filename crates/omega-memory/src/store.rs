@@ -617,6 +617,7 @@ impl Store {
             max_turns: None,
             allowed_tools: None,
             model: None,
+            session_id: None,
         })
     }
 

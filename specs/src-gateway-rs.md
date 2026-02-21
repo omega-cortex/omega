@@ -18,7 +18,8 @@ The gateway manages the asynchronous event loop that processes incoming messages
 Message → Auth → Sanitize → Command Check → Typing → Keyword Detection (kw_match) →
 Conditional Prompt Compose (Identity+Soul+System always, scheduling/projects/meta if keywords match) →
 Context (build_context with ContextNeeds gating recall/tasks DB queries) → MCP Trigger Match →
-Classify & Route (always, model selection) → Provider (MCP settings write → CLI → MCP cleanup) → Memory Store → Audit Log → Send
+Session Check (strip heavy prompt if continuation) → Classify & Route (always, model selection) →
+Provider (MCP settings write → CLI → MCP cleanup) → Session Capture → Memory Store → Audit Log → Send
 ```
 
 The gateway runs continuously, listening for messages from registered channels via an mpsc channel, and spawns a background task for periodic conversation summarization.
@@ -45,6 +46,7 @@ pub struct Gateway {
     active_senders: Mutex<HashMap<String, Vec<IncomingMessage>>>,  // Per-sender message buffer for non-blocking dispatch
     heartbeat_interval: Arc<AtomicU64>,        // Dynamic heartbeat interval (minutes), updated via HEARTBEAT_INTERVAL: marker
     sandbox_mode_enum: SandboxMode,              // Sandbox mode enum for direct subprocess calls (CLAUDE.md maintenance)
+    cli_sessions: Arc<std::sync::Mutex<HashMap<String, String>>>,  // CLI session cache per sender
 }
 ```
 
@@ -66,6 +68,7 @@ pub struct Gateway {
 - `active_senders`: A `Mutex<HashMap<String, Vec<IncomingMessage>>>` that tracks which senders currently have an active provider call in flight. When a new message arrives for a sender that is already being processed, the message is buffered here. After the active call completes, buffered messages are dispatched in order.
 - `heartbeat_interval`: An `Arc<AtomicU64>` holding the current heartbeat interval in minutes. Initialized from `heartbeat_config.interval_minutes` and shared with the heartbeat loop and scheduler loop. Updated at runtime via `HEARTBEAT_INTERVAL:` markers. Resets to config value on restart.
 - `sandbox_mode_enum`: The `SandboxMode` enum value (Copy). Stored separately from the display string `sandbox_mode` so that direct subprocess calls (e.g., CLAUDE.md maintenance) can use `omega_sandbox::sandboxed_command()` with the actual enum.
+- `cli_sessions`: Thread-safe map of `channel:sender_id` to CLI session_id. Used for session-based prompt persistence -- subsequent messages in the same conversation skip the heavy system prompt (~2282 tokens) and send only a minimal context update. Cleared on `/forget`, `FORGET_CONVERSATION` marker, and idle conversation timeout.
 
 ## Token-Efficient Prompt Architecture (Keyword-Gated Conditional Injection)
 

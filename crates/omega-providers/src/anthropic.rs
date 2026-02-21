@@ -247,6 +247,7 @@ impl Provider for AnthropicProvider {
                 tokens_used: tokens,
                 processing_time_ms: elapsed_ms,
                 model: parsed.model,
+                session_id: None,
             },
             reply_target: None,
         })
@@ -408,6 +409,7 @@ impl AnthropicProvider {
                     },
                     processing_time_ms: elapsed_ms,
                     model: last_model,
+                    session_id: None,
                 },
                 reply_target: None,
             });
@@ -426,6 +428,7 @@ impl AnthropicProvider {
                 },
                 processing_time_ms: elapsed_ms,
                 model: last_model,
+                session_id: None,
             },
             reply_target: None,
         })

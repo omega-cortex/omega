@@ -263,6 +263,7 @@ impl Provider for GeminiProvider {
                 tokens_used: tokens,
                 processing_time_ms: elapsed_ms,
                 model: Some(effective_model.to_string()),
+                session_id: None,
             },
             reply_target: None,
         })
@@ -432,6 +433,7 @@ impl GeminiProvider {
                     },
                     processing_time_ms: elapsed_ms,
                     model: Some(model.to_string()),
+                    session_id: None,
                 },
                 reply_target: None,
             });
@@ -450,6 +452,7 @@ impl GeminiProvider {
                 },
                 processing_time_ms: elapsed_ms,
                 model: Some(model.to_string()),
+                session_id: None,
             },
             reply_target: None,
         })

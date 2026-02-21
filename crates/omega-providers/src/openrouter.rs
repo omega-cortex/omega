@@ -149,6 +149,7 @@ impl Provider for OpenRouterProvider {
                 tokens_used: tokens,
                 processing_time_ms: elapsed_ms,
                 model: parsed.model,
+                session_id: None,
             },
             reply_target: None,
         })

@@ -53,13 +53,18 @@ pub struct Context {
     pub history: Vec<ContextEntry>,       // previous messages (oldest first)
     pub current_message: String,          // the message to respond to
     pub mcp_servers: Vec<McpServer>,      // MCP servers for this invocation
+    pub max_turns: Option<u32>,           // override for provider's default max_turns
+    pub allowed_tools: Option<Vec<String>>, // override for provider's default allowed tools
     pub model: Option<String>,            // override for provider's default model
+    pub session_id: Option<String>,       // CLI session for conversation continuity
 }
 ```
 
 The `mcp_servers` field is annotated with `#[serde(default)]` so it deserializes as an empty `Vec` when absent. `Context::new()` initializes it to `Vec::new()`. The `model` field is `None` by default; when set, the provider uses it instead of its own default model (e.g., the gateway sets this to route between fast and complex models).
 
-Together, these five fields give the provider everything it needs to generate a relevant, contextual reply -- including which external tool servers to connect to and which model to use.
+The `session_id` field enables session-based prompt persistence for the Claude Code CLI provider. When `None` (first message in a conversation, or non-CLI providers), the full system prompt and history are sent. When `Some(id)`, the context switches to continuation mode: the system prompt and history are already in the CLI session, so `to_prompt_string()` emits only a minimal context update (current time, keyword-gated sections) prepended to the user message. The gateway stores the session ID returned by the provider and passes it back on subsequent messages from the same user, achieving ~90-99% token savings on continuation messages. Session IDs are invalidated on `/forget`, `FORGET_CONVERSATION` marker, idle timeout, or provider error.
+
+Together, these eight fields give the provider everything it needs to generate a relevant, contextual reply -- including which external tool servers to connect to, which model to use, and whether to continue an existing session.
 
 ## How Context Flows Through the System
 
@@ -119,7 +124,9 @@ let prompt = context.to_prompt_string();
 // prompt is now a single string passed to `claude -p`
 ```
 
-The flattened output looks like this:
+The method operates in two modes depending on `session_id`:
+
+**First message (no session):** Full output with system prompt, history, and current message:
 
 ```
 [System]
@@ -136,6 +143,17 @@ What about tomorrow?
 ```
 
 Each section is labeled with `[System]`, `[User]`, or `[Assistant]` and separated by blank lines. The current message is always the last `[User]` section.
+
+**Continuation (session_id is set):** The full system prompt and history are already in the CLI session, so they are skipped. Only a minimal context update (e.g., current time, keyword-gated conditional sections) is prepended to the user message:
+
+```
+[User]
+Current time: 2026-02-21T14:30:00Z
+
+What about tomorrow?
+```
+
+This drastically reduces token usage on subsequent messages (~90-99% savings) while the CLI session retains the full conversation context from the first call.
 
 ### Future API-Based Providers
 
