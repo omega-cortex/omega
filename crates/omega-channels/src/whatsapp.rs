@@ -128,10 +128,7 @@ impl WhatsAppChannel {
     ///
     /// Shared by `start()` and `restart_for_pairing()`. The event handler
     /// updates the same `Arc`-wrapped fields regardless of which bot is running.
-    async fn build_and_run_bot(
-        &self,
-        tx: mpsc::Sender<IncomingMessage>,
-    ) -> Result<(), OmegaError> {
+    async fn build_and_run_bot(&self, tx: mpsc::Sender<IncomingMessage>) -> Result<(), OmegaError> {
         let db_path = self.session_db_path();
         let allowed_users = self.config.allowed_users.clone();
         let client_handle = self.client.clone();
@@ -210,7 +207,12 @@ impl WhatsAppChannel {
                         }
                         Event::Message(msg, info) => {
                             handle_whatsapp_message(
-                                *msg, info, &tx, &allowed, &client_store, &sent_ids,
+                                *msg,
+                                info,
+                                &tx,
+                                &allowed,
+                                &client_store,
+                                &sent_ids,
                                 &whisper_key,
                             )
                             .await;
@@ -378,10 +380,7 @@ async fn handle_whatsapp_message(
 
     debug!(
         "WA msg: is_group={}, is_from_me={}, sender={}, chat={}",
-        is_group,
-        info.source.is_from_me,
-        info.source.sender.user,
-        info.source.chat.user,
+        is_group, info.source.is_from_me, info.source.sender.user, info.source.chat.user,
     );
 
     if is_group {
