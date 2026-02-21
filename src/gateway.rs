@@ -432,6 +432,12 @@ impl Gateway {
                                 system.push_str(sp);
                             }
 
+                            // Current time — so the AI always knows when it is.
+                            system.push_str(&format!(
+                                "\n\nCurrent time: {}",
+                                chrono::Local::now().format("%Y-%m-%d %H:%M %Z")
+                            ));
+
                             // Inject verification instruction for outcome tracking.
                             system.push_str(concat!(
                                 "\n\nIMPORTANT — Action Task Verification:\n",
@@ -845,6 +851,10 @@ impl Gateway {
                 system.push_str("\n\n");
                 system.push_str(sp);
             }
+            system.push_str(&format!(
+                "\n\nCurrent time: {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M %Z")
+            ));
 
             let mut ctx = Context::new(&prompt);
             ctx.system_prompt = system;
@@ -1246,6 +1256,12 @@ impl Gateway {
                 "\n\nYou are running on provider '{}', model '{}'.",
                 self.provider.name(),
                 self.model_fast
+            ));
+
+            // Current time — so the AI always knows when it is.
+            prompt.push_str(&format!(
+                "\nCurrent time: {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M %Z")
             ));
 
             // Platform formatting hint.
