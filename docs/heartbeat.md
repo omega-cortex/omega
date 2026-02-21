@@ -2,9 +2,9 @@
 
 ## What Is the Heartbeat?
 
-The heartbeat is Omega's proactive monitoring feature. Instead of waiting for you to ask a question, Omega periodically checks in with the AI provider to evaluate a health checklist or perform a general status check. If everything is fine, the result is silently logged. If something needs your attention, Omega sends an alert to your messaging channel.
+The heartbeat is Omega's proactive monitoring and execution feature. Instead of passively reviewing a checklist, Omega **actively executes** each item: reminders and accountability items are sent to the user, system checks are performed, and results are reported. If everything is fine and no item requires user notification, the result is silently logged. Otherwise, Omega sends the results to your messaging channel.
 
-Think of it as a watchdog that uses AI reasoning instead of simple threshold checks.
+Think of it as an active agent that uses AI reasoning to execute a periodic to-do list — not just check boxes, but actually do the work.
 
 ## How It Works
 
@@ -15,13 +15,20 @@ The heartbeat runs as a background loop inside the gateway, firing at clock-alig
 3. **Enrich with context** -- The heartbeat enriches the prompt with data from memory:
    - **User facts** (name, timezone, interests, etc.) from all users — gives the AI awareness of who it's monitoring for.
    - **Recent conversation summaries** (last 3 closed conversations) — gives the AI context about recent activity.
-   - **Skill improvement suggestions** — reminds the AI of pending skill improvement proposals. See [skill-improve.md](skill-improve.md).
 4. **Compose system prompt** -- The heartbeat attaches the full Identity/Soul/System prompt (plus sandbox constraints if applicable) to the provider call, ensuring the AI has proper role context and behavioral boundaries — identical to how scheduled action tasks and regular messages receive the system prompt.
-5. **Call the provider** -- Sends the enriched prompt with the full system prompt to the AI provider for evaluation.
-6. **Evaluate the response**:
+5. **Set model and MCP** -- The heartbeat uses the Opus model for active execution (same as scheduler action tasks) and matches skill triggers on checklist content to inject relevant MCP servers.
+6. **Call the provider** -- Sends the enriched prompt with the full system prompt to the AI provider for active execution.
+7. **Process markers** -- Response markers are processed identically to the scheduler:
+   - `SCHEDULE` → creates reminder tasks
+   - `SCHEDULE_ACTION` → creates action tasks
+   - `HEARTBEAT_ADD/REMOVE/INTERVAL` → updates checklist/interval
+   - `CANCEL_TASK` → cancels pending tasks
+   - `UPDATE_TASK` → modifies existing tasks
+   - All markers are stripped from the response before evaluating it.
+8. **Evaluate the response** (after marker stripping):
    - Markdown formatting characters (`*` and backticks) are stripped before checking for the keyword.
    - If the cleaned response contains `HEARTBEAT_OK`, the heartbeat logs an INFO message and sends nothing to the user.
-   - If the response contains anything else, it is treated as an alert and delivered to the configured channel.
+   - If the response contains anything else, it is logged in the audit trail and delivered to the configured channel.
 
 ```
 At next clock-aligned boundary (e.g. :00, :30):
@@ -31,10 +38,12 @@ At next clock-aligned boundary (e.g. :00, :30):
       → File missing or empty? → skip, no API call
       → Has content? → Enrich prompt with user facts + recent summaries
         → Compose full system prompt (Identity + Soul + System + sandbox)
-          → Call provider with enriched prompt + system prompt
-            → Strip markdown, check for "HEARTBEAT_OK"
-              → Yes: log "heartbeat: OK", done
-              → No: send response as alert to channel
+          → Set Opus model + match MCP triggers
+            → Call provider for active execution
+              → Process markers (SCHEDULE, CANCEL_TASK, etc.)
+                → Strip markdown, check for "HEARTBEAT_OK"
+                  → Yes: log "heartbeat: OK", done
+                  → No: audit log + send response to channel
 ```
 
 ## The HEARTBEAT_OK Suppression Mechanism

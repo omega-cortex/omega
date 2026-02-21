@@ -806,7 +806,7 @@ The task remains in `'pending'` status with the new `due_at`, so the next poll c
 
 ## Heartbeat Loop
 
-The heartbeat is a background task that performs periodic AI check-ins. It is spawned at gateway startup when `[heartbeat].enabled` is `true` (disabled by default).
+The heartbeat is a background task that performs periodic **active execution** of a checklist. It is spawned at gateway startup when `[heartbeat].enabled` is `true` (disabled by default). Unlike passive review, the heartbeat actively executes each checklist item: reminders/accountability items are sent to the user, system checks are performed, and results are reported. It uses the Opus model and processes response markers identically to the scheduler.
 
 ### Check-In Cycle
 
@@ -817,25 +817,34 @@ At each clock-aligned boundary (e.g. :00 and :30 for a 30-minute interval), the 
 3. **Context Enrichment** -- Before calling the provider, the heartbeat enriches the prompt with:
    - **User facts** from `memory.get_all_facts()` (excluding internal `welcomed` markers).
    - **Recent conversation summaries** from `memory.get_all_recent_summaries(3)`.
-   This gives the AI provider awareness of who the user is and what they've been working on, enabling more contextual health check responses.
+   This gives the AI provider awareness of who the user is and what they've been working on, enabling more contextual responses.
 4. **System Prompt** -- Composes the full Identity/Soul/System prompt (plus sandbox constraints) and attaches it to the context, ensuring the AI has proper role boundaries during heartbeat calls.
-5. **Provider Call** -- Sends the enriched prompt with the full system prompt to the AI provider for evaluation.
-6. **Suppress or Alert**:
+5. **Model & MCP** -- Sets the Opus model (`model_complex`) for powerful active execution. Matches skill triggers on checklist content to inject relevant MCP servers.
+6. **Provider Call** -- Sends the enriched prompt with the full system prompt to the AI provider for active execution.
+7. **Process Markers** -- Response markers are processed identically to the scheduler:
+   - `SCHEDULE` → creates reminder tasks
+   - `SCHEDULE_ACTION` → creates action tasks
+   - `HEARTBEAT_ADD/REMOVE/INTERVAL` → updates checklist/interval
+   - `CANCEL_TASK` → cancels pending tasks
+   - `UPDATE_TASK` → modifies existing tasks
+   - All markers are stripped from the response text.
+8. **Suppress or Alert** (after marker stripping):
    - The response text is cleaned (markdown `*` and backtick characters are stripped) before checking for `HEARTBEAT_OK`.
    - If the cleaned response contains `HEARTBEAT_OK`, the result is logged at INFO level and no message is sent to the user.
-   - If the response contains anything else, it is treated as an alert and delivered to the configured channel and reply target.
+   - If the response contains anything else, an audit entry is logged (`[HEARTBEAT]` prefix) and the response is delivered to the configured channel and reply target.
 
 ```
 ┌──────────┐    ┌─────────┐    ┌───────────┐    ┌───────────┐    ┌───────────┐    ┌──────────┐
-│  Sleep   │───>│ Active  │───>│ Read      │───>│ Enrich    │───>│ Compose   │───>│ Provider │
-│  to next │    │ hours?  │    │ HEARTBEAT │    │ with      │    │ system    │    │ call     │
-│  boundary│    │ Yes ──> │    │ .md       │    │ facts +   │    │ prompt    │    │          │
-└──────────┘    │ No: skip│    │ None: skip│    │ summaries │    └───────────┘    └──────────┘
-     ^          └─────────┘    └───────────┘    └───────────┘                          │
+│  Sleep   │───>│ Active  │───>│ Read      │───>│ Enrich    │───>│ Set Opus  │───>│ Provider │
+│  to next │    │ hours?  │    │ HEARTBEAT │    │ with      │    │ model +   │    │ active   │
+│  boundary│    │ Yes ──> │    │ .md       │    │ facts +   │    │ MCP +     │    │ execution│
+└──────────┘    │ No: skip│    │ None: skip│    │ summaries │    │ sys prompt│    └──────────┘
+     ^          └─────────┘    └───────────┘    └───────────┘    └───────────┘         │
      │                                                                    ┌────────────┴──────┐
-     │                                                                    │ HEARTBEAT_OK?     │
+     │                                                                    │ Process markers   │
+     │                                                                    │ → HEARTBEAT_OK?   │
      │                                                                    │ Yes: log only     │
-     │                                                                    │ No: send alert    │
+     │                                                                    │ No: audit + send  │
      │                                                                    └───────────────────┘
      └────────────────────────────────────────────────────────────────────────────────┘
 ```

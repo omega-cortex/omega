@@ -274,8 +274,8 @@ If sandbox: + sandbox constraint (unchanged)
 - `get_due_tasks()` errors are logged but do not stop the loop.
 - Action task failures trigger `fail_task()` (retry with 2-minute delay, up to 3 retries).
 
-#### `async fn heartbeat_loop(provider: Arc<dyn Provider>, channels: HashMap<String, Arc<dyn Channel>>, config: HeartbeatConfig, prompts: Prompts, sandbox_prompt: Option<String>, memory: Store, interval: Arc<AtomicU64>)`
-**Purpose:** Background task that periodically invokes the AI provider for a context-aware health check-in. Skips the API call entirely when no checklist is configured. If the provider reports an issue, the alert is delivered via a configured channel. If everything is fine (response contains `HEARTBEAT_OK`), the response is suppressed.
+#### `async fn heartbeat_loop(provider, channels, config, prompts, sandbox_prompt, memory, interval, model_complex, skills, audit, provider_name)`
+**Purpose:** Background task that periodically invokes the AI provider for **active execution** of a health checklist. Unlike passive review, the heartbeat actively executes each checklist item: reminders/accountability items are sent to the user, system checks are performed, and results are reported. Skips the API call entirely when no checklist is configured. Processes response markers (SCHEDULE, SCHEDULE_ACTION, HEARTBEAT_*, CANCEL_TASK, UPDATE_TASK) identically to the scheduler. Uses Opus model for powerful active execution and matches skill triggers on checklist content for MCP server injection.
 
 **Parameters:**
 - `provider: Arc<dyn Provider>` - Shared provider reference for the check-in call.
@@ -283,8 +283,12 @@ If sandbox: + sandbox constraint (unchanged)
 - `config: HeartbeatConfig` - Heartbeat configuration (interval, active hours, channel, reply target).
 - `prompts: Prompts` - Full prompts struct (Identity/Soul/System + heartbeat_checklist template). The heartbeat composes the full system prompt from `prompts.identity`, `prompts.soul`, and `prompts.system` and sets it on the context, ensuring the AI has proper role boundaries during heartbeat calls.
 - `sandbox_prompt: Option<String>` - Optional sandbox constraint text appended to the system prompt.
-- `memory: Store` - Shared memory store for enriching heartbeat context with user facts and recent summaries.
-- `interval: Arc<AtomicU64>` - Shared atomic holding the current interval in minutes. Read on each iteration. Updated by `process_markers()` or `scheduler_loop` when a `HEARTBEAT_INTERVAL:` marker is processed.
+- `memory: Store` - Shared memory store for enriching heartbeat context with user facts and recent summaries. Also used for marker-created tasks.
+- `interval: Arc<AtomicU64>` - Shared atomic holding the current interval in minutes. Read on each iteration. Updated by `process_markers()`, `scheduler_loop`, or heartbeat's own marker processing when a `HEARTBEAT_INTERVAL:` marker is processed.
+- `model_complex: String` - Opus model name for active execution (same model used by scheduler action tasks and multi-step execution).
+- `skills: Vec<omega_skills::Skill>` - Loaded skills for MCP trigger matching against checklist content.
+- `audit: AuditLogger` - Audit logger for recording heartbeat executions (logged when response is not HEARTBEAT_OK).
+- `provider_name: String` - Provider name for audit entries.
 
 **Returns:** Never returns (infinite loop).
 
@@ -299,22 +303,32 @@ If sandbox: + sandbox constraint (unchanged)
 6. **Context enrichment**: Enrich the prompt with memory data:
    - Call `memory.get_all_facts()` — if non-empty, append "Known about the user:" followed by key-value pairs.
    - Call `memory.get_all_recent_summaries(3)` — if non-empty, append "Recent activity:" followed by timestamped summaries.
-7. **System prompt composition**: Compose the full system prompt from `format!("{}\n\n{}\n\n{}", prompts.identity, prompts.soul, prompts.system)` and append `sandbox_prompt` if present. Set `ctx.system_prompt = system` on the context (same pattern as `scheduler_loop` action tasks).
-8. Call `provider.complete()` with the enriched prompt context and full system prompt.
-8. On success:
-   - Strip markdown formatting characters (`*`, `` ` ``) from the response before checking for `HEARTBEAT_OK`.
-   - If cleaned response contains `HEARTBEAT_OK`, log info and suppress (no message sent).
-   - Otherwise, send the response as an alert via `config.channel` to `config.reply_target`.
-   - If channel not found, log warning.
-9. On provider error, log error.
+7. **System prompt composition**: Compose the full system prompt from `format!("{}\n\n{}\n\n{}", prompts.identity, prompts.soul, prompts.system)` and append `sandbox_prompt` if present. Append current time. Set `ctx.system_prompt = system` on the context.
+8. **Context setup**: Set `ctx.model = Some(model_complex)` (Opus) and `ctx.mcp_servers` from `match_skill_triggers(&skills, &checklist)`.
+9. Call `provider.complete()` with the enriched prompt context and full system prompt.
+10. On success, **process markers** from the response (same as scheduler action tasks):
+    - SCHEDULE markers → create reminder tasks via `memory.create_task()`.
+    - SCHEDULE_ACTION markers → create action tasks via `memory.create_task()`.
+    - HEARTBEAT_ADD/REMOVE/INTERVAL markers → apply checklist/interval changes.
+    - CANCEL_TASK markers → cancel matching tasks via `memory.cancel_task()`.
+    - UPDATE_TASK markers → update matching tasks via `memory.update_task()`.
+    - All markers are stripped from the text before evaluating the response.
+    - `config.reply_target` is used as both `sender_id` and `reply_target` for created tasks.
+11. After stripping markers, check for `HEARTBEAT_OK`:
+    - Strip markdown formatting characters (`*`, `` ` ``) from the response.
+    - If cleaned response contains `HEARTBEAT_OK`, log info and suppress (no message sent).
+    - Otherwise, log an audit entry (`[HEARTBEAT]` prefix, `AuditStatus::Ok`) and send the response as an alert via `config.channel` to `config.reply_target`.
+    - If channel not found, log warning.
+12. On provider error, log error.
 
 **Async Patterns:**
 - Uses `tokio::time::sleep()` for periodic ticking.
-- Provider and channel operations are awaited.
+- Provider, channel, and memory operations are awaited.
 
 **Error Handling:**
 - Provider errors are logged but do not stop the loop.
 - Channel send errors are logged but do not stop the loop.
+- Marker processing errors are logged but do not stop the loop.
 - Missing channel is logged as warning.
 
 #### `async fn summarize_conversation(store: &Store, provider: &Arc<dyn Provider>, conversation_id: &str, summarize_prompt: &str, facts_prompt_template: &str) -> Result<(), anyhow::Error>`

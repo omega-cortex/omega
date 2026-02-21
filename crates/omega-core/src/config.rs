@@ -584,8 +584,11 @@ impl Default for Prompts {
                         If everything is fine, respond with exactly HEARTBEAT_OK. \
                         Otherwise, respond with a brief alert.".into(),
             heartbeat_checklist: "You are OMEGA Ω performing a periodic heartbeat check.\n\
-                                  Review this checklist and report anything that needs attention.\n\
-                                  If everything is fine, respond with exactly HEARTBEAT_OK.\n\n\
+                                  Execute each item in this checklist actively:\n\
+                                  - Items requiring user interaction (reminders, accountability, motivation) → send the message to the user.\n\
+                                  - Items requiring system checks (commands, APIs, monitoring) → perform the check and report results.\n\
+                                  - Default: include results in your response. Only omit an item if it explicitly says to stay silent when OK.\n\
+                                  - Respond with exactly HEARTBEAT_OK only if ALL items have been checked AND none require user notification.\n\n\
                                   {checklist}".into(),
             welcome,
         }
