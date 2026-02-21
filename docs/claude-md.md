@@ -192,24 +192,12 @@ When you open the project for the first time, read CLAUDE.md in this order:
 3. **Key Design Rules** section: These are the rules you'll follow
 4. **Build & Test** section: Copy the pre-commit command and save it
 5. **Security Constraints** section: Know what not to do (and why)
-6. **Current Status** section: Understand what's been built and what's planned
 
 Keep CLAUDE.md open when:
 - Writing new code (to check design rules)
 - Creating a PR (to run validation commands)
 - Reviewing code (to verify it follows the rules)
 - Adding new features (to understand where they belong)
-
-## Evolution of CLAUDE.md
-
-CLAUDE.md grows with the project:
-
-- **Phase 1**: Listed crates and basic build commands
-- **Phase 2**: Added security constraints and gateway pipeline
-- **Phase 3**: Updated with conversation features and graceful shutdown
-- **Phase 4** (planned): Will reflect alternative providers and skills system
-
-As new features are added, CLAUDE.md is updated to reflect the new reality. This keeps the project's "rules" current and prevents drift between documented and actual architecture.
 
 ## Summary
 
