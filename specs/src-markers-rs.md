@@ -42,11 +42,13 @@ Each marker type has extract/parse/strip/has functions:
 - `snapshot_workspace_images(workspace)` -- Snapshot image files for workspace diff
 - `is_within_active_hours(start, end)` -- Check if current time is in active window
 - `ensure_inbox_dir(data_dir)` -- Create workspace/inbox directory
-- `save_attachments_to_inbox()`, `cleanup_inbox_images()` -- Image attachment lifecycle
+- `save_attachments_to_inbox()`, `cleanup_inbox_images()`, `purge_inbox()` -- Image attachment lifecycle
+- `InboxGuard` struct -- RAII guard that cleans up inbox files on Drop
 
 ## Types
 - `HeartbeatAction` enum: `Add(String)`, `Remove(String)`, `SetInterval(u64)`
 - `SelfHealingState` struct (serializable to JSON)
+- `InboxGuard` struct -- RAII guard wrapping `Vec<PathBuf>`, calls `cleanup_inbox_images()` on Drop
 
 ## Tests
-~100 tests covering all marker types, edge cases, inline markers, heartbeat file operations, workspace snapshots, classification parsing, self-healing flow simulation.
+~100 tests covering all marker types, edge cases, inline markers, heartbeat file operations, workspace snapshots, classification parsing, self-healing flow simulation, InboxGuard RAII cleanup, zero-byte attachment rejection.

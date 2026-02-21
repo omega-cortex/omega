@@ -157,6 +157,9 @@ impl Gateway {
             self.sandbox_mode
         );
 
+        // Purge orphaned inbox files from previous runs.
+        purge_inbox(&self.data_dir);
+
         let (tx, mut rx) = mpsc::channel::<IncomingMessage>(256);
 
         for (name, channel) in &self.channels {
@@ -1136,22 +1139,20 @@ impl Gateway {
         clean_incoming.text = sanitized.text;
 
         // --- 2a. SAVE INCOMING IMAGE ATTACHMENTS ---
-        let inbox_images = if !incoming.attachments.is_empty() {
+        // InboxGuard guarantees cleanup on Drop, regardless of early returns.
+        let _inbox_guard = if !incoming.attachments.is_empty() {
             let inbox = ensure_inbox_dir(&self.data_dir);
             let paths = save_attachments_to_inbox(&inbox, &incoming.attachments);
-            // Resolve each path (fall back to most-recent inbox file on UUID mismatch)
-            // and prepend the verified paths to the message text.
-            let resolved: Vec<PathBuf> = paths.iter().map(|p| resolve_inbox_path(p)).collect();
-            for path in &resolved {
+            for path in &paths {
                 clean_incoming.text = format!(
                     "[Attached image: {}]\n{}",
                     path.display(),
                     clean_incoming.text
                 );
             }
-            resolved
+            InboxGuard::new(paths)
         } else {
-            Vec::new()
+            InboxGuard::new(Vec::new())
         };
 
         // --- 2b. CROSS-CHANNEL USER IDENTITY ---
@@ -1386,14 +1387,8 @@ impl Gateway {
                 self.model_complex
             );
             context.model = Some(self.model_complex.clone());
-            self.execute_steps(
-                &incoming,
-                &clean_incoming.text,
-                &context,
-                &steps,
-                &inbox_images,
-            )
-            .await;
+            self.execute_steps(&incoming, &clean_incoming.text, &context, &steps)
+                .await;
 
             // Stop typing indicator and return — skip normal send flow.
             if let Some(h) = typing_handle {
@@ -1609,10 +1604,7 @@ impl Gateway {
             error!("no channel found for '{}'", incoming.channel);
         }
 
-        // --- 9. CLEANUP INBOX IMAGES ---
-        if !inbox_images.is_empty() {
-            cleanup_inbox_images(&inbox_images);
-        }
+        // Inbox images are cleaned up automatically by _inbox_guard (RAII Drop).
     }
 
     /// Check if an incoming message is authorized.
@@ -1828,7 +1820,6 @@ impl Gateway {
         original_task: &str,
         context: &Context,
         steps: &[String],
-        inbox_images: &[PathBuf],
     ) {
         let total = steps.len();
         info!("pre-flight planning: decomposed into {total} steps");
@@ -1924,10 +1915,7 @@ impl Gateway {
         let final_msg = format!("Done — all {total} wrapped up ✓");
         self.send_text(incoming, &final_msg).await;
 
-        // Cleanup inbox images.
-        if !inbox_images.is_empty() {
-            cleanup_inbox_images(inbox_images);
-        }
+        // Inbox images are cleaned up by InboxGuard in handle_message.
     }
 
     /// Extract and process all markers from a provider response text.

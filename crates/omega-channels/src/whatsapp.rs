@@ -442,74 +442,86 @@ async fn handle_whatsapp_message(
         .unwrap_or("")
         .to_string();
 
-    let (text, attachments) = if let Some(ref img) = inner.image_message {
-        let caption = img.caption.as_deref().unwrap_or("[Photo]").to_string();
-        let wa_client = { client_store.lock().await.clone() };
-        if let Some(wa_client) = wa_client {
-            match wa_client.download(img.as_ref()).await {
-                Ok(bytes) => {
-                    let ext = img
-                        .mimetype
-                        .as_deref()
-                        .and_then(|m| m.split('/').nth(1))
-                        .unwrap_or("jpg");
-                    let filename = format!("{}.{ext}", Uuid::new_v4());
-                    let attachment = Attachment {
-                        file_type: AttachmentType::Image,
-                        url: None,
-                        data: Some(bytes),
-                        filename: Some(filename),
-                    };
-                    info!("downloaded whatsapp image");
-                    (caption, vec![attachment])
-                }
-                Err(e) => {
-                    warn!("whatsapp image download failed: {e}");
-                    return;
-                }
-            }
-        } else {
-            warn!("whatsapp client not available for image download");
-            return;
-        }
-    } else if let Some(ref audio) = inner.audio_message {
-        match whisper_key.as_deref() {
-            Some(key) if !key.is_empty() => {
-                let wa_client = { client_store.lock().await.clone() };
-                if let Some(wa_client) = wa_client {
-                    match wa_client.download(audio.as_ref()).await {
-                        Ok(bytes) => {
-                            let http = reqwest::Client::new();
-                            match crate::whisper::transcribe_whisper(&http, key, &bytes).await {
-                                Ok(transcript) => {
-                                    let secs = audio.seconds.unwrap_or(0);
-                                    info!("transcribed whatsapp voice ({secs}s)");
-                                    (format!("[Voice message] {transcript}"), Vec::new())
-                                }
-                                Err(e) => {
-                                    warn!("whatsapp voice transcription failed: {e}");
-                                    return;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            warn!("whatsapp audio download failed: {e}");
-                            return;
-                        }
+    // In group chats, never download images or audio — processing other
+    // people's media is a privacy violation. Text-only messages still pass.
+    let skip_media = is_group;
+
+    let (text, attachments) = if !skip_media {
+        if let Some(ref img) = inner.image_message {
+            let caption = img.caption.as_deref().unwrap_or("[Photo]").to_string();
+            let wa_client = { client_store.lock().await.clone() };
+            if let Some(wa_client) = wa_client {
+                match wa_client.download(img.as_ref()).await {
+                    Ok(bytes) => {
+                        let ext = img
+                            .mimetype
+                            .as_deref()
+                            .and_then(|m| m.split('/').nth(1))
+                            .unwrap_or("jpg");
+                        let filename = format!("{}.{ext}", Uuid::new_v4());
+                        let attachment = Attachment {
+                            file_type: AttachmentType::Image,
+                            url: None,
+                            data: Some(bytes),
+                            filename: Some(filename),
+                        };
+                        info!("downloaded whatsapp image");
+                        (caption, vec![attachment])
                     }
-                } else {
-                    warn!("whatsapp client not available for audio download");
-                    return;
+                    Err(e) => {
+                        warn!("whatsapp image download failed: {e}");
+                        return;
+                    }
                 }
-            }
-            _ => {
-                debug!("skipping whatsapp voice (no whisper key)");
+            } else {
+                warn!("whatsapp client not available for image download");
                 return;
             }
+        } else if let Some(ref audio) = inner.audio_message {
+            match whisper_key.as_deref() {
+                Some(key) if !key.is_empty() => {
+                    let wa_client = { client_store.lock().await.clone() };
+                    if let Some(wa_client) = wa_client {
+                        match wa_client.download(audio.as_ref()).await {
+                            Ok(bytes) => {
+                                let http = reqwest::Client::new();
+                                match crate::whisper::transcribe_whisper(&http, key, &bytes).await {
+                                    Ok(transcript) => {
+                                        let secs = audio.seconds.unwrap_or(0);
+                                        info!("transcribed whatsapp voice ({secs}s)");
+                                        (format!("[Voice message] {transcript}"), Vec::new())
+                                    }
+                                    Err(e) => {
+                                        warn!("whatsapp voice transcription failed: {e}");
+                                        return;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!("whatsapp audio download failed: {e}");
+                                return;
+                            }
+                        }
+                    } else {
+                        warn!("whatsapp client not available for audio download");
+                        return;
+                    }
+                }
+                _ => {
+                    debug!("skipping whatsapp voice (no whisper key)");
+                    return;
+                }
+            }
+        } else if text.is_empty() {
+            return;
+        } else {
+            (text, Vec::new())
         }
     } else if text.is_empty() {
+        // Group media-only message (no text/caption) — skip entirely.
         return;
     } else {
+        // Group message with text — process text only, no media.
         (text, Vec::new())
     };
 

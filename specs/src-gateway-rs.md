@@ -104,6 +104,7 @@ pub struct Gateway {
 
 **Logic:**
 1. Log gateway initialization with provider name, channel names, auth status, and sandbox mode.
+1b. Purge orphaned inbox files from previous runs via `purge_inbox(&self.data_dir)`.
 2. Create an mpsc channel with capacity 256 for incoming messages.
 3. For each registered channel:
    - Call `channel.start()` to get a receiver for that channel's messages.
@@ -353,9 +354,9 @@ pub struct Gateway {
 **Stage 2a: Inbox Image Save**
 - If `incoming.attachments` is non-empty:
   - Call `ensure_inbox_dir(data_dir)` to create `{data_dir}/workspace/inbox/` if it does not exist.
-  - Call `save_attachments_to_inbox(&inbox_dir, &incoming.attachments)` to save Image-type attachments to disk.
+  - Call `save_attachments_to_inbox(&inbox_dir, &incoming.attachments)` to save Image-type attachments to disk (zero-byte data is rejected, writes use `sync_all` for durability).
   - For each saved image path, prepend `[Attached image: /full/path.jpg]` to `clean_incoming.text`.
-  - Store the returned `Vec<PathBuf>` as `inbox_images` for later cleanup.
+  - Wrap paths in `InboxGuard` (RAII) — cleanup is guaranteed on Drop regardless of early returns.
 
 **Stage 2b: Welcome Check (First-Time Users)**
 - If the sender has no `welcomed` fact (first-time user):
@@ -608,7 +609,7 @@ pub struct Gateway {
    - Send a progress message (e.g., "✓ Step (1/N)").
    - Audit the step exchange.
 3. After all steps complete, send a final summary message to the user.
-4. Clean up inbox images via `cleanup_inbox_images()`.
+4. Inbox images are cleaned up by `InboxGuard` (RAII Drop) in `handle_message`.
 
 **Error Handling:**
 - Per-step failures are retried up to 3 times before continuing to the next step.
@@ -882,9 +883,10 @@ pub struct Gateway {
 **Logic:**
 1. Iterate over attachments.
 2. Skip any attachment whose `attachment_type` is not `AttachmentType::Image`.
-3. For each image attachment, write `attachment.data` to `{inbox}/{attachment.filename}`.
-4. Log success at info level, failures at warn level.
-5. Collect and return the paths of successfully written files.
+3. Skip zero-byte attachment data (`data.is_empty()`).
+4. For each image attachment, create file via `File::create` + `write_all` + `sync_all` for guaranteed disk flush.
+5. Log written file size at debug level, failures at warn level.
+6. Collect and return the paths of successfully written files.
 
 ### `fn cleanup_inbox_images(paths: &[PathBuf])`
 **Purpose:** Remove temporary inbox image files after the provider response has been processed.
@@ -1194,20 +1196,21 @@ All interactions are logged to SQLite with:
 23. When `sandbox_prompt` is `Some`, the sandbox constraint text is prepended to the system prompt before context building.
 24. The startup log includes the active sandbox mode for operational visibility.
 25. After sending the text response, new image files created in the workspace by the provider are delivered via `channel.send_photo()` and then deleted from the workspace.
-26. Incoming image attachments are saved to `{data_dir}/workspace/inbox/` before the provider call (Stage 2a) and cleaned up after the response is sent (Stage 9).
-27. Messages for different senders are dispatched concurrently via `tokio::spawn()`. Messages for the same sender are serialized: only one provider call per sender at a time, with additional messages buffered and processed in order.
-28. When a message arrives for a busy sender, a "Got it, I'll get to this next." acknowledgment is sent immediately.
-29. Classify-and-route: every message triggers a complexity-aware classification call (using the fast model with active project, last 3 messages, and skill names); routine actions (reminders, scheduling, lookups) are always DIRECT regardless of quantity, step lists only for genuinely complex work (code changes, research, building). DIRECT messages use `model_fast`, multi-step plans use `model_complex`. Multi-step plans are executed autonomously with per-step progress, retry (up to 3 attempts), and a final summary.
-30. Planning steps are tracked in-memory (ephemeral) and are not persisted to the database.
-31. Model routing: `context.model` is set by classify-and-route before the provider call. The provider resolves the effective model via `context.model.as_deref().unwrap_or(&self.model)`.
-32. SELF_HEAL: markers (format: `SELF_HEAL: description | verification test`) are processed after LIMITATION markers. The gateway parses both description and verification test, creates or updates `~/.omega/self-healing.json` (including the `verification` field), enforces max 10 iterations in code, schedules follow-up action tasks (2 min delay) with the verification test embedded in the prompt, and sends owner notifications via heartbeat channel. At max iterations, sends escalation alert and preserves state file. Processed in `handle_message` (direct), `execute_steps` (multi-step), and `scheduler_loop` — all via `process_markers()`.
-33. SELF_HEAL_RESOLVED markers trigger deletion of `~/.omega/self-healing.json` and send a resolution notification to the owner via heartbeat channel. Processed in `handle_message` (direct), `execute_steps` (multi-step), and `scheduler_loop` — all via `process_markers()`.
-34. All response markers (SCHEDULE, SCHEDULE_ACTION, PROJECT, LANG_SWITCH, PERSONALITY, FORGET_CONVERSATION, CANCEL_TASK, UPDATE_TASK, PURGE_FACTS, HEARTBEAT, LIMITATION, SELF_HEAL, SELF_HEAL_RESOLVED) are processed via the unified `process_markers()` method, ensuring they work in both the direct response path (`handle_message`) and the multi-step execution path (`execute_steps`).
-35. All system markers must use their exact English prefix regardless of conversation language. The gateway parses markers as literal string prefixes — a translated or paraphrased marker is a silent failure. The system prompt explicitly instructs the AI: "Speak to the user in their language; speak to the system in markers."
-36. Conversational command markers (PERSONALITY, FORGET_CONVERSATION, CANCEL_TASK, UPDATE_TASK, PURGE_FACTS) provide zero-friction equivalents of slash commands — users can say "be more casual" instead of `/personality casual`. The AI emits the marker; `process_markers()` handles it identically to the slash command.
-37. PURGE_FACTS preserves system fact keys (`welcomed`, `preferred_language`, `active_project`, `personality`) — same logic as `/purge` in `commands.rs`.
-38. CANCEL_TASK and UPDATE_TASK use multi-extraction (`extract_all_cancel_tasks()`, `extract_all_update_tasks()`) to process ALL markers in a single response, not just the first. Each marker pushes a `MarkerResult` (TaskCancelled/TaskCancelFailed/TaskUpdated/TaskUpdateFailed) for gateway confirmation display.
-39. The scheduler action loop also processes CANCEL_TASK and UPDATE_TASK markers from action task responses, using the same `extract_all_*` multi-extraction functions (with empty sender_id since action tasks run autonomously).
+26. Incoming image attachments are saved to `{data_dir}/workspace/inbox/` before the provider call (Stage 2a). Cleanup is guaranteed by `InboxGuard` (RAII Drop), regardless of early returns. Zero-byte attachments are rejected. Writes use `sync_all` for durability.
+27. On startup, `purge_inbox()` deletes all files in the inbox directory to clear orphans from previous runs.
+28. Messages for different senders are dispatched concurrently via `tokio::spawn()`. Messages for the same sender are serialized: only one provider call per sender at a time, with additional messages buffered and processed in order.
+29. When a message arrives for a busy sender, a "Got it, I'll get to this next." acknowledgment is sent immediately.
+30. Classify-and-route: every message triggers a complexity-aware classification call (using the fast model with active project, last 3 messages, and skill names); routine actions (reminders, scheduling, lookups) are always DIRECT regardless of quantity, step lists only for genuinely complex work (code changes, research, building). DIRECT messages use `model_fast`, multi-step plans use `model_complex`. Multi-step plans are executed autonomously with per-step progress, retry (up to 3 attempts), and a final summary.
+31. Planning steps are tracked in-memory (ephemeral) and are not persisted to the database.
+32. Model routing: `context.model` is set by classify-and-route before the provider call. The provider resolves the effective model via `context.model.as_deref().unwrap_or(&self.model)`.
+33. SELF_HEAL: markers (format: `SELF_HEAL: description | verification test`) are processed after LIMITATION markers. The gateway parses both description and verification test, creates or updates `~/.omega/self-healing.json` (including the `verification` field), enforces max 10 iterations in code, schedules follow-up action tasks (2 min delay) with the verification test embedded in the prompt, and sends owner notifications via heartbeat channel. At max iterations, sends escalation alert and preserves state file. Processed in `handle_message` (direct), `execute_steps` (multi-step), and `scheduler_loop` — all via `process_markers()`.
+34. SELF_HEAL_RESOLVED markers trigger deletion of `~/.omega/self-healing.json` and send a resolution notification to the owner via heartbeat channel. Processed in `handle_message` (direct), `execute_steps` (multi-step), and `scheduler_loop` — all via `process_markers()`.
+35. All response markers (SCHEDULE, SCHEDULE_ACTION, PROJECT, LANG_SWITCH, PERSONALITY, FORGET_CONVERSATION, CANCEL_TASK, UPDATE_TASK, PURGE_FACTS, HEARTBEAT, LIMITATION, SELF_HEAL, SELF_HEAL_RESOLVED) are processed via the unified `process_markers()` method, ensuring they work in both the direct response path (`handle_message`) and the multi-step execution path (`execute_steps`).
+36. All system markers must use their exact English prefix regardless of conversation language. The gateway parses markers as literal string prefixes — a translated or paraphrased marker is a silent failure. The system prompt explicitly instructs the AI: "Speak to the user in their language; speak to the system in markers."
+37. Conversational command markers (PERSONALITY, FORGET_CONVERSATION, CANCEL_TASK, UPDATE_TASK, PURGE_FACTS) provide zero-friction equivalents of slash commands — users can say "be more casual" instead of `/personality casual`. The AI emits the marker; `process_markers()` handles it identically to the slash command.
+38. PURGE_FACTS preserves system fact keys (`welcomed`, `preferred_language`, `active_project`, `personality`) — same logic as `/purge` in `commands.rs`.
+39. CANCEL_TASK and UPDATE_TASK use multi-extraction (`extract_all_cancel_tasks()`, `extract_all_update_tasks()`) to process ALL markers in a single response, not just the first. Each marker pushes a `MarkerResult` (TaskCancelled/TaskCancelFailed/TaskUpdated/TaskUpdateFailed) for gateway confirmation display.
+40. The scheduler action loop also processes CANCEL_TASK and UPDATE_TASK markers from action task responses, using the same `extract_all_*` multi-extraction functions (with empty sender_id since action tasks run autonomously).
 
 ## Tests
 
@@ -1372,6 +1375,24 @@ Verifies that `save_attachments_to_inbox()` writes Image-type attachments to dis
 **Type:** Synchronous unit test (`#[test]`)
 
 Verifies that `save_attachments_to_inbox()` skips non-Image attachment types (e.g., audio, document) and only saves Image-type attachments.
+
+### `test_save_attachments_rejects_empty_data`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `save_attachments_to_inbox()` rejects zero-byte image attachments (empty `data` vec).
+
+### `test_inbox_guard_cleans_up_on_drop`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that `InboxGuard` cleans up inbox files when dropped (RAII pattern). Creates a temp file, wraps its path in an `InboxGuard`, and confirms the file is deleted after the guard goes out of scope.
+
+### `test_inbox_guard_empty_is_noop`
+
+**Type:** Synchronous unit test (`#[test]`)
+
+Verifies that an `InboxGuard` with an empty path list does not panic or error on drop.
 
 ### `test_parse_plan_response_direct`
 

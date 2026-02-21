@@ -866,10 +866,15 @@ pub fn ensure_inbox_dir(data_dir: &str) -> PathBuf {
 }
 
 /// Save image attachments to the inbox directory and return the paths.
+///
+/// Rejects zero-byte attachments and uses `sync_all` to guarantee
+/// the data hits disk before the path is returned.
 pub fn save_attachments_to_inbox(
     inbox: &std::path::Path,
     attachments: &[omega_core::message::Attachment],
 ) -> Vec<PathBuf> {
+    use std::io::Write;
+
     let mut paths = Vec::new();
     for attachment in attachments {
         if !matches!(
@@ -879,66 +884,75 @@ pub fn save_attachments_to_inbox(
             continue;
         }
         if let Some(ref data) = attachment.data {
+            if data.is_empty() {
+                tracing::warn!("skipping zero-byte image attachment");
+                continue;
+            }
             let filename = attachment
                 .filename
                 .as_deref()
                 .unwrap_or("image.jpg")
                 .to_string();
             let path = inbox.join(&filename);
-            if std::fs::write(&path, data).is_ok() {
-                paths.push(path);
+            match std::fs::File::create(&path) {
+                Ok(mut file) => {
+                    if file.write_all(data).is_ok() && file.sync_all().is_ok() {
+                        tracing::debug!("inbox: wrote {} ({} bytes)", path.display(), data.len());
+                        paths.push(path);
+                    } else {
+                        tracing::warn!("inbox: failed to write {}", path.display());
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("inbox: failed to create {}: {e}", path.display());
+                }
             }
         }
     }
     paths
 }
 
-/// Resolve an inbox image path: if the file exists, return it as-is.
-/// If it does not exist (UUID mismatch), fall back to the most recently
-/// modified file in the same inbox directory so the image is still
-/// reachable by the provider instead of silently disappearing.
-pub fn resolve_inbox_path(path: &std::path::Path) -> PathBuf {
-    if path.exists() {
-        return path.to_path_buf();
+/// RAII guard that cleans up inbox image files when dropped.
+///
+/// Guarantees cleanup regardless of early returns in `handle_message()`.
+pub struct InboxGuard {
+    paths: Vec<PathBuf>,
+}
+
+impl InboxGuard {
+    /// Create a new guard that will clean up the given paths on drop.
+    pub fn new(paths: Vec<PathBuf>) -> Self {
+        Self { paths }
     }
+}
 
-    // The file is missing — try to find the most recent file in the inbox dir.
-    if let Some(inbox_dir) = path.parent() {
-        if let Ok(entries) = std::fs::read_dir(inbox_dir) {
-            let newest = entries
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().is_file())
-                .filter_map(|e| {
-                    e.metadata()
-                        .ok()
-                        .and_then(|m| m.modified().ok())
-                        .map(|t| (e.path(), t))
-                })
-                .max_by_key(|(_, t)| *t)
-                .map(|(p, _)| p);
-
-            if let Some(fallback) = newest {
-                tracing::warn!(
-                    "inbox UUID mismatch: {} not found, falling back to {}",
-                    path.display(),
-                    fallback.display()
-                );
-                return fallback;
-            }
-        }
+impl Drop for InboxGuard {
+    fn drop(&mut self) {
+        cleanup_inbox_images(&self.paths);
     }
-
-    tracing::warn!(
-        "inbox file not found and no fallback available: {}",
-        path.display()
-    );
-    path.to_path_buf()
 }
 
 /// Delete inbox images after they have been processed.
 pub fn cleanup_inbox_images(paths: &[PathBuf]) {
     for path in paths {
         let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Purge all files in the inbox directory (startup cleanup).
+pub fn purge_inbox(data_dir: &str) {
+    let inbox = ensure_inbox_dir(data_dir);
+    if let Ok(entries) = std::fs::read_dir(&inbox) {
+        let mut count = 0u32;
+        for entry in entries.flatten() {
+            if entry.path().is_file() {
+                let _ = std::fs::remove_file(entry.path());
+                count += 1;
+            }
+        }
+        if count > 0 {
+            tracing::info!("startup: purged {count} orphaned inbox file(s)");
+        }
     }
 }
 
@@ -1498,54 +1512,51 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_inbox_path_exists() {
-        let tmp = std::env::temp_dir().join("omega_test_resolve_exists");
+    fn test_save_attachments_rejects_empty_data() {
+        use omega_core::message::{Attachment, AttachmentType};
+
+        let tmp = std::env::temp_dir().join("omega_test_reject_empty");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
-        let file = tmp.join("abc123.jpg");
-        std::fs::write(&file, b"data").unwrap();
+        let attachments = vec![Attachment {
+            file_type: AttachmentType::Image,
+            url: None,
+            data: Some(Vec::new()),
+            filename: Some("empty.jpg".to_string()),
+        }];
 
-        // When the file exists, resolve returns the same path.
-        assert_eq!(resolve_inbox_path(&file), file);
+        let paths = save_attachments_to_inbox(&tmp, &attachments);
+        assert!(paths.is_empty(), "zero-byte attachment must be rejected");
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
-    fn test_resolve_inbox_path_fallback_to_newest() {
-        let tmp = std::env::temp_dir().join("omega_test_resolve_fallback");
+    fn test_inbox_guard_cleans_up_on_drop() {
+        let tmp = std::env::temp_dir().join("omega_test_guard_cleanup");
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
-        // Create an older file and a newer file.
-        let old_file = tmp.join("old-uuid.jpg");
-        std::fs::write(&old_file, b"old").unwrap();
-        // Ensure a time gap so mtime differs.
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let new_file = tmp.join("new-uuid.jpg");
-        std::fs::write(&new_file, b"new").unwrap();
+        let file = tmp.join("guard_test.jpg");
+        std::fs::write(&file, b"image data").unwrap();
+        assert!(file.exists());
 
-        // Ask for a UUID that does NOT exist — should fall back to the newest file.
-        let missing = tmp.join("nonexistent-uuid.jpg");
-        let resolved = resolve_inbox_path(&missing);
-        assert_eq!(resolved, new_file);
+        {
+            let _guard = InboxGuard::new(vec![file.clone()]);
+            // Guard is alive — file should still exist.
+            assert!(file.exists());
+        }
+        // Guard dropped — file should be cleaned up.
+        assert!(!file.exists());
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
-    fn test_resolve_inbox_path_empty_dir() {
-        let tmp = std::env::temp_dir().join("omega_test_resolve_empty");
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-
-        // When the directory is empty, returns the original (missing) path.
-        let missing = tmp.join("nonexistent.jpg");
-        let resolved = resolve_inbox_path(&missing);
-        assert_eq!(resolved, missing);
-
-        let _ = std::fs::remove_dir_all(&tmp);
+    fn test_inbox_guard_empty_is_noop() {
+        // An empty guard should not panic or error on drop.
+        let _guard = InboxGuard::new(Vec::new());
     }
 
     // --- Classification ---

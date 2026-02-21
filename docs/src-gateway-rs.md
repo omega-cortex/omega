@@ -93,9 +93,9 @@ Sanitization is a defense-in-depth measure. Even if an injection pattern gets th
 
 **Implementation:**
 - Calls `ensure_inbox_dir(data_dir)` to create `{data_dir}/workspace/inbox/` if it does not exist.
-- Calls `save_attachments_to_inbox(&inbox_dir, &incoming.attachments)` to write Image-type attachments to disk. Non-image attachments are skipped.
+- Calls `save_attachments_to_inbox(&inbox_dir, &incoming.attachments)` to write Image-type attachments to disk. Non-image attachments and zero-byte data are skipped. Writes use `File::create` + `write_all` + `sync_all` for guaranteed disk flush.
 - For each saved file, a line `[Attached image: /full/path.jpg]` is prepended to the sanitized message text.
-- The saved file paths are stored for cleanup after the response is sent (Stage 9c).
+- Saved paths are wrapped in an `InboxGuard` (RAII) that guarantees cleanup on Drop — regardless of which early return path `handle_message` takes.
 
 **Why This Exists:**
 When users send images via Telegram or WhatsApp, the channel layer downloads them as in-memory byte arrays. The AI provider (Claude Code CLI) cannot access raw bytes from the message struct, but it can read files from disk using its built-in Read tool. By saving images to the inbox directory and referencing them by path in the message text, the provider gains the ability to view and reason about user-sent images.

@@ -79,9 +79,9 @@ WhatsApp supports both **personal chats** (self-chat, messages to yourself) and 
 
 3. **Message unwrapping**: Messages are often wrapped in `DeviceSentMessage`, `EphemeralMessage`, or `ViewOnceMessage` containers. The handler unwraps these before extracting text from `conversation` or `extended_text_message.text`.
 
-4. **Image handling**: If no text is found, the handler checks for an `image_message`. Image messages are downloaded via the WhatsApp client (`ImageMessage` implements the `Downloadable` trait), and the image bytes are passed through as an `Attachment` with the caption as text (defaults to `"[Photo]"`).
+4. **Image handling** (personal chats only): If no text is found, the handler checks for an `image_message`. Image messages are downloaded via the WhatsApp client (`ImageMessage` implements the `Downloadable` trait), and the image bytes are passed through as an `Attachment` with the caption as text (defaults to `"[Photo]"`). **In group chats, images are never downloaded** — this prevents processing other people's private media.
 
-5. **Voice transcription**: If no text or image, the handler checks for an `audio_message`. When a `whisper_api_key` is configured, voice messages are downloaded and transcribed via OpenAI Whisper (shared module with Telegram), injected as `"[Voice message] {transcript}"`.
+5. **Voice transcription** (personal chats only): If no text or image, the handler checks for an `audio_message`. When a `whisper_api_key` is configured, voice messages are downloaded and transcribed via OpenAI Whisper (shared module with Telegram), injected as `"[Voice message] {transcript}"`. **In group chats, audio is never downloaded.**
 
 6. **Echo prevention**: Sent message IDs are tracked in a `HashSet`. When the bot sends a reply, the message ID is recorded. When the echo arrives back as an incoming event, the ID is matched and the message is skipped, preventing infinite loops.
 
@@ -153,10 +153,10 @@ If you paired WhatsApp via `/whatsapp` but messages don't flow:
 - If the session was previously invalidated, send `/whatsapp` again — the gateway automatically deletes the stale session and rebuilds the bot
 
 ### Messages not received (general)
-- In personal mode, WhatsApp only processes self-chat messages (messages you send to yourself). In group chats, it responds to other participants.
-- Text, image, and voice messages are supported. Other media types (video, documents) are not yet processed and will be silently skipped.
+- In personal mode, WhatsApp only processes self-chat messages (messages you send to yourself). In group chats, it responds to text messages from other participants.
+- In personal chats: text, image, and voice messages are supported. In group chats: only text is processed — images and audio are never downloaded (privacy protection).
 - Voice transcription requires `whisper_api_key` in config. Without it, voice messages are silently skipped.
-- If an image or audio download fails, the message is skipped — check logs for download warnings.
+- If an image or audio download fails (personal chat), the message is skipped — check logs for download warnings.
 - Check `allowed_users` in config — your phone number must be listed (or leave empty for all)
 - Verify the session is still valid (check logs for "WhatsApp connected" or "logged out")
 
