@@ -88,6 +88,16 @@ These claims have been made before and are WRONG. Do not make them again:
 
 If you find yourself about to claim any of the above, STOP and run the diagnostic protocol above first. If the evidence contradicts the claim, do NOT make the claim.
 
+## Output Filtering (MANDATORY)
+
+Always redirect verbose command output to `/tmp/` and filter it. Never dump raw output into the conversation — it wastes tokens and pollutes context.
+
+```bash
+command > /tmp/cmd_output.log 2>&1 && grep -iE "error|warn|fail|pass" /tmp/cmd_output.log | head -20
+```
+
+If you need the full output for debugging, read the file at `/tmp/cmd_output.log` — don't re-run the command.
+
 ## Key Conventions
 
 - **Sandbox**: All workspace artifacts (builds, downloads, temp files) go in this directory
