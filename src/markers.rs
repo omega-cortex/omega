@@ -90,6 +90,7 @@ pub fn strip_all_remaining_markers(text: &str) -> String {
         "FORGET_CONVERSATION",
         "PURGE_FACTS",
         "WHATSAPP_QR",
+        "ACTION_OUTCOME:",
     ];
     let mut result = text.to_string();
     for marker in MARKERS {
@@ -625,6 +626,42 @@ pub fn strip_skill_improve(text: &str) -> String {
         .join("\n")
         .trim()
         .to_string()
+}
+
+// ---------------------------------------------------------------------------
+// ACTION_OUTCOME
+// ---------------------------------------------------------------------------
+
+/// Result of an action task execution, parsed from the `ACTION_OUTCOME:` marker.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ActionOutcome {
+    Success,
+    Failed(String),
+}
+
+/// Extract the `ACTION_OUTCOME:` marker from response text.
+///
+/// Accepts `ACTION_OUTCOME: success` or `ACTION_OUTCOME: failed | <reason>`.
+pub fn extract_action_outcome(text: &str) -> Option<ActionOutcome> {
+    let value = extract_inline_marker_value(text, "ACTION_OUTCOME:")?;
+    let lower = value.to_lowercase();
+    if lower == "success" {
+        Some(ActionOutcome::Success)
+    } else if lower.starts_with("failed") {
+        // Parse "failed | reason" or just "failed".
+        let reason = value
+            .split_once('|')
+            .map(|(_, r)| r.trim().to_string())
+            .unwrap_or_default();
+        Some(ActionOutcome::Failed(reason))
+    } else {
+        None
+    }
+}
+
+/// Strip the `ACTION_OUTCOME:` marker line from response text.
+pub fn strip_action_outcome(text: &str) -> String {
+    strip_inline_marker(text, "ACTION_OUTCOME:")
 }
 
 // ---------------------------------------------------------------------------
@@ -2021,5 +2058,68 @@ mod tests {
         assert!(result.contains("Active project: trader"));
         assert!(!result.contains("Recent conversation:"));
         assert!(!result.contains("Available skills:"));
+    }
+
+    // --- ACTION_OUTCOME ---
+
+    #[test]
+    fn test_extract_action_outcome_success() {
+        let text = "Email sent successfully.\nACTION_OUTCOME: success";
+        assert_eq!(extract_action_outcome(text), Some(ActionOutcome::Success));
+    }
+
+    #[test]
+    fn test_extract_action_outcome_success_case_insensitive() {
+        let text = "Done.\nACTION_OUTCOME: Success";
+        assert_eq!(extract_action_outcome(text), Some(ActionOutcome::Success));
+    }
+
+    #[test]
+    fn test_extract_action_outcome_failed_with_reason() {
+        let text = "Could not send.\nACTION_OUTCOME: failed | SMTP connection refused";
+        assert_eq!(
+            extract_action_outcome(text),
+            Some(ActionOutcome::Failed("SMTP connection refused".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_extract_action_outcome_failed_no_reason() {
+        let text = "Error occurred.\nACTION_OUTCOME: failed";
+        assert_eq!(
+            extract_action_outcome(text),
+            Some(ActionOutcome::Failed(String::new()))
+        );
+    }
+
+    #[test]
+    fn test_extract_action_outcome_none() {
+        assert!(extract_action_outcome("No marker here.").is_none());
+    }
+
+    #[test]
+    fn test_extract_action_outcome_empty() {
+        assert!(extract_action_outcome("ACTION_OUTCOME: ").is_none());
+    }
+
+    #[test]
+    fn test_strip_action_outcome() {
+        let text = "Email sent to Adri.\nACTION_OUTCOME: success\nDone.";
+        assert_eq!(strip_action_outcome(text), "Email sent to Adri.\nDone.");
+    }
+
+    #[test]
+    fn test_strip_action_outcome_failed() {
+        let text = "Failed to send.\nACTION_OUTCOME: failed | timeout\nSorry.";
+        assert_eq!(strip_action_outcome(text), "Failed to send.\nSorry.");
+    }
+
+    #[test]
+    fn test_strip_all_remaining_markers_includes_action_outcome() {
+        let text = "Done. ACTION_OUTCOME: success\nMore text.";
+        let result = strip_all_remaining_markers(text);
+        assert!(!result.contains("ACTION_OUTCOME:"));
+        assert!(result.contains("Done."));
+        assert!(result.contains("More text."));
     }
 }

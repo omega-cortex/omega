@@ -34,6 +34,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 - [memory-migration-004.md](memory-migration-004.md) — FTS5 cross-conversation recall
 - [memory-migration-005.md](memory-migration-005.md) — Scheduled tasks table and indexes
 - [memory-migration-007.md](memory-migration-007.md) — Task type column for action scheduler
+- [memory-migration-009.md](memory-migration-009.md) — Task retry columns for action failure handling
 
 ### Operations
 - [operations.md](operations.md) — LaunchAgent setup, logging, self-check, graceful shutdown

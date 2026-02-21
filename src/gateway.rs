@@ -27,6 +27,9 @@ use std::time::Instant;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
 
+/// Maximum number of retries for failed action tasks.
+const MAX_ACTION_RETRIES: u32 = 3;
+
 /// Validate a fact key/value before storing. Rejects junk patterns.
 /// System-managed fact keys that only bot commands may write.
 const SYSTEM_FACT_KEYS: &[&str] = &[
@@ -219,6 +222,8 @@ impl Gateway {
             let sched_model = self.model_complex.clone();
             let sched_sandbox = self.sandbox_prompt.clone();
             let sched_hb_interval = self.heartbeat_interval.clone();
+            let sched_audit = AuditLogger::new(self.memory.pool().clone());
+            let sched_provider_name = self.provider.name().to_string();
             Some(tokio::spawn(async move {
                 Self::scheduler_loop(
                     sched_store,
@@ -230,6 +235,8 @@ impl Gateway {
                     sched_model,
                     sched_sandbox,
                     sched_hb_interval,
+                    sched_audit,
+                    sched_provider_name,
                 )
                 .await;
             }))
@@ -393,6 +400,8 @@ impl Gateway {
         model_complex: String,
         sandbox_prompt: Option<String>,
         heartbeat_interval: Arc<AtomicU64>,
+        audit: AuditLogger,
+        provider_name: String,
     ) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(poll_secs)).await;
@@ -412,6 +421,7 @@ impl Gateway {
                         if task_type == "action" {
                             // --- Action task: invoke provider ---
                             info!("scheduler: executing action task {id}: {description}");
+                            let started = Instant::now();
 
                             let mut system = format!(
                                 "{}\n\n{}\n\n{}",
@@ -421,6 +431,16 @@ impl Gateway {
                                 system.push_str("\n\n");
                                 system.push_str(sp);
                             }
+
+                            // Inject verification instruction for outcome tracking.
+                            system.push_str(concat!(
+                                "\n\nIMPORTANT — Action Task Verification:\n",
+                                "After completing this action, end your response with exactly ",
+                                "one of these markers on its own line:\n",
+                                "- ACTION_OUTCOME: success\n",
+                                "- ACTION_OUTCOME: failed | <brief reason>\n",
+                                "The gateway strips this marker before delivering to the user."
+                            ));
 
                             let mut ctx = Context::new(description);
                             ctx.system_prompt = system;
@@ -433,7 +453,12 @@ impl Gateway {
 
                             match provider.complete(&ctx).await {
                                 Ok(resp) => {
+                                    let elapsed_ms = started.elapsed().as_millis() as i64;
                                     let mut text = resp.text.clone();
+
+                                    // Parse ACTION_OUTCOME before stripping other markers.
+                                    let outcome = extract_action_outcome(&text);
+                                    text = strip_action_outcome(&text);
 
                                     // Process SCHEDULE markers from action response.
                                     for sched_line in extract_all_schedule_markers(&text) {
@@ -564,6 +589,94 @@ impl Gateway {
                                     }
                                     text = strip_update_task(&text);
 
+                                    // Determine audit status and handle outcome.
+                                    let (audit_status, action_ok) = match &outcome {
+                                        Some(ActionOutcome::Success) => (AuditStatus::Ok, true),
+                                        Some(ActionOutcome::Failed(reason)) => {
+                                            warn!("action task {id} reported failure: {reason}");
+                                            (AuditStatus::Error, false)
+                                        }
+                                        None => {
+                                            // No marker — backward compat, assume success.
+                                            warn!("action task {id}: no ACTION_OUTCOME marker, assuming success");
+                                            (AuditStatus::Ok, true)
+                                        }
+                                    };
+
+                                    // Audit log the action execution.
+                                    let audit_entry = AuditEntry {
+                                        channel: channel_name.clone(),
+                                        sender_id: sender_id.clone(),
+                                        sender_name: None,
+                                        input_text: format!("[ACTION] {description}"),
+                                        output_text: Some(resp.text.clone()),
+                                        provider_used: Some(provider_name.clone()),
+                                        model: Some(model_complex.clone()),
+                                        processing_ms: Some(elapsed_ms),
+                                        status: audit_status,
+                                        denial_reason: None,
+                                    };
+                                    if let Err(e) = audit.log(&audit_entry).await {
+                                        error!("action task {id}: audit log failed: {e}");
+                                    }
+
+                                    if action_ok {
+                                        // Success: complete the task.
+                                        if let Err(e) =
+                                            store.complete_task(id, repeat.as_deref()).await
+                                        {
+                                            error!("failed to complete action task {id}: {e}");
+                                        } else {
+                                            info!("completed action task {id}: {description}");
+                                        }
+                                    } else {
+                                        // Failure: retry or permanently fail.
+                                        let reason = match &outcome {
+                                            Some(ActionOutcome::Failed(r)) if !r.is_empty() => {
+                                                r.clone()
+                                            }
+                                            _ => "action reported failure".to_string(),
+                                        };
+                                        match store.fail_task(id, &reason, MAX_ACTION_RETRIES).await
+                                        {
+                                            Ok(will_retry) => {
+                                                if will_retry {
+                                                    info!(
+                                                        "action task {id} will retry in 2 minutes"
+                                                    );
+                                                    // Notify user about retry.
+                                                    if let Some(ch) = channels.get(channel_name) {
+                                                        let msg = OutgoingMessage {
+                                                            text: format!(
+                                                                "Action failed: {description}\nRetrying in 2 minutes..."
+                                                            ),
+                                                            metadata: MessageMetadata::default(),
+                                                            reply_target: Some(reply_target.clone()),
+                                                        };
+                                                        let _ = ch.send(msg).await;
+                                                    }
+                                                } else {
+                                                    error!("action task {id} permanently failed after {MAX_ACTION_RETRIES} retries");
+                                                    if let Some(ch) = channels.get(channel_name) {
+                                                        let msg = OutgoingMessage {
+                                                            text: format!(
+                                                                "Action permanently failed after {} retries: {description}\nReason: {reason}",
+                                                                MAX_ACTION_RETRIES
+                                                            ),
+                                                            metadata: MessageMetadata::default(),
+                                                            reply_target: Some(reply_target.clone()),
+                                                        };
+                                                        let _ = ch.send(msg).await;
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!("action task {id}: fail_task error: {e}")
+                                            }
+                                        }
+                                        continue; // Skip sending the response for failed actions.
+                                    }
+
                                     // Send response to channel (if non-empty after stripping markers).
                                     let cleaned = text.trim();
                                     if !cleaned.is_empty() && cleaned != "HEARTBEAT_OK" {
@@ -578,22 +691,56 @@ impl Gateway {
                                             }
                                         }
                                     }
-
-                                    info!("completed action task {id}: {description}");
                                 }
                                 Err(e) => {
-                                    error!("action task {id} provider error: {e}");
-                                    // Send error notification.
-                                    if let Some(ch) = channels.get(channel_name) {
-                                        let msg = OutgoingMessage {
-                                            text: format!("Action task failed: {description}\n(will retry next cycle)"),
-                                            metadata: MessageMetadata::default(),
-                                            reply_target: Some(reply_target.clone()),
-                                        };
-                                        let _ = ch.send(msg).await;
+                                    let elapsed_ms = started.elapsed().as_millis() as i64;
+                                    let err_str = e.to_string();
+                                    error!("action task {id} provider error: {err_str}");
+
+                                    // Audit log the provider error.
+                                    let audit_entry = AuditEntry {
+                                        channel: channel_name.clone(),
+                                        sender_id: sender_id.clone(),
+                                        sender_name: None,
+                                        input_text: format!("[ACTION] {description}"),
+                                        output_text: None,
+                                        provider_used: Some(provider_name.clone()),
+                                        model: Some(model_complex.clone()),
+                                        processing_ms: Some(elapsed_ms),
+                                        status: AuditStatus::Error,
+                                        denial_reason: Some(err_str.clone()),
+                                    };
+                                    if let Err(ae) = audit.log(&audit_entry).await {
+                                        error!("action task {id}: audit log failed: {ae}");
+                                    }
+
+                                    // Retry or permanently fail.
+                                    match store.fail_task(id, &err_str, MAX_ACTION_RETRIES).await {
+                                        Ok(will_retry) => {
+                                            if let Some(ch) = channels.get(channel_name) {
+                                                let msg_text = if will_retry {
+                                                    format!("Action failed: {description}\nRetrying in 2 minutes...")
+                                                } else {
+                                                    format!(
+                                                        "Action permanently failed after {} retries: {description}",
+                                                        MAX_ACTION_RETRIES
+                                                    )
+                                                };
+                                                let msg = OutgoingMessage {
+                                                    text: msg_text,
+                                                    metadata: MessageMetadata::default(),
+                                                    reply_target: Some(reply_target.clone()),
+                                                };
+                                                let _ = ch.send(msg).await;
+                                            }
+                                        }
+                                        Err(fe) => {
+                                            error!("action task {id}: fail_task error: {fe}")
+                                        }
                                     }
                                 }
                             }
+                            continue; // Action tasks handle their own completion above.
                         } else {
                             // --- Reminder task: send text ---
                             let msg = OutgoingMessage {

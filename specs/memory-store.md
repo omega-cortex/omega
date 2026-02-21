@@ -983,6 +983,34 @@ WHERE id = ? AND CAST(strftime('%w', due_at) AS INTEGER) = 0
 
 ---
 
+#### `async fn fail_task(&self, id: &str, error: &str, max_retries: u32) -> Result<bool, OmegaError>`
+
+**Purpose:** Handle an action task failure. Increments the retry count and either reschedules the task for retry or permanently marks it as failed.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `&str` | The task UUID. |
+| `error` | `&str` | The error message from the failed attempt. |
+| `max_retries` | `u32` | Maximum number of retries before permanent failure (default: 3). |
+
+**Returns:** `Result<bool, OmegaError>` — `true` if the task will be retried, `false` if permanently failed.
+
+**Logic:**
+1. Fetch current `retry_count` for the task.
+2. Increment retry count.
+3. If `new_count < max_retries`:
+   - Keep `status = 'pending'`, set `due_at = datetime('now', '+2 minutes')`, store `last_error`.
+   - Return `Ok(true)`.
+4. If `new_count >= max_retries`:
+   - Set `status = 'failed'`, store `last_error`.
+   - Return `Ok(false)`.
+
+**Called by:** `gateway.rs::scheduler_loop()` when an action task fails (explicit `ACTION_OUTCOME: failed` or provider error).
+
+---
+
 #### `async fn get_tasks_for_sender(&self, sender_id: &str) -> Result<Vec<(String, String, String, Option<String>, String)>, OmegaError>`
 
 **Purpose:** Get all pending tasks for a specific user (for the `/tasks` command).
@@ -1647,6 +1675,8 @@ All tests use an in-memory SQLite store (`sqlite::memory:`) with migrations appl
 | `test_create_alias_idempotent` | Creates same alias twice, verifies idempotent behavior (INSERT OR IGNORE). |
 | `test_find_canonical_user` | Verifies `find_canonical_user()` returns None when empty, returns existing welcomed user, excludes self. |
 | `test_alias_shares_facts` | Creates alias, verifies facts stored under canonical ID are accessible via resolved alias. |
+| `test_fail_task_retries` | Creates action task, fails it 3 times, verifies retry on first 2 failures and permanent failure on 3rd. |
+| `test_fail_task_stores_error` | Creates action task, fails it once, verifies `last_error` and `retry_count` are stored correctly. |
 
 ## Invariants
 

@@ -137,6 +137,10 @@ impl Store {
                 "008_user_aliases",
                 include_str!("../migrations/008_user_aliases.sql"),
             ),
+            (
+                "009_task_retry",
+                include_str!("../migrations/009_task_retry.sql"),
+            ),
         ];
 
         for (name, sql) in migrations {
@@ -851,6 +855,58 @@ impl Store {
             }
         }
         Ok(())
+    }
+
+    /// Fail an action task: increment retry count and either reschedule or permanently fail.
+    ///
+    /// Returns `true` if the task will be retried, `false` if permanently failed.
+    pub async fn fail_task(
+        &self,
+        id: &str,
+        error: &str,
+        max_retries: u32,
+    ) -> Result<bool, OmegaError> {
+        // Get current retry count.
+        let row: Option<(i64,)> =
+            sqlx::query_as("SELECT retry_count FROM scheduled_tasks WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| OmegaError::Memory(format!("fail_task fetch failed: {e}")))?;
+
+        let current_count = row.map(|r| r.0).unwrap_or(0) as u32;
+        let new_count = current_count + 1;
+
+        if new_count < max_retries {
+            // Retry: keep pending, push due_at forward by 2 minutes.
+            sqlx::query(
+                "UPDATE scheduled_tasks \
+                 SET retry_count = ?, last_error = ?, \
+                     due_at = datetime('now', '+2 minutes') \
+                 WHERE id = ?",
+            )
+            .bind(new_count as i64)
+            .bind(error)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| OmegaError::Memory(format!("fail_task retry update failed: {e}")))?;
+            Ok(true)
+        } else {
+            // Permanently failed.
+            sqlx::query(
+                "UPDATE scheduled_tasks \
+                 SET status = 'failed', retry_count = ?, last_error = ? \
+                 WHERE id = ?",
+            )
+            .bind(new_count as i64)
+            .bind(error)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| OmegaError::Memory(format!("fail_task final update failed: {e}")))?;
+            Ok(false)
+        }
     }
 
     /// Get pending tasks for a sender (for /tasks command).
@@ -2429,5 +2485,73 @@ mod tests {
             .await
             .unwrap();
         assert_ne!(id1, id4, "different sender should create new task");
+    }
+
+    #[tokio::test]
+    async fn test_fail_task_retries() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "Send email",
+                "2020-01-01T00:00:00",
+                None,
+                "action",
+            )
+            .await
+            .unwrap();
+
+        // First failure: should retry (retry_count 1 < max 3).
+        let will_retry = store.fail_task(&id, "SMTP error", 3).await.unwrap();
+        assert!(will_retry, "should retry on first failure");
+
+        // Task is still pending (rescheduled).
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert_eq!(tasks.len(), 1, "task should still be pending");
+
+        // Second failure.
+        let will_retry = store.fail_task(&id, "SMTP error again", 3).await.unwrap();
+        assert!(will_retry, "should retry on second failure");
+
+        // Third failure: permanently failed (retry_count 3 >= max 3).
+        let will_retry = store.fail_task(&id, "SMTP final error", 3).await.unwrap();
+        assert!(!will_retry, "should NOT retry after max retries");
+
+        // Task is no longer pending.
+        let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+        assert!(tasks.is_empty(), "failed task should not appear in pending");
+    }
+
+    #[tokio::test]
+    async fn test_fail_task_stores_error() {
+        let store = test_store().await;
+        let id = store
+            .create_task(
+                "telegram",
+                "user1",
+                "chat1",
+                "Check price",
+                "2020-01-01T00:00:00",
+                None,
+                "action",
+            )
+            .await
+            .unwrap();
+
+        store.fail_task(&id, "connection refused", 3).await.unwrap();
+
+        // Verify last_error is stored.
+        let row: Option<(String, i64)> =
+            sqlx::query_as("SELECT last_error, retry_count FROM scheduled_tasks WHERE id = ?")
+                .bind(&id)
+                .fetch_optional(store.pool())
+                .await
+                .unwrap();
+
+        let (last_error, retry_count) = row.unwrap();
+        assert_eq!(last_error, "connection refused");
+        assert_eq!(retry_count, 1);
     }
 }

@@ -25,6 +25,7 @@ Each marker type has extract/parse/strip/has functions:
 - **HEARTBEAT_ADD/REMOVE/INTERVAL**: `extract_heartbeat_markers`, `strip_heartbeat_markers`, `apply_heartbeat_changes`
 - **SKILL_IMPROVE**: `extract_skill_improve`, `parse_skill_improve_line`, `strip_skill_improve`
 - **BUG_REPORT**: `extract_bug_report`, `strip_bug_report`, `append_bug_report`
+- **ACTION_OUTCOME**: `extract_action_outcome`, `strip_action_outcome`
 
 ### Classification Helpers
 - `build_classification_context()` -- Build context string for complexity classifier
@@ -41,7 +42,8 @@ Each marker type has extract/parse/strip/has functions:
 
 ## Types
 - `HeartbeatAction` enum: `Add(String)`, `Remove(String)`, `SetInterval(u64)`
+- `ActionOutcome` enum: `Success`, `Failed(String)`
 - `InboxGuard` struct -- RAII guard wrapping `Vec<PathBuf>`, calls `cleanup_inbox_images()` on Drop
 
 ## Tests
-~90 tests covering all marker types, edge cases, inline markers, heartbeat file operations, workspace snapshots, classification parsing, skill improvement, bug reporting, InboxGuard RAII cleanup, zero-byte attachment rejection.
+~100 tests covering all marker types, edge cases, inline markers, heartbeat file operations, workspace snapshots, classification parsing, skill improvement, bug reporting, action outcome parsing, InboxGuard RAII cleanup, zero-byte attachment rejection.

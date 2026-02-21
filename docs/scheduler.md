@@ -331,3 +331,47 @@ A polling loop with a 60-second interval is simpler and more resilient than sche
 ### Why At-Least-Once Delivery?
 
 If the scheduler delivers a task but fails to mark it as complete (e.g., database error), the task may be re-delivered on the next poll. This is intentional: a duplicate reminder is better than a missed one. For one-shot tasks, the `delivered_at` timestamp provides an audit trail.
+
+## Action Task Verification and Retry
+
+### The Problem
+
+Action tasks invoke the AI provider, which executes commands (e.g., sending emails via `gog gmail send`). Before verification, the scheduler blindly marked tasks as `delivered` the moment the provider returned *any* response — even if the action actually failed. There was no audit trail and no retry mechanism.
+
+### The Solution: `ACTION_OUTCOME` Marker
+
+The scheduler injects a verification instruction into the system prompt for action tasks. The provider must end its response with one of:
+
+```
+ACTION_OUTCOME: success
+ACTION_OUTCOME: failed | <brief reason>
+```
+
+The gateway strips this marker before delivering the response to the user.
+
+### Outcome Handling
+
+| Outcome | What Happens |
+|---------|-------------|
+| `ACTION_OUTCOME: success` | Task is completed normally (marked `delivered` or due_at advanced for recurring) |
+| `ACTION_OUTCOME: failed \| reason` | Task failure: `fail_task()` is called — retries up to 3 times with 2-minute delays |
+| No marker present | Backward compatibility: treated as success with a warning logged |
+| Provider error (exception) | Task failure: same retry logic as explicit failure |
+
+### Retry Logic
+
+Failed action tasks are retried up to 3 times:
+
+1. **First failure**: `retry_count` → 1, task rescheduled 2 minutes ahead, user notified
+2. **Second failure**: `retry_count` → 2, task rescheduled again
+3. **Third failure**: `retry_count` → 3, task permanently marked as `failed`, user notified of permanent failure with reason
+
+The `last_error` column stores the most recent error message for debugging.
+
+### Audit Logging
+
+Every action task execution (success or failure) is logged to the `audit_log` table with:
+- `input_text`: prefixed with `[ACTION]` for easy filtering
+- `output_text`: full provider response (including command output)
+- `provider_used`, `model`, `processing_ms`: performance tracking
+- `status`: `ok` for success, `error` for failure

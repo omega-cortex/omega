@@ -163,13 +163,15 @@ pub struct Gateway {
 - Errors are logged with `error!()` but do not stop the task.
 - Task runs indefinitely regardless of errors.
 
-#### `async fn scheduler_loop(store: Store, channels: HashMap<String, Arc<dyn Channel>>, poll_secs: u64)`
-**Purpose:** Background task that periodically checks for due scheduled tasks and delivers them via the appropriate channel.
+#### `async fn scheduler_loop(store, channels, poll_secs, provider, skills, prompts, model_complex, sandbox_prompt, heartbeat_interval, audit, provider_name)`
+**Purpose:** Background task that periodically checks for due scheduled tasks and delivers them via the appropriate channel. Action tasks include outcome verification, audit logging, and retry logic.
 
 **Parameters:**
 - `store: Store` - Shared memory store for task queries.
 - `channels: HashMap<String, Arc<dyn Channel>>` - Map of channel implementations for delivery.
 - `poll_secs: u64` - Polling interval in seconds (from `SchedulerConfig.poll_interval_secs`).
+- `audit: AuditLogger` - Audit logger for action task execution tracking.
+- `provider_name: String` - Provider name for audit log entries.
 
 **Returns:** Never returns (infinite loop).
 
@@ -177,7 +179,16 @@ pub struct Gateway {
 1. Loop forever with `poll_secs`-second sleep between iterations.
 2. Call `store.get_due_tasks()` to find tasks where `status = 'pending'` and `due_at <= now`.
 3. For each due task `(id, channel_name, sender_id, reply_target, description, repeat, task_type)`:
-   - **Action tasks:** invoke the provider with full tool/MCP access, process response markers (SCHEDULE, SCHEDULE_ACTION, CANCEL_TASK, UPDATE_TASK, HEARTBEAT) using the task's `sender_id` for nested operations, send non-empty response to channel.
+   - **Action tasks:**
+     a. Start timing with `Instant::now()`.
+     b. Inject `ACTION_OUTCOME:` verification instruction into system prompt.
+     c. Invoke provider with full tool/MCP access.
+     d. Parse `ACTION_OUTCOME:` marker from response (`Success`, `Failed(reason)`, or missing).
+     e. Process response markers (SCHEDULE, SCHEDULE_ACTION, CANCEL_TASK, UPDATE_TASK, HEARTBEAT).
+     f. Write audit log entry with `[ACTION]` prefix, elapsed time, status.
+     g. On success (or missing marker — backward compat): call `complete_task()`, send response.
+     h. On failure: call `fail_task()` (up to `MAX_ACTION_RETRIES=3` retries, 2-minute delay), notify user.
+     i. On provider error: call `fail_task()`, notify user, write error audit entry.
    - **Reminder tasks:** Build an `OutgoingMessage` with text `"Reminder: {description}"` and `reply_target`.
    - Look up the channel by `channel_name` in the channels map.
    - If channel not found, log warning and skip.
@@ -196,6 +207,7 @@ pub struct Gateway {
 - Channel send errors are logged and the task is skipped (not marked complete).
 - Task completion errors are logged but do not stop the loop.
 - `get_due_tasks()` errors are logged but do not stop the loop.
+- Action task failures trigger `fail_task()` (retry with 2-minute delay, up to 3 retries).
 
 #### `async fn heartbeat_loop(provider: Arc<dyn Provider>, channels: HashMap<String, Arc<dyn Channel>>, config: HeartbeatConfig, prompts: Prompts, sandbox_prompt: Option<String>, memory: Store, interval: Arc<AtomicU64>)`
 **Purpose:** Background task that periodically invokes the AI provider for a context-aware health check-in. Skips the API call entirely when no checklist is configured. If the provider reports an issue, the alert is delivered via a configured channel. If everything is fine (response contains `HEARTBEAT_OK`), the response is suppressed.

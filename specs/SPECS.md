@@ -56,6 +56,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [memory-migration-005.md](memory-migration-005.md) — Scheduled tasks table migration
 - [memory-migration-006.md](memory-migration-006.md) — Limitations table (historical — originally for self-introspection, now used by SKILL_IMPROVE)
 - [memory-migration-007.md](memory-migration-007.md) — Task type column for action scheduler (reminder vs provider-backed execution)
+- [memory-migration-009.md](memory-migration-009.md) — Task retry columns (retry_count, last_error) for action task failure handling
 
 ### Milestone 7: omega-skills
 - [skills-lib.md](skills-lib.md) — Skill loader + project loader + MCP trigger matching (skills from `~/.omega/skills/*/SKILL.md`, projects from `~/.omega/projects/*/ROLE.md`)
@@ -102,6 +103,7 @@ Message → Auth → Sanitize → Sandbox constraint → Memory (context) → Pr
 
 Background:
   Scheduler: poll due_tasks → channel.send(reminder) → complete_task
+             action tasks: provider.complete → parse ACTION_OUTCOME → audit_log → complete/fail_task → notify
   Heartbeat: provider.complete(check-in) → suppress HEARTBEAT_OK / channel.send(alert)
   Summarizer: find idle convos → summarize → close
   CLAUDE.md: ensure on startup → refresh every 24h (claude -p subprocess)
