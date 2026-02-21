@@ -13,6 +13,10 @@ Anti-hallucination layer for task scheduling. When the AI emits SCHEDULE/SCHEDUL
 | `TaskCreated` | `description`, `due_at`, `repeat`, `task_type` | Task saved to DB successfully |
 | `TaskFailed` | `description`, `reason` | DB write failed |
 | `TaskParseError` | `raw_line` | Marker line could not be parsed |
+| `TaskCancelled` | `id_prefix` | Task cancelled successfully via CANCEL_TASK marker |
+| `TaskCancelFailed` | `id_prefix`, `reason` | Task cancellation failed (no match or DB error) |
+| `TaskUpdated` | `id_prefix` | Task updated successfully via UPDATE_TASK marker |
+| `TaskUpdateFailed` | `id_prefix`, `reason` | Task update failed (no match or DB error) |
 
 ## Functions
 
@@ -27,12 +31,18 @@ Word-overlap similarity check for duplicate detection. Extracts significant word
 Formats a human-readable confirmation message from marker results. Returns `None` if no results to report.
 
 **Output format:**
-- Single task: `✓ Scheduled: {desc} — {due_at} ({repeat})`
-- Multiple tasks: `✓ Scheduled {n} tasks:` + bulleted list
+- Single task created: `✓ Scheduled: {desc} — {due_at} ({repeat})`
+- Multiple tasks created: `✓ Scheduled {n} tasks:` + bulleted list
+- Single task cancelled: `✓ Cancelled: [{id_prefix}]`
+- Multiple tasks cancelled: `✓ Cancelled {n} tasks:` + bulleted list of `[{id}]`
+- Single task updated: `✓ Updated: [{id_prefix}]`
+- Multiple tasks updated: `✓ Updated {n} tasks:` + bulleted list of `[{id}]`
 - Similar warning: `⚠ Similar task exists: "{desc}" — {due_at}`
-- Failure: `✗ Failed to save {n} task(s). Please try again.`
+- Creation failure: `✗ Failed to save {n} task(s). Please try again.`
+- Cancel failure: `✗ Failed to cancel [{id}]: {reason}` (per-task)
+- Update failure: `✗ Failed to update [{id}]: {reason}` (per-task)
 
-All strings are localized via `i18n::t()` and `i18n::tasks_confirmed()` / `i18n::task_save_failed()`.
+All strings are localized via `i18n::t()` and format helpers: `i18n::tasks_confirmed()`, `i18n::tasks_cancelled_confirmed()`, `i18n::tasks_updated_confirmed()`, `i18n::task_save_failed()`.
 
 ## Integration
 
@@ -55,4 +65,9 @@ All strings are localized via `i18n::t()` and `i18n::tasks_confirmed()` / `i18n:
 | `test_format_task_confirmation_with_failure` | Failure message shown |
 | `test_format_task_confirmation_with_similar_warning` | Warning about similar task shown |
 | `test_format_task_confirmation_empty` | Empty results return None |
+| `test_format_task_confirmation_single_cancelled` | Single cancelled task formats with id |
+| `test_format_task_confirmation_multiple_cancelled` | Multiple cancellations show count + list |
+| `test_format_task_confirmation_cancel_failed` | Cancel failure shows id and reason |
+| `test_format_task_confirmation_single_updated` | Single updated task formats with id |
+| `test_format_task_confirmation_mixed` | Mixed create + cancel results format correctly |
 | `test_significant_words` | Word extraction filters correctly |

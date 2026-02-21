@@ -660,6 +660,54 @@ impl Gateway {
                                         text = strip_self_heal_markers(&text);
                                     }
 
+                                    // Process CANCEL_TASK markers from action response.
+                                    for id_prefix in extract_all_cancel_tasks(&text) {
+                                        match store
+                                            .cancel_task(&id_prefix, "")
+                                            .await
+                                        {
+                                            Ok(true) => info!(
+                                                "action task cancelled task: {id_prefix}"
+                                            ),
+                                            Ok(false) => warn!(
+                                                "action task: no matching task to cancel: {id_prefix}"
+                                            ),
+                                            Err(e) => error!(
+                                                "action task: failed to cancel task: {e}"
+                                            ),
+                                        }
+                                    }
+                                    text = strip_cancel_task(&text);
+
+                                    // Process UPDATE_TASK markers from action response.
+                                    for update_line in extract_all_update_tasks(&text) {
+                                        if let Some((id_prefix, desc, due_at, repeat)) =
+                                            parse_update_task_line(&update_line)
+                                        {
+                                            match store
+                                                .update_task(
+                                                    &id_prefix,
+                                                    "",
+                                                    desc.as_deref(),
+                                                    due_at.as_deref(),
+                                                    repeat.as_deref(),
+                                                )
+                                                .await
+                                            {
+                                                Ok(true) => info!(
+                                                    "action task updated task: {id_prefix}"
+                                                ),
+                                                Ok(false) => warn!(
+                                                    "action task: no matching task to update: {id_prefix}"
+                                                ),
+                                                Err(e) => error!(
+                                                    "action task: failed to update task: {e}"
+                                                ),
+                                            }
+                                        }
+                                    }
+                                    text = strip_update_task(&text);
+
                                     // Send response to channel (if non-empty after stripping markers).
                                     let cleaned = text.trim();
                                     if !cleaned.is_empty() && cleaned != "HEARTBEAT_OK" {
@@ -2079,22 +2127,39 @@ impl Gateway {
             *text = strip_forget_marker(text);
         }
 
-        // CANCEL_TASK
-        if let Some(id_prefix) = extract_cancel_task(text) {
+        // CANCEL_TASK — process ALL markers
+        for id_prefix in extract_all_cancel_tasks(text) {
             match self
                 .memory
                 .cancel_task(&id_prefix, &incoming.sender_id)
                 .await
             {
-                Ok(true) => info!("task cancelled via marker: {id_prefix}"),
-                Ok(false) => warn!("no matching task for cancel marker: {id_prefix}"),
-                Err(e) => error!("failed to cancel task via marker: {e}"),
+                Ok(true) => {
+                    info!("task cancelled via marker: {id_prefix}");
+                    marker_results.push(MarkerResult::TaskCancelled {
+                        id_prefix: id_prefix.clone(),
+                    });
+                }
+                Ok(false) => {
+                    warn!("no matching task for cancel marker: {id_prefix}");
+                    marker_results.push(MarkerResult::TaskCancelFailed {
+                        id_prefix: id_prefix.clone(),
+                        reason: "no matching task".to_string(),
+                    });
+                }
+                Err(e) => {
+                    error!("failed to cancel task via marker: {e}");
+                    marker_results.push(MarkerResult::TaskCancelFailed {
+                        id_prefix: id_prefix.clone(),
+                        reason: e.to_string(),
+                    });
+                }
             }
-            *text = strip_cancel_task(text);
         }
+        *text = strip_cancel_task(text);
 
-        // UPDATE_TASK
-        if let Some(update_line) = extract_update_task(text) {
+        // UPDATE_TASK — process ALL markers
+        for update_line in extract_all_update_tasks(text) {
             if let Some((id_prefix, desc, due_at, repeat)) = parse_update_task_line(&update_line) {
                 match self
                     .memory
@@ -2107,13 +2172,30 @@ impl Gateway {
                     )
                     .await
                 {
-                    Ok(true) => info!("task updated via marker: {id_prefix}"),
-                    Ok(false) => warn!("no matching task for update marker: {id_prefix}"),
-                    Err(e) => error!("failed to update task via marker: {e}"),
+                    Ok(true) => {
+                        info!("task updated via marker: {id_prefix}");
+                        marker_results.push(MarkerResult::TaskUpdated {
+                            id_prefix: id_prefix.clone(),
+                        });
+                    }
+                    Ok(false) => {
+                        warn!("no matching task for update marker: {id_prefix}");
+                        marker_results.push(MarkerResult::TaskUpdateFailed {
+                            id_prefix: id_prefix.clone(),
+                            reason: "no matching task".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        error!("failed to update task via marker: {e}");
+                        marker_results.push(MarkerResult::TaskUpdateFailed {
+                            id_prefix: id_prefix.clone(),
+                            reason: e.to_string(),
+                        });
+                    }
                 }
             }
-            *text = strip_update_task(text);
         }
+        *text = strip_update_task(text);
 
         // PURGE_FACTS
         if has_purge_marker(text) {

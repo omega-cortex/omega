@@ -625,8 +625,8 @@ pub struct Gateway {
 5. LANG_SWITCH — persist language preference
 6. PERSONALITY — set/reset personality preference (conversational `/personality`)
 7. FORGET_CONVERSATION — close current conversation (conversational `/forget`)
-8. CANCEL_TASK — cancel a scheduled task by ID prefix (conversational `/cancel`)
-9. UPDATE_TASK — update fields of a pending task by ID prefix (description, due_at, repeat; empty fields keep existing values)
+8. CANCEL_TASK — cancel scheduled tasks by ID prefix (conversational `/cancel`), processes ALL markers via `extract_all_cancel_tasks()`, pushes `MarkerResult::TaskCancelled` or `MarkerResult::TaskCancelFailed` per task
+9. UPDATE_TASK — update fields of pending tasks by ID prefix (description, due_at, repeat; empty fields keep existing values), processes ALL markers via `extract_all_update_tasks()`, pushes `MarkerResult::TaskUpdated` or `MarkerResult::TaskUpdateFailed` per task
 10. PURGE_FACTS — delete all non-system facts, preserving system keys (conversational `/purge`)
 11. HEARTBEAT_ADD / HEARTBEAT_REMOVE / HEARTBEAT_INTERVAL — update heartbeat checklist or interval
 12. LIMITATION — store limitation, alert owner, add to heartbeat
@@ -714,10 +714,12 @@ pub struct Gateway {
 
 **Logic:** Filters out lines whose trimmed form equals `"FORGET_CONVERSATION"`, joins, trims.
 
-### `fn extract_cancel_task(text: &str) -> Option<String>`
-**Purpose:** Extract the task ID prefix from a `CANCEL_TASK:` line in response text. Conversational equivalent of `/cancel`.
+### `fn extract_all_cancel_tasks(text: &str) -> Vec<String>`
+**Purpose:** Extract ALL task ID prefixes from `CANCEL_TASK:` lines in response text. Conversational equivalent of `/cancel`. Supports cancelling multiple tasks in a single response.
 
-**Logic:** Same pattern as `extract_lang_switch` — finds the first line starting with `"CANCEL_TASK:"`, strips prefix, trims, returns `None` if empty.
+**Logic:** Iterates through all lines, finds every line whose trimmed form starts with `"CANCEL_TASK:"`, strips the prefix, trims each value, filters out empty values, and collects into a `Vec<String>`.
+
+**Returns:** A `Vec<String>` of ID prefixes. Empty vec if no markers found.
 
 ### `fn strip_cancel_task(text: &str) -> String`
 **Purpose:** Remove all `CANCEL_TASK:` lines from response text.
@@ -1204,6 +1206,8 @@ All interactions are logged to SQLite with:
 35. All system markers must use their exact English prefix regardless of conversation language. The gateway parses markers as literal string prefixes — a translated or paraphrased marker is a silent failure. The system prompt explicitly instructs the AI: "Speak to the user in their language; speak to the system in markers."
 36. Conversational command markers (PERSONALITY, FORGET_CONVERSATION, CANCEL_TASK, UPDATE_TASK, PURGE_FACTS) provide zero-friction equivalents of slash commands — users can say "be more casual" instead of `/personality casual`. The AI emits the marker; `process_markers()` handles it identically to the slash command.
 37. PURGE_FACTS preserves system fact keys (`welcomed`, `preferred_language`, `active_project`, `personality`) — same logic as `/purge` in `commands.rs`.
+38. CANCEL_TASK and UPDATE_TASK use multi-extraction (`extract_all_cancel_tasks()`, `extract_all_update_tasks()`) to process ALL markers in a single response, not just the first. Each marker pushes a `MarkerResult` (TaskCancelled/TaskCancelFailed/TaskUpdated/TaskUpdateFailed) for gateway confirmation display.
+39. The scheduler action loop also processes CANCEL_TASK and UPDATE_TASK markers from action task responses, using the same `extract_all_*` multi-extraction functions (with empty sender_id since action tasks run autonomously).
 
 ## Tests
 
@@ -1525,21 +1529,61 @@ Verifies that `has_forget_marker()` rejects partial matches like `FORGET_CONVERS
 **Type:** Synchronous unit test (`#[test]`)
 Verifies that `strip_forget_marker()` removes `FORGET_CONVERSATION` lines while preserving other content.
 
-### `test_extract_cancel_task`
+### `test_extract_all_cancel_tasks_single`
 **Type:** Synchronous unit test (`#[test]`)
-Verifies that `extract_cancel_task()` extracts the task ID prefix from a `CANCEL_TASK:` line.
+Verifies that `extract_all_cancel_tasks()` extracts a single task ID prefix from a `CANCEL_TASK:` line.
 
-### `test_extract_cancel_task_none`
+### `test_extract_all_cancel_tasks_none_found`
 **Type:** Synchronous unit test (`#[test]`)
-Verifies that `extract_cancel_task()` returns `None` when no marker is present.
+Verifies that `extract_all_cancel_tasks()` returns an empty vec when no marker is present.
 
-### `test_extract_cancel_task_empty`
+### `test_extract_all_cancel_tasks_empty_value`
 **Type:** Synchronous unit test (`#[test]`)
-Verifies that `extract_cancel_task()` returns `None` when the value after `CANCEL_TASK:` is empty.
+Verifies that `extract_all_cancel_tasks()` returns an empty vec when the value after `CANCEL_TASK:` is empty.
+
+### `test_extract_all_cancel_tasks_multiple`
+**Type:** Synchronous unit test (`#[test]`)
+Verifies that `extract_all_cancel_tasks()` extracts multiple task ID prefixes when several `CANCEL_TASK:` lines are present.
+
+### `test_extract_all_cancel_tasks_skips_empty`
+**Type:** Synchronous unit test (`#[test]`)
+Verifies that `extract_all_cancel_tasks()` skips `CANCEL_TASK:` lines with empty values while still collecting valid ones.
 
 ### `test_strip_cancel_task`
 **Type:** Synchronous unit test (`#[test]`)
 Verifies that `strip_cancel_task()` removes `CANCEL_TASK:` lines while preserving other content.
+
+### `test_extract_all_update_tasks_single_line`
+**Type:** Synchronous unit test (`#[test]`)
+Verifies that `extract_all_update_tasks()` extracts a single `UPDATE_TASK:` line from response text.
+
+### `test_extract_all_update_tasks_none_found`
+**Type:** Synchronous unit test (`#[test]`)
+Verifies that `extract_all_update_tasks()` returns an empty vec when no marker is present.
+
+### `test_parse_update_task_line_all_fields`
+**Type:** Synchronous unit test (`#[test]`)
+Verifies that `parse_update_task_line()` extracts all four fields (id, desc, due_at, repeat) from a complete `UPDATE_TASK:` line.
+
+### `test_parse_update_task_line_empty_fields`
+**Type:** Synchronous unit test (`#[test]`)
+Verifies that `parse_update_task_line()` returns `None` for empty fields (between pipes), representing "keep existing".
+
+### `test_parse_update_task_line_only_description`
+**Type:** Synchronous unit test (`#[test]`)
+Verifies that `parse_update_task_line()` extracts only the description when other fields are empty.
+
+### `test_parse_update_task_line_invalid`
+**Type:** Synchronous unit test (`#[test]`)
+Verifies that `parse_update_task_line()` returns `None` for malformed lines (missing pipes, empty id, non-matching prefix).
+
+### `test_extract_all_update_tasks_multiple`
+**Type:** Synchronous unit test (`#[test]`)
+Verifies that `extract_all_update_tasks()` extracts multiple `UPDATE_TASK:` lines from the same response text.
+
+### `test_strip_update_task`
+**Type:** Synchronous unit test (`#[test]`)
+Verifies that `strip_update_task()` removes `UPDATE_TASK:` lines while preserving other content.
 
 ### `test_has_purge_marker`
 **Type:** Synchronous unit test (`#[test]`)

@@ -585,6 +585,46 @@ pub fn t(key: &str, lang: &str) -> &'static str {
             "Russian" => "⚠ Похожая задача существует:",
             _ => "⚠ Similar task exists:",
         },
+        "task_cancelled_confirmed" => match lang {
+            "Spanish" => "✓ Tarea cancelada:",
+            "Portuguese" => "✓ Tarefa cancelada:",
+            "French" => "✓ Tâche annulée:",
+            "German" => "✓ Aufgabe storniert:",
+            "Italian" => "✓ Attività annullata:",
+            "Dutch" => "✓ Taak geannuleerd:",
+            "Russian" => "✓ Задача отменена:",
+            _ => "✓ Task cancelled:",
+        },
+        "task_updated_confirmed" => match lang {
+            "Spanish" => "✓ Tarea actualizada:",
+            "Portuguese" => "✓ Tarefa atualizada:",
+            "French" => "✓ Tâche mise à jour:",
+            "German" => "✓ Aufgabe aktualisiert:",
+            "Italian" => "✓ Attività aggiornata:",
+            "Dutch" => "✓ Taak bijgewerkt:",
+            "Russian" => "✓ Задача обновлена:",
+            _ => "✓ Task updated:",
+        },
+        "task_cancel_failed" => match lang {
+            "Spanish" => "✗ Error al cancelar tarea",
+            "Portuguese" => "✗ Falha ao cancelar tarefa",
+            "French" => "✗ Échec de l'annulation de tâche",
+            "German" => "✗ Aufgabe konnte nicht storniert werden",
+            "Italian" => "✗ Impossibile annullare attività",
+            "Dutch" => "✗ Taak annuleren mislukt",
+            "Russian" => "✗ Не удалось отменить задачу",
+            _ => "✗ Failed to cancel task",
+        },
+        "task_update_failed" => match lang {
+            "Spanish" => "✗ Error al actualizar tarea",
+            "Portuguese" => "✗ Falha ao atualizar tarefa",
+            "French" => "✗ Échec de la mise à jour de tâche",
+            "German" => "✗ Aufgabe konnte nicht aktualisiert werden",
+            "Italian" => "✗ Impossibile aggiornare attività",
+            "Dutch" => "✗ Taak bijwerken mislukt",
+            "Russian" => "✗ Не удалось обновить задачу",
+            _ => "✗ Failed to update task",
+        },
 
         _ => "???",
     }
@@ -739,6 +779,34 @@ pub fn tasks_confirmed(lang: &str, n: usize) -> String {
     }
 }
 
+/// Format the "Cancelled N tasks:" header.
+pub fn tasks_cancelled_confirmed(lang: &str, n: usize) -> String {
+    match lang {
+        "Spanish" => format!("✓ {n} tareas canceladas:"),
+        "Portuguese" => format!("✓ {n} tarefas canceladas:"),
+        "French" => format!("✓ {n} tâches annulées:"),
+        "German" => format!("✓ {n} Aufgaben storniert:"),
+        "Italian" => format!("✓ {n} attività annullate:"),
+        "Dutch" => format!("✓ {n} taken geannuleerd:"),
+        "Russian" => format!("✓ {n} задач отменено:"),
+        _ => format!("✓ Cancelled {n} tasks:"),
+    }
+}
+
+/// Format the "Updated N tasks:" header.
+pub fn tasks_updated_confirmed(lang: &str, n: usize) -> String {
+    match lang {
+        "Spanish" => format!("✓ {n} tareas actualizadas:"),
+        "Portuguese" => format!("✓ {n} tarefas atualizadas:"),
+        "French" => format!("✓ {n} tâches mises à jour:"),
+        "German" => format!("✓ {n} Aufgaben aktualisiert:"),
+        "Italian" => format!("✓ {n} attività aggiornate:"),
+        "Dutch" => format!("✓ {n} taken bijgewerkt:"),
+        "Russian" => format!("✓ {n} задач обновлено:"),
+        _ => format!("✓ Updated {n} tasks:"),
+    }
+}
+
 /// Format the task save failure message.
 pub fn task_save_failed(lang: &str, n: usize) -> String {
     match lang {
@@ -805,6 +873,10 @@ mod tests {
             "once",
             "task_confirmed",
             "task_similar_warning",
+            "task_cancelled_confirmed",
+            "task_updated_confirmed",
+            "task_cancel_failed",
+            "task_update_failed",
         ];
         for key in keys {
             let val = t(key, "English");
@@ -880,6 +952,14 @@ mod tests {
         // task_save_failed
         assert!(task_save_failed("English", 1).contains("1 task"));
         assert!(task_save_failed("Spanish", 2).contains("2 tarea"));
+
+        // tasks_cancelled_confirmed
+        assert!(tasks_cancelled_confirmed("English", 3).contains("3 tasks"));
+        assert!(tasks_cancelled_confirmed("Spanish", 2).contains("2 tareas"));
+
+        // tasks_updated_confirmed
+        assert!(tasks_updated_confirmed("English", 3).contains("3 tasks"));
+        assert!(tasks_updated_confirmed("Spanish", 2).contains("2 tareas"));
     }
 
     #[test]

@@ -247,11 +247,11 @@ pub fn strip_forget_marker(text: &str) -> String {
 // CANCEL_TASK
 // ---------------------------------------------------------------------------
 
-/// Extract the task ID prefix from a `CANCEL_TASK:` line in response text.
-pub fn extract_cancel_task(text: &str) -> Option<String> {
+/// Extract ALL `CANCEL_TASK:` ID prefixes from response text.
+pub fn extract_all_cancel_tasks(text: &str) -> Vec<String> {
     text.lines()
-        .find(|line| line.trim().starts_with("CANCEL_TASK:"))
-        .and_then(|line| {
+        .filter(|line| line.trim().starts_with("CANCEL_TASK:"))
+        .filter_map(|line| {
             let val = line.trim().strip_prefix("CANCEL_TASK:")?.trim().to_string();
             if val.is_empty() {
                 None
@@ -259,6 +259,7 @@ pub fn extract_cancel_task(text: &str) -> Option<String> {
                 Some(val)
             }
         })
+        .collect()
 }
 
 /// Strip all `CANCEL_TASK:` lines from response text.
@@ -275,11 +276,12 @@ pub fn strip_cancel_task(text: &str) -> String {
 // UPDATE_TASK
 // ---------------------------------------------------------------------------
 
-/// Extract the first `UPDATE_TASK:` line from response text.
-pub fn extract_update_task(text: &str) -> Option<String> {
+/// Extract ALL `UPDATE_TASK:` lines from response text.
+pub fn extract_all_update_tasks(text: &str) -> Vec<String> {
     text.lines()
-        .find(|line| line.trim().starts_with("UPDATE_TASK:"))
+        .filter(|line| line.trim().starts_with("UPDATE_TASK:"))
         .map(|line| line.trim().to_string())
+        .collect()
 }
 
 /// Parse an update task line: `UPDATE_TASK: id | desc | due_at | repeat`.
@@ -1989,19 +1991,35 @@ mod tests {
     // --- CANCEL_TASK ---
 
     #[test]
-    fn test_extract_cancel_task() {
+    fn test_extract_all_cancel_tasks_single() {
         let text = "I'll cancel that.\nCANCEL_TASK: a1b2c3d4";
-        assert_eq!(extract_cancel_task(text), Some("a1b2c3d4".to_string()));
+        let ids = extract_all_cancel_tasks(text);
+        assert_eq!(ids, vec!["a1b2c3d4"]);
     }
 
     #[test]
-    fn test_extract_cancel_task_none() {
-        assert!(extract_cancel_task("Just a normal response.").is_none());
+    fn test_extract_all_cancel_tasks_none_found() {
+        assert!(extract_all_cancel_tasks("Just a normal response.").is_empty());
     }
 
     #[test]
-    fn test_extract_cancel_task_empty() {
-        assert!(extract_cancel_task("CANCEL_TASK: ").is_none());
+    fn test_extract_all_cancel_tasks_empty_value() {
+        assert!(extract_all_cancel_tasks("CANCEL_TASK: ").is_empty());
+    }
+
+    #[test]
+    fn test_extract_all_cancel_tasks_multiple() {
+        let text =
+            "Cancelling all.\nCANCEL_TASK: aaa111\nCANCEL_TASK: bbb222\nCANCEL_TASK: ccc333\nDone.";
+        let ids = extract_all_cancel_tasks(text);
+        assert_eq!(ids, vec!["aaa111", "bbb222", "ccc333"]);
+    }
+
+    #[test]
+    fn test_extract_all_cancel_tasks_skips_empty() {
+        let text = "CANCEL_TASK: abc\nCANCEL_TASK: \nCANCEL_TASK: def";
+        let ids = extract_all_cancel_tasks(text);
+        assert_eq!(ids, vec!["abc", "def"]);
     }
 
     #[test]
@@ -2013,19 +2031,16 @@ mod tests {
     // --- UPDATE_TASK ---
 
     #[test]
-    fn test_extract_update_task() {
+    fn test_extract_all_update_tasks_single_line() {
         let text = "I've updated that.\nUPDATE_TASK: a1b2c3d4 | New description | 2026-03-01T09:00:00 | daily";
-        assert_eq!(
-            extract_update_task(text),
-            Some(
-                "UPDATE_TASK: a1b2c3d4 | New description | 2026-03-01T09:00:00 | daily".to_string()
-            )
-        );
+        let lines = extract_all_update_tasks(text);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("a1b2c3d4"));
     }
 
     #[test]
-    fn test_extract_update_task_none() {
-        assert!(extract_update_task("Just a normal response.").is_none());
+    fn test_extract_all_update_tasks_none_found() {
+        assert!(extract_all_update_tasks("Just a normal response.").is_empty());
     }
 
     #[test]
@@ -2063,6 +2078,15 @@ mod tests {
         assert!(parse_update_task_line("UPDATE_TASK: missing pipes").is_none());
         assert!(parse_update_task_line("not an update line").is_none());
         assert!(parse_update_task_line("UPDATE_TASK:  | desc | time | once").is_none());
+    }
+
+    #[test]
+    fn test_extract_all_update_tasks_multiple() {
+        let text = "Updating.\nUPDATE_TASK: aaa | New A | | daily\nUPDATE_TASK: bbb | New B | | weekly\nDone.";
+        let lines = extract_all_update_tasks(text);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("aaa"));
+        assert!(lines[1].contains("bbb"));
     }
 
     #[test]

@@ -17,8 +17,8 @@ Each marker type has extract/parse/strip/has functions:
 - **LANG_SWITCH**: `extract_lang_switch`, `strip_lang_switch`
 - **PERSONALITY**: `extract_personality`, `strip_personality`
 - **FORGET_CONVERSATION**: `has_forget_marker`, `strip_forget_marker`
-- **CANCEL_TASK**: `extract_cancel_task`, `strip_cancel_task`
-- **UPDATE_TASK**: `extract_update_task`, `parse_update_task_line`, `strip_update_task`
+- **CANCEL_TASK**: `extract_all_cancel_tasks`, `strip_cancel_task`
+- **UPDATE_TASK**: `extract_all_update_tasks`, `parse_update_task_line`, `strip_update_task`
 - **PURGE_FACTS**: `has_purge_marker`, `strip_purge_marker`
 - **PROJECT_ACTIVATE/DEACTIVATE**: `extract_project_activate`, `has_project_deactivate`, `strip_project_markers`
 - **WHATSAPP_QR**: `has_whatsapp_qr_marker`, `strip_whatsapp_qr_marker`

@@ -180,6 +180,8 @@ When the scheduler loop finds a due action task:
    - `SCHEDULE_ACTION:` -- Creates new action tasks (recursive autonomous scheduling).
    - `HEARTBEAT_ADD:` / `HEARTBEAT_REMOVE:` / `HEARTBEAT_INTERVAL:` -- Modifies the monitoring checklist or heartbeat interval.
    - `LIMITATION:` -- Records self-detected capability gaps.
+   - `CANCEL_TASK:` -- Cancels pending tasks by ID prefix (all markers processed).
+   - `UPDATE_TASK:` -- Updates pending task fields by ID prefix (all markers processed).
 3. **Delivers the result** -- The provider's response (with markers stripped) is sent to the user through the original channel.
 4. **Completes the task** -- Same as reminders: one-shot tasks are marked delivered, recurring tasks advance to the next due date.
 

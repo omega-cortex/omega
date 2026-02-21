@@ -22,6 +22,14 @@ pub enum MarkerResult {
     TaskFailed { description: String, reason: String },
     /// The marker line could not be parsed.
     TaskParseError { raw_line: String },
+    /// Task was successfully cancelled.
+    TaskCancelled { id_prefix: String },
+    /// Task cancellation failed (no match or DB error).
+    TaskCancelFailed { id_prefix: String, reason: String },
+    /// Task was successfully updated.
+    TaskUpdated { id_prefix: String },
+    /// Task update failed (no match or DB error).
+    TaskUpdateFailed { id_prefix: String, reason: String },
 }
 
 /// Check if two task descriptions are semantically similar using word overlap.
@@ -105,9 +113,55 @@ pub fn format_task_confirmation(
         })
         .count();
 
+    // Cancelled tasks
+    let cancelled: Vec<_> = results
+        .iter()
+        .filter_map(|r| {
+            if let MarkerResult::TaskCancelled { id_prefix } = r {
+                Some(id_prefix.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let cancel_failed: Vec<_> = results
+        .iter()
+        .filter_map(|r| {
+            if let MarkerResult::TaskCancelFailed { id_prefix, reason } = r {
+                Some((id_prefix.as_str(), reason.as_str()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Updated tasks
+    let updated: Vec<_> = results
+        .iter()
+        .filter_map(|r| {
+            if let MarkerResult::TaskUpdated { id_prefix } = r {
+                Some(id_prefix.as_str())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    let update_failed: Vec<_> = results
+        .iter()
+        .filter_map(|r| {
+            if let MarkerResult::TaskUpdateFailed { id_prefix, reason } = r {
+                Some((id_prefix.as_str(), reason.as_str()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
     let mut parts = Vec::new();
 
-    // Success section
+    // Created section
     match created.len() {
         0 => {}
         1 => parts.push(format!(
@@ -124,6 +178,40 @@ pub fn format_task_confirmation(
         }
     }
 
+    // Cancelled section
+    match cancelled.len() {
+        0 => {}
+        1 => parts.push(format!(
+            "{} [{}]",
+            i18n::t("task_cancelled_confirmed", lang),
+            cancelled[0]
+        )),
+        n => {
+            let mut lines = vec![i18n::tasks_cancelled_confirmed(lang, n)];
+            for id in &cancelled {
+                lines.push(format!("  • [{id}]"));
+            }
+            parts.push(lines.join("\n"));
+        }
+    }
+
+    // Updated section
+    match updated.len() {
+        0 => {}
+        1 => parts.push(format!(
+            "{} [{}]",
+            i18n::t("task_updated_confirmed", lang),
+            updated[0]
+        )),
+        n => {
+            let mut lines = vec![i18n::tasks_updated_confirmed(lang, n)];
+            for id in &updated {
+                lines.push(format!("  • [{id}]"));
+            }
+            parts.push(lines.join("\n"));
+        }
+    }
+
     // Similar task warnings
     for (desc, due) in similar_warnings {
         parts.push(format!(
@@ -135,6 +223,22 @@ pub fn format_task_confirmation(
     // Failure section
     if failed_count > 0 {
         parts.push(i18n::task_save_failed(lang, failed_count));
+    }
+
+    // Cancel failure section
+    for (id, reason) in &cancel_failed {
+        parts.push(format!(
+            "{} [{id}]: {reason}",
+            i18n::t("task_cancel_failed", lang),
+        ));
+    }
+
+    // Update failure section
+    for (id, reason) in &update_failed {
+        parts.push(format!(
+            "{} [{id}]: {reason}",
+            i18n::t("task_update_failed", lang),
+        ));
     }
 
     if parts.is_empty() {
@@ -259,6 +363,78 @@ mod tests {
     #[test]
     fn test_format_task_confirmation_empty() {
         assert!(format_task_confirmation(&[], &[], "English").is_none());
+    }
+
+    #[test]
+    fn test_format_task_confirmation_single_cancelled() {
+        let results = vec![MarkerResult::TaskCancelled {
+            id_prefix: "abc123".to_string(),
+        }];
+        let msg = format_task_confirmation(&results, &[], "English").unwrap();
+        assert!(msg.contains("cancelled"));
+        assert!(msg.contains("abc123"));
+    }
+
+    #[test]
+    fn test_format_task_confirmation_multiple_cancelled() {
+        let results = vec![
+            MarkerResult::TaskCancelled {
+                id_prefix: "aaa".to_string(),
+            },
+            MarkerResult::TaskCancelled {
+                id_prefix: "bbb".to_string(),
+            },
+            MarkerResult::TaskCancelled {
+                id_prefix: "ccc".to_string(),
+            },
+        ];
+        let msg = format_task_confirmation(&results, &[], "English").unwrap();
+        assert!(msg.contains("Cancelled 3 tasks"));
+        assert!(msg.contains("aaa"));
+        assert!(msg.contains("bbb"));
+        assert!(msg.contains("ccc"));
+    }
+
+    #[test]
+    fn test_format_task_confirmation_cancel_failed() {
+        let results = vec![MarkerResult::TaskCancelFailed {
+            id_prefix: "xyz".to_string(),
+            reason: "no matching task".to_string(),
+        }];
+        let msg = format_task_confirmation(&results, &[], "English").unwrap();
+        assert!(msg.contains("Failed to cancel"));
+        assert!(msg.contains("xyz"));
+    }
+
+    #[test]
+    fn test_format_task_confirmation_single_updated() {
+        let results = vec![MarkerResult::TaskUpdated {
+            id_prefix: "abc123".to_string(),
+        }];
+        let msg = format_task_confirmation(&results, &[], "English").unwrap();
+        assert!(msg.contains("updated"));
+        assert!(msg.contains("abc123"));
+    }
+
+    #[test]
+    fn test_format_task_confirmation_mixed() {
+        let results = vec![
+            MarkerResult::TaskCreated {
+                description: "New task".to_string(),
+                due_at: "2026-03-01T09:00:00".to_string(),
+                repeat: "once".to_string(),
+                task_type: "reminder".to_string(),
+            },
+            MarkerResult::TaskCancelled {
+                id_prefix: "old1".to_string(),
+            },
+            MarkerResult::TaskCancelled {
+                id_prefix: "old2".to_string(),
+            },
+        ];
+        let msg = format_task_confirmation(&results, &[], "English").unwrap();
+        assert!(msg.contains("Scheduled"));
+        assert!(msg.contains("Cancelled 2 tasks"));
     }
 
     #[test]

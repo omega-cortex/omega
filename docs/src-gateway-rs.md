@@ -402,32 +402,35 @@ FORGET_CONVERSATION
 
 ### Stage 6c-4: Cancel Task Marker
 
-**What happens:** The gateway scans for a `CANCEL_TASK:` marker — the conversational equivalent of `/cancel`. If found, it cancels the matching task.
+**What happens:** The gateway scans for ALL `CANCEL_TASK:` markers — the conversational equivalent of `/cancel`. Multiple tasks can be cancelled in a single response.
 
 **Implementation:**
-- Calls `extract_cancel_task(&response.text)` to find a `CANCEL_TASK:` line.
-- If found, calls `memory.cancel_task(&id_prefix, sender_id)`.
-- Calls `strip_cancel_task()` to remove the marker.
+- Calls `extract_all_cancel_tasks(&response.text)` to find all `CANCEL_TASK:` lines.
+- For each extracted ID prefix, calls `memory.cancel_task(&id_prefix, sender_id)`.
+- Pushes `MarkerResult::TaskCancelled` or `MarkerResult::TaskCancelFailed` for each task into the results vector for gateway confirmation.
+- Calls `strip_cancel_task()` to remove all markers.
 
 **Marker Format:**
 ```
 CANCEL_TASK: a1b2c3d4
+CANCEL_TASK: e5f6g7h8
 ```
 
 ### Stage 6c-5: Update Task Marker
 
-**What happens:** The gateway scans for an `UPDATE_TASK:` marker. If found, it updates the matching pending task's fields (description, due_at, repeat). Empty fields are left unchanged.
+**What happens:** The gateway scans for ALL `UPDATE_TASK:` markers. Multiple tasks can be updated in a single response. Each marker updates the matching pending task's fields (description, due_at, repeat). Empty fields are left unchanged.
 
 **Implementation:**
-- Calls `extract_update_task(&response.text)` to find an `UPDATE_TASK:` line.
-- If found, calls `parse_update_task_line()` to extract (id, desc?, due_at?, repeat?).
-- Calls `memory.update_task(&id_prefix, sender_id, desc, due_at, repeat)`.
-- Calls `strip_update_task()` to remove the marker.
+- Calls `extract_all_update_tasks(&response.text)` to find all `UPDATE_TASK:` lines.
+- For each extracted line, calls `parse_update_task_line()` to extract (id, desc?, due_at?, repeat?).
+- Calls `memory.update_task(&id_prefix, sender_id, desc, due_at, repeat)` for each.
+- Pushes `MarkerResult::TaskUpdated` or `MarkerResult::TaskUpdateFailed` for each task into the results vector for gateway confirmation.
+- Calls `strip_update_task()` to remove all markers.
 
 **Marker Format:**
 ```
 UPDATE_TASK: abc123 | New description | 2026-03-01T09:00:00 | daily
-UPDATE_TASK: abc123 | | | daily          (changes only recurrence)
+UPDATE_TASK: def456 | | | daily          (changes only recurrence)
 ```
 
 ### Stage 6c-6: Purge Facts Marker
@@ -662,9 +665,14 @@ User sends message on Telegram
 │  ✓ Found? → Close conversation, strip   │
 │  ✗ Not found? → Continue                │
 │                                          │
-│ Stage 6c-4: extract_cancel_task()       │
-│  • Scan for CANCEL_TASK: line           │
-│  ✓ Found? → Cancel task, strip          │
+│ Stage 6c-4: extract_all_cancel_tasks()  │
+│  • Scan for ALL CANCEL_TASK: lines      │
+│  ✓ Found? → Cancel each, confirm, strip │
+│  ✗ Not found? → Continue                │
+│                                          │
+│ Stage 6c-4b: extract_all_update_tasks() │
+│  • Scan for ALL UPDATE_TASK: lines      │
+│  ✓ Found? → Update each, confirm, strip │
 │  ✗ Not found? → Continue                │
 │                                          │
 │ Stage 6c-5: has_purge_marker()          │

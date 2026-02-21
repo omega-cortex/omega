@@ -97,7 +97,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 ## Data Flow
 
 ```
-Message → Auth → Sanitize → Sandbox constraint → Memory (context) → Provider → SCHEDULE extract (all markers) → LIMITATION extract → Memory (store) → Audit → Send
+Message → Auth → Sanitize → Sandbox constraint → Memory (context) → Provider → process_markers (SCHEDULE/SCHEDULE_ACTION/CANCEL_TASK/UPDATE_TASK/HEARTBEAT/LIMITATION/SELF_HEAL/...) → Memory (store) → Audit → Send → Task confirmation
 
 Background:
   Scheduler: poll due_tasks → channel.send(reminder) → complete_task
