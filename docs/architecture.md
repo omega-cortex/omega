@@ -129,18 +129,20 @@ This is where the gateway decides **what data** to load from SQLite:
 
 **File:** `prompts/SYSTEM_PROMPT.md` (6 sections)
 
-The system prompt is assembled from sections, not sent as a monolith:
+The gateway **always builds** the full system prompt first (needed as fallback and for the first message). The prompt is assembled from sections:
 
 | Section | Injection | Content |
 |---------|-----------|---------|
-| `## Identity` | Always | Who OMEGA is, behavioral examples |
-| `## Soul` | Always | Personality, tone, boundaries |
-| `## System` | Always | Core rules, marker quick-reference |
+| `## Identity` | First message only | Who OMEGA is, behavioral examples |
+| `## Soul` | First message only | Personality, tone, boundaries |
+| `## System` | First message only | Core rules, marker quick-reference |
 | `## Scheduling` | If scheduling keywords match | Task/reminder rules |
 | `## Projects` | If project keywords match | Project conventions |
 | `## Meta` | If meta keywords match | Skill improvement, heartbeat, WhatsApp |
 
-**Token savings:** ~55-70% on typical messages by skipping irrelevant sections.
+The core sections (Identity + Soul + System) are sent **once** on the first message of a conversation. On subsequent messages within the same CLI session, they are completely replaced by a minimal context update (see 3.10 below). The conditional sections (Scheduling, Projects, Meta) are keyword-gated on every message — included only when relevant keywords appear.
+
+**Token savings:** ~55-70% on first messages (conditional sections skipped), ~90-99% on continuations (entire prompt replaced).
 
 ### 3.9 Skill Trigger Matching
 
@@ -150,11 +152,17 @@ Scan the message for trigger keywords defined in `~/.omega/skills/*/SKILL.md`. I
 
 If an active CLI session exists for this sender:
 - Set `context.session_id` (provider will pass `--resume`)
-- Replace full system prompt with minimal context update (just current time + keyword-gated sections)
-- Clear history (the CLI session already has it)
-- **Token savings:** ~90-99% on continuation messages
+- **Replace the entire system prompt** (identity + soul + system + everything) with a minimal context update:
+  ```
+  Current time: 2026-02-22 14:30 CET
+  [+ scheduling section, only if scheduling keywords match]
+  [+ projects section, only if project keywords match]
+  [+ meta section, only if meta keywords match]
+  ```
+- Clear conversation history (the CLI session already has it)
+- **Token savings:** ~90-99% — the CLI session already carries the full identity/soul/system from the first message
 
-If no session exists, send full prompt + history (first message in conversation).
+If no session exists (first message, after `/forget`, after error), send the full prompt + history.
 
 ---
 
