@@ -1,10 +1,28 @@
-# Specification: src/gateway.rs
+# Specification: src/gateway/ (Directory Module)
 
 ## File Path
-`src/gateway.rs`
+`src/gateway/` (directory module with 9 files)
 
-## Refactoring Note
-As of 2026-02-20, marker extraction/parsing/stripping functions (40+) and related helpers were extracted into `src/markers.rs`. The gateway now imports these via `use crate::markers::*`. This reduced gateway.rs from ~4,168 to ~2,330 lines. See `specs/src-markers-rs.md` for the extracted module.
+## Refactoring History
+- **2026-02-20:** Marker extraction/parsing/stripping functions (40+) extracted into `src/markers.rs`. See `specs/src-markers-rs.md`.
+- **2026-02-20:** Task confirmation logic extracted into `src/task_confirmation.rs`. See `specs/src-task-confirmation-rs.md`.
+- **2026-02-22:** Gateway refactored from a single `src/gateway.rs` (3,449 lines) into a `src/gateway/` directory module with 9 files. All struct fields use `pub(super)` visibility. No changes to `main.rs` or public API.
+
+## Module Structure
+
+| File | Lines (prod) | Responsibility |
+|------|-------------|----------------|
+| `mod.rs` | ~417 | Struct Gateway, `new()`, `run()`, `dispatch_message()`, `shutdown()`, `send_text()`, tests |
+| `keywords.rs` | ~269 | Constants (`MAX_ACTION_RETRIES`, `SCHEDULING_KW`, `RECALL_KW`, `TASKS_KW`, `PROJECTS_KW`, `META_KW`, `SYSTEM_FACT_KEYS`), `kw_match()`, `is_valid_fact()`, tests |
+| `summarizer.rs` | ~276 | `summarize_and_extract()`, `background_summarizer()`, `summarize_conversation()`, `handle_forget()` |
+| `scheduler.rs` | ~417 | `scheduler_loop()` |
+| `heartbeat.rs` | ~266 | `heartbeat_loop()` |
+| `pipeline.rs` | ~423 | `handle_message()`, `build_system_prompt()` |
+| `routing.rs` | ~417 | `classify_and_route()`, `execute_steps()`, `handle_direct_response()` |
+| `auth.rs` | ~167 | `check_auth()`, `handle_whatsapp_qr()` |
+| `process_markers.rs` | ~498 | `process_markers()`, `send_task_confirmation()` |
+
+All submodules access `Gateway` fields via `pub(super)` visibility (module-internal, not public API).
 
 ## Purpose
 Gateway is the central event loop orchestrator that connects messaging channels, memory persistence, and AI providers. It implements the complete message processing pipeline with authentication, sanitization, context building, provider delegation, audit logging, and graceful shutdown.
@@ -26,27 +44,27 @@ The gateway runs continuously, listening for messages from registered channels v
 
 ## Data Structures
 
-### Gateway Struct
+### Gateway Struct (defined in `mod.rs`)
 ```rust
 pub struct Gateway {
-    provider: Arc<dyn Provider>,              // AI backend (Claude Code, Anthropic, etc.)
-    channels: HashMap<String, Arc<dyn Channel>>,  // Messaging platforms (Telegram, WhatsApp)
-    memory: Store,                             // SQLite conversation/fact storage
-    audit: AuditLogger,                        // Event audit trail
-    auth_config: AuthConfig,                   // Authentication rules
-    channel_config: ChannelConfig,             // Per-channel configuration
-    heartbeat_config: HeartbeatConfig,         // Periodic AI check-in settings
-    scheduler_config: SchedulerConfig,         // Scheduled task delivery settings
-    prompts: Prompts,                          // Externalized prompts & welcome messages
-    sandbox_mode: String,                      // Display name of active sandbox mode
-    sandbox_prompt: Option<String>,            // Sandbox constraint text for system prompt
-    model_fast: String,                        // Model for DIRECT/simple messages (e.g., "claude-sonnet-4-6")
-    model_complex: String,                     // Model for multi-step/complex messages (e.g., "claude-opus-4-6")
-    uptime: Instant,                           // Server start time
-    active_senders: Mutex<HashMap<String, Vec<IncomingMessage>>>,  // Per-sender message buffer for non-blocking dispatch
-    heartbeat_interval: Arc<AtomicU64>,        // Dynamic heartbeat interval (minutes), updated via HEARTBEAT_INTERVAL: marker
-    sandbox_mode_enum: SandboxMode,              // Sandbox mode enum for direct subprocess calls (CLAUDE.md maintenance)
-    cli_sessions: Arc<std::sync::Mutex<HashMap<String, String>>>,  // CLI session cache per sender
+    pub(super) provider: Arc<dyn Provider>,              // AI backend (Claude Code, Anthropic, etc.)
+    pub(super) channels: HashMap<String, Arc<dyn Channel>>,  // Messaging platforms (Telegram, WhatsApp)
+    pub(super) memory: Store,                             // SQLite conversation/fact storage
+    pub(super) audit: AuditLogger,                        // Event audit trail
+    pub(super) auth_config: AuthConfig,                   // Authentication rules
+    pub(super) channel_config: ChannelConfig,             // Per-channel configuration
+    pub(super) heartbeat_config: HeartbeatConfig,         // Periodic AI check-in settings
+    pub(super) scheduler_config: SchedulerConfig,         // Scheduled task delivery settings
+    pub(super) prompts: Prompts,                          // Externalized prompts & welcome messages
+    pub(super) sandbox_mode: String,                      // Display name of active sandbox mode
+    pub(super) sandbox_prompt: Option<String>,            // Sandbox constraint text for system prompt
+    pub(super) model_fast: String,                        // Model for DIRECT/simple messages (e.g., "claude-sonnet-4-6")
+    pub(super) model_complex: String,                     // Model for multi-step/complex messages (e.g., "claude-opus-4-6")
+    pub(super) uptime: Instant,                           // Server start time
+    pub(super) active_senders: Mutex<HashMap<String, Vec<IncomingMessage>>>,  // Per-sender message buffer for non-blocking dispatch
+    pub(super) heartbeat_interval: Arc<AtomicU64>,        // Dynamic heartbeat interval (minutes), updated via HEARTBEAT_INTERVAL: marker
+    pub(super) sandbox_mode_enum: SandboxMode,              // Sandbox mode enum for direct subprocess calls (CLAUDE.md maintenance)
+    pub(super) cli_sessions: Arc<std::sync::Mutex<HashMap<String, String>>>,  // CLI session cache per sender
 }
 ```
 
@@ -86,7 +104,7 @@ The gateway reduces system prompt token overhead by ~55% for typical messages. I
 
 All keyword lists include multilingual variants (Spanish, Portuguese, French, German, Italian, Dutch) for the 8 supported languages.
 
-### `fn kw_match(msg_lower: &str, keywords: &[&str]) -> bool`
+### `fn kw_match(msg_lower: &str, keywords: &[&str]) -> bool` (keywords.rs)
 **Purpose:** Check if any keyword in the list is a substring of the lowercased message.
 
 **Logic:** `keywords.iter().any(|kw| msg_lower.contains(kw))` — simple substring match, no tokenization or word boundaries.
@@ -135,7 +153,7 @@ If sandbox: + sandbox constraint (unchanged)
 
 ## Functions
 
-### Public Methods
+### Public Methods (mod.rs)
 
 #### `new(provider, channels, memory, auth_config, channel_config, heartbeat_config, scheduler_config, prompts, sandbox_mode, sandbox_prompt, model_fast, model_complex, sandbox_mode_enum) -> Self`
 **Purpose:** Construct a new gateway instance.
@@ -204,6 +222,8 @@ If sandbox: + sandbox constraint (unchanged)
 - If `channel.start()` fails, wraps error in anyhow and returns immediately.
 - Channel listener tasks suppress errors silently (logs info if gateway receiver drops).
 
+### Summarizer Functions (summarizer.rs)
+
 #### `async fn background_summarizer(store: Store, provider: Arc<dyn Provider>, summarize_prompt: String, facts_prompt: String)`
 **Purpose:** Periodically find and summarize idle conversations (infinite background task).
 
@@ -230,6 +250,8 @@ If sandbox: + sandbox constraint (unchanged)
 **Error Handling:**
 - Errors are logged with `error!()` but do not stop the task.
 - Task runs indefinitely regardless of errors.
+
+### Scheduler Functions (scheduler.rs)
 
 #### `async fn scheduler_loop(store, channels, poll_secs, provider, skills, prompts, model_complex, sandbox_prompt, heartbeat_interval, audit, provider_name)`
 **Purpose:** Background task that periodically checks for due scheduled tasks and delivers them via the appropriate channel. Action tasks include outcome verification, audit logging, and retry logic.
@@ -276,6 +298,8 @@ If sandbox: + sandbox constraint (unchanged)
 - Task completion errors are logged but do not stop the loop.
 - `get_due_tasks()` errors are logged but do not stop the loop.
 - Action task failures trigger `fail_task()` (retry with 2-minute delay, up to 3 retries).
+
+### Heartbeat Functions (heartbeat.rs)
 
 #### `async fn heartbeat_loop(provider, channels, config, prompts, sandbox_prompt, memory, interval, model_complex, skills, audit, provider_name)`
 **Purpose:** Background task that periodically invokes the AI provider for **active execution** of a health checklist. Unlike passive review, the heartbeat actively executes each checklist item: reminders/accountability items are sent to the user, system checks are performed, and results are reported. Skips the API call entirely when no checklist is configured. Processes response markers (SCHEDULE, SCHEDULE_ACTION, HEARTBEAT_*, CANCEL_TASK, UPDATE_TASK) identically to the scheduler. Uses Opus model for powerful active execution and matches skill triggers on checklist content for MCP server injection.
@@ -334,6 +358,8 @@ If sandbox: + sandbox constraint (unchanged)
 - Marker processing errors are logged but do not stop the loop.
 - Missing channel is logged as warning.
 
+### Summarizer (continued)
+
 #### `async fn summarize_conversation(store: &Store, provider: &Arc<dyn Provider>, conversation_id: &str, summarize_prompt: &str, facts_prompt_template: &str) -> Result<(), anyhow::Error>`
 **Purpose:** Summarize a conversation, extract user facts, and close it.
 
@@ -378,6 +404,8 @@ If sandbox: + sandbox constraint (unchanged)
 - Facts extraction errors are caught with `if let Ok()` and skipped.
 - Database query errors are suppressed via `.ok().flatten()`.
 - Returns top-level error on `close_conversation()` failure.
+
+### Dispatch and Shutdown (mod.rs)
 
 #### `async fn shutdown(&self, bg_handle: &JoinHandle<()>, sched_handle: &Option<JoinHandle<()>>, hb_handle: &Option<JoinHandle<()>>, claudemd_handle: &Option<JoinHandle<()>>)`
 **Purpose:** Gracefully shut down the gateway.
@@ -434,6 +462,8 @@ If sandbox: + sandbox constraint (unchanged)
 - Messages for different senders are processed concurrently via `tokio::spawn`.
 - Messages for the same sender are serialized: only one provider call per sender at a time.
 - The `Mutex` is only held briefly to check/update the buffer, never across async operations.
+
+### Pipeline (pipeline.rs)
 
 #### `async fn handle_message(&self, incoming: IncomingMessage)`
 **Purpose:** Process a single incoming message through the complete pipeline.
@@ -592,6 +622,8 @@ If sandbox: + sandbox constraint (unchanged)
 - Memory storage failure: logged but does not stop response delivery.
 - Channel send failure: logged but pipeline completes.
 
+### Authentication (auth.rs)
+
 #### `fn check_auth(&self, incoming: &IncomingMessage) -> Option<String>`
 **Purpose:** Verify if a message sender is authorized.
 
@@ -617,6 +649,8 @@ If sandbox: + sandbox constraint (unchanged)
 - Parsing sender_id as i64 uses `unwrap_or(-1)` (will never match valid user, causing denial).
 - No panics.
 
+### Utility (mod.rs)
+
 #### `async fn send_text(&self, incoming: &IncomingMessage, text: &str)`
 **Purpose:** Send a plain text response message.
 
@@ -637,6 +671,8 @@ If sandbox: + sandbox constraint (unchanged)
 
 **Error Handling:**
 - Send errors are logged but do not return an error code.
+
+### Routing (routing.rs)
 
 #### `async fn classify_and_route(&self, message: &str, active_project: Option<&str>, recent_history: &[ContextEntry], skill_names: &[&str]) -> Option<Vec<String>>`
 **Purpose:** Send a context-enriched classification call to the provider to determine if the message requires multi-step execution. Always runs (no word-count gate). Uses the fast model for classification.
@@ -696,6 +732,8 @@ If sandbox: + sandbox constraint (unchanged)
 - Per-step failures are retried up to 3 times before continuing to the next step.
 - Provider errors are logged and a user-friendly error message is sent.
 
+### Process Markers (process_markers.rs)
+
 #### `async fn process_markers(&self, incoming: &IncomingMessage, text: &mut String)`
 **Purpose:** Extract and process all markers from a provider response text. Unified method called by both `handle_message` (direct path) and `execute_steps` (multi-step path) to ensure markers work in all execution modes.
 
@@ -716,9 +754,11 @@ If sandbox: + sandbox constraint (unchanged)
 
 **Logic:** For each marker type: extract from text, process side effects (DB writes, notifications, file updates), strip the marker from text. Mutates `text` in place.
 
-## Free Functions (Module-Level Helpers)
+## Free Functions (Distributed Across Submodules)
 
-### `async fn summarize_and_extract(store, provider, conversation_id, summarize_prompt, facts_prompt) -> Result<(), anyhow::Error>`
+> **Note:** Marker extraction/parsing/stripping functions (`extract_schedule_marker`, `parse_schedule_line`, `strip_schedule_marker`, `extract_heartbeat_markers`, `strip_heartbeat_markers`, `apply_heartbeat_changes`, `extract_lang_switch`, `strip_lang_switch`, `extract_personality`, `strip_personality`, `has_forget_marker`, `strip_forget_marker`, `extract_all_cancel_tasks`, `strip_cancel_task`, `extract_all_update_tasks`, `strip_update_task`, `has_purge_marker`, `strip_purge_marker`, `extract_project_activate`, `has_project_deactivate`, `strip_project_markers`, `read_heartbeat_file`, `HeartbeatAction`, etc.) were extracted into `src/markers.rs` in a prior refactor. See `specs/src-markers-rs.md` for their specifications. They are still documented below for historical completeness but live in `src/markers.rs`.
+
+### `async fn summarize_and_extract(store, provider, conversation_id, summarize_prompt, facts_prompt) -> Result<(), anyhow::Error>` (summarizer.rs)
 **Purpose:** Summarize a conversation and extract facts in a single provider call. Used by `handle_forget()` for background summarization after instant close.
 
 **Parameters:**
@@ -739,12 +779,12 @@ If sandbox: + sandbox constraint (unchanged)
 
 **Difference from `summarize_conversation()`:** Uses one provider call instead of two. Does not close the conversation itself (expects it to be already closed). Designed for background spawning.
 
-### `fn parse_plan_response(text: &str) -> Option<Vec<String>>`
+### `fn parse_plan_response(text: &str) -> Option<Vec<String>>` (routing.rs)
 **Purpose:** Parse the planning provider response into actionable steps.
 
 **Returns:** `None` if the response contains "DIRECT" (any case), has only a single step, or is unparseable. Returns `Some(steps)` for multi-step numbered lists (e.g., `1. Do something`, `2. Do something else`). Non-numbered preamble lines before the numbered list are ignored during parsing.
 
-### `fn extract_schedule_marker(text: &str) -> Option<String>`
+### `fn extract_schedule_marker(text: &str) -> Option<String>` (markers.rs)
 **Purpose:** Extract the first `SCHEDULE:` line from response text.
 
 **Logic:** Iterates through lines, finds the first line whose trimmed form starts with `"SCHEDULE:"`, returns it trimmed.

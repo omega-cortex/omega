@@ -48,8 +48,8 @@ All strings are localized via `i18n::t()` and format helpers: `i18n::tasks_confi
 
 ## Integration
 
-- `gateway.rs::process_markers()` returns `Vec<MarkerResult>` (previously returned `()`)
-- `gateway.rs::send_task_confirmation()` calls `get_tasks_for_sender()` to check for similar existing tasks, then calls `format_task_confirmation()` to build the message
+- `gateway/process_markers.rs::process_markers()` returns `Vec<MarkerResult>` (previously returned `()`)
+- `gateway/process_markers.rs::send_task_confirmation()` calls `get_tasks_for_sender()` to check for similar existing tasks, then calls `format_task_confirmation()` to build the message
 - Called from both `handle_message()` (direct responses) and `execute_steps()` (multi-step planning)
 
 ## Tests

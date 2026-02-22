@@ -659,7 +659,7 @@ All handlers are `async` even though most only interact with local SQLite. This 
 
 ## Integration Points
 
-**Called From:** `src/gateway.rs` (event loop)
+**Called From:** `src/gateway/pipeline.rs` (message pipeline, via `handle_message()`)
 
 **Flow:**
 1. Message arrives (Telegram/WhatsApp)

@@ -1,0 +1,498 @@
+//! Marker extraction and processing from provider responses.
+
+use super::keywords::SYSTEM_FACT_KEYS;
+use super::Gateway;
+use crate::i18n;
+use crate::markers::*;
+use crate::task_confirmation::{self, MarkerResult};
+use omega_core::{
+    config::shellexpand,
+    message::{IncomingMessage, MessageMetadata, OutgoingMessage},
+};
+use std::path::PathBuf;
+use std::sync::atomic::Ordering;
+use tracing::{error, info, warn};
+
+impl Gateway {
+    /// Extract and process all markers from a provider response text.
+    ///
+    /// Handles: SCHEDULE, SCHEDULE_ACTION, PROJECT_ACTIVATE/DEACTIVATE,
+    /// WHATSAPP_QR, LANG_SWITCH, HEARTBEAT_ADD/REMOVE, SKILL_IMPROVE, BUG_REPORT.
+    /// Strips processed markers from the text.
+    pub(super) async fn process_markers(
+        &self,
+        incoming: &IncomingMessage,
+        text: &mut String,
+    ) -> Vec<MarkerResult> {
+        let mut marker_results = Vec::new();
+
+        // SCHEDULE — process ALL markers
+        for schedule_line in extract_all_schedule_markers(text) {
+            if let Some((desc, due_at, repeat)) = parse_schedule_line(&schedule_line) {
+                let reply_target = incoming.reply_target.as_deref().unwrap_or("");
+                let repeat_opt = if repeat == "once" {
+                    None
+                } else {
+                    Some(repeat.as_str())
+                };
+                match self
+                    .memory
+                    .create_task(
+                        &incoming.channel,
+                        &incoming.sender_id,
+                        reply_target,
+                        &desc,
+                        &due_at,
+                        repeat_opt,
+                        "reminder",
+                    )
+                    .await
+                {
+                    Ok(id) => {
+                        info!("scheduled task {id}: {desc} at {due_at}");
+                        marker_results.push(MarkerResult::TaskCreated {
+                            description: desc,
+                            due_at,
+                            repeat,
+                            task_type: "reminder".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        error!("failed to create scheduled task: {e}");
+                        marker_results.push(MarkerResult::TaskFailed {
+                            description: desc,
+                            reason: e.to_string(),
+                        });
+                    }
+                }
+            } else {
+                marker_results.push(MarkerResult::TaskParseError {
+                    raw_line: schedule_line,
+                });
+            }
+        }
+        *text = strip_schedule_marker(text);
+
+        // SCHEDULE_ACTION — process ALL markers
+        for sched_line in extract_all_schedule_action_markers(text) {
+            if let Some((desc, due_at, repeat)) = parse_schedule_action_line(&sched_line) {
+                let reply_target = incoming.reply_target.as_deref().unwrap_or("");
+                let repeat_opt = if repeat == "once" {
+                    None
+                } else {
+                    Some(repeat.as_str())
+                };
+                match self
+                    .memory
+                    .create_task(
+                        &incoming.channel,
+                        &incoming.sender_id,
+                        reply_target,
+                        &desc,
+                        &due_at,
+                        repeat_opt,
+                        "action",
+                    )
+                    .await
+                {
+                    Ok(id) => {
+                        info!("scheduled action task {id}: {desc} at {due_at}");
+                        marker_results.push(MarkerResult::TaskCreated {
+                            description: desc,
+                            due_at,
+                            repeat,
+                            task_type: "action".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        error!("failed to create action task: {e}");
+                        marker_results.push(MarkerResult::TaskFailed {
+                            description: desc,
+                            reason: e.to_string(),
+                        });
+                    }
+                }
+            } else {
+                marker_results.push(MarkerResult::TaskParseError {
+                    raw_line: sched_line,
+                });
+            }
+        }
+        *text = strip_schedule_action_markers(text);
+
+        // PROJECT_ACTIVATE / PROJECT_DEACTIVATE
+        if let Some(project_name) = extract_project_activate(text) {
+            let fresh_projects = omega_skills::load_projects(&self.data_dir);
+            if omega_skills::get_project_instructions(&fresh_projects, &project_name).is_some() {
+                if let Err(e) = self
+                    .memory
+                    .store_fact(&incoming.sender_id, "active_project", &project_name)
+                    .await
+                {
+                    error!("failed to activate project {project_name}: {e}");
+                } else {
+                    info!("project activated: {project_name}");
+                }
+            } else {
+                warn!("project activate marker for unknown project: {project_name}");
+            }
+            *text = strip_project_markers(text);
+        }
+        if has_project_deactivate(text) {
+            if let Err(e) = self
+                .memory
+                .delete_fact(&incoming.sender_id, "active_project")
+                .await
+            {
+                error!("failed to deactivate project: {e}");
+            } else {
+                info!("project deactivated");
+            }
+            *text = strip_project_markers(text);
+        }
+
+        // WHATSAPP_QR
+        if has_whatsapp_qr_marker(text) {
+            *text = strip_whatsapp_qr_marker(text);
+            self.handle_whatsapp_qr(incoming).await;
+        }
+
+        // LANG_SWITCH
+        if let Some(lang) = extract_lang_switch(text) {
+            if let Err(e) = self
+                .memory
+                .store_fact(&incoming.sender_id, "preferred_language", &lang)
+                .await
+            {
+                error!("failed to store language preference: {e}");
+            } else {
+                info!("language switched to '{lang}' for {}", incoming.sender_id);
+            }
+            *text = strip_lang_switch(text);
+        }
+
+        // PERSONALITY
+        if let Some(value) = extract_personality(text) {
+            if value.eq_ignore_ascii_case("reset") {
+                match self
+                    .memory
+                    .delete_fact(&incoming.sender_id, "personality")
+                    .await
+                {
+                    Ok(_) => info!("personality reset for {}", incoming.sender_id),
+                    Err(e) => error!("failed to reset personality: {e}"),
+                }
+            } else {
+                match self
+                    .memory
+                    .store_fact(&incoming.sender_id, "personality", &value)
+                    .await
+                {
+                    Ok(()) => info!("personality set to '{value}' for {}", incoming.sender_id),
+                    Err(e) => error!("failed to store personality: {e}"),
+                }
+            }
+            *text = strip_personality(text);
+        }
+
+        // FORGET_CONVERSATION
+        if has_forget_marker(text) {
+            match self
+                .memory
+                .close_current_conversation(&incoming.channel, &incoming.sender_id)
+                .await
+            {
+                Ok(true) => info!("conversation cleared via marker for {}", incoming.sender_id),
+                Ok(false) => {
+                    info!("no active conversation to clear for {}", incoming.sender_id)
+                }
+                Err(e) => error!("failed to clear conversation via marker: {e}"),
+            }
+            // Clear CLI session — next message starts fresh.
+            if let Ok(mut sessions) = self.cli_sessions.lock() {
+                sessions.remove(&format!("{}:{}", incoming.channel, incoming.sender_id));
+            }
+            *text = strip_forget_marker(text);
+        }
+
+        // CANCEL_TASK — process ALL markers
+        for id_prefix in extract_all_cancel_tasks(text) {
+            match self
+                .memory
+                .cancel_task(&id_prefix, &incoming.sender_id)
+                .await
+            {
+                Ok(true) => {
+                    info!("task cancelled via marker: {id_prefix}");
+                    marker_results.push(MarkerResult::TaskCancelled {
+                        id_prefix: id_prefix.clone(),
+                    });
+                }
+                Ok(false) => {
+                    warn!("no matching task for cancel marker: {id_prefix}");
+                    marker_results.push(MarkerResult::TaskCancelFailed {
+                        id_prefix: id_prefix.clone(),
+                        reason: "no matching task".to_string(),
+                    });
+                }
+                Err(e) => {
+                    error!("failed to cancel task via marker: {e}");
+                    marker_results.push(MarkerResult::TaskCancelFailed {
+                        id_prefix: id_prefix.clone(),
+                        reason: e.to_string(),
+                    });
+                }
+            }
+        }
+        *text = strip_cancel_task(text);
+
+        // UPDATE_TASK — process ALL markers
+        for update_line in extract_all_update_tasks(text) {
+            if let Some((id_prefix, desc, due_at, repeat)) = parse_update_task_line(&update_line) {
+                match self
+                    .memory
+                    .update_task(
+                        &id_prefix,
+                        &incoming.sender_id,
+                        desc.as_deref(),
+                        due_at.as_deref(),
+                        repeat.as_deref(),
+                    )
+                    .await
+                {
+                    Ok(true) => {
+                        info!("task updated via marker: {id_prefix}");
+                        marker_results.push(MarkerResult::TaskUpdated {
+                            id_prefix: id_prefix.clone(),
+                        });
+                    }
+                    Ok(false) => {
+                        warn!("no matching task for update marker: {id_prefix}");
+                        marker_results.push(MarkerResult::TaskUpdateFailed {
+                            id_prefix: id_prefix.clone(),
+                            reason: "no matching task".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        error!("failed to update task via marker: {e}");
+                        marker_results.push(MarkerResult::TaskUpdateFailed {
+                            id_prefix: id_prefix.clone(),
+                            reason: e.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+        *text = strip_update_task(text);
+
+        // PURGE_FACTS
+        if has_purge_marker(text) {
+            // Save system facts first.
+            let preserved: Vec<(String, String)> =
+                match self.memory.get_facts(&incoming.sender_id).await {
+                    Ok(facts) => facts
+                        .into_iter()
+                        .filter(|(k, _)| SYSTEM_FACT_KEYS.contains(&k.as_str()))
+                        .collect(),
+                    Err(e) => {
+                        error!("purge marker: failed to read facts: {e}");
+                        Vec::new()
+                    }
+                };
+            // Delete all facts.
+            match self.memory.delete_facts(&incoming.sender_id, None).await {
+                Ok(n) => {
+                    // Restore system facts.
+                    for (key, value) in &preserved {
+                        let _ = self
+                            .memory
+                            .store_fact(&incoming.sender_id, key, value)
+                            .await;
+                    }
+                    let purged = n as usize - preserved.len();
+                    info!(
+                        "purged {purged} facts via marker for {}",
+                        incoming.sender_id
+                    );
+                }
+                Err(e) => error!("purge marker: failed to delete facts: {e}"),
+            }
+            *text = strip_purge_marker(text);
+        }
+
+        // HEARTBEAT_ADD / HEARTBEAT_REMOVE / HEARTBEAT_INTERVAL
+        let heartbeat_actions = extract_heartbeat_markers(text);
+        if !heartbeat_actions.is_empty() {
+            apply_heartbeat_changes(&heartbeat_actions);
+            for action in &heartbeat_actions {
+                match action {
+                    HeartbeatAction::Add(item) => info!("heartbeat: added '{item}' to checklist"),
+                    HeartbeatAction::Remove(item) => {
+                        info!("heartbeat: removed '{item}' from checklist")
+                    }
+                    HeartbeatAction::SetInterval(mins) => {
+                        self.heartbeat_interval.store(*mins, Ordering::Relaxed);
+                        info!("heartbeat: interval changed to {mins} minutes");
+                        // Notify owner via heartbeat channel (localized).
+                        if let Some(ch) = self.channels.get(&self.heartbeat_config.channel) {
+                            let lang = self
+                                .memory
+                                .get_fact(&incoming.sender_id, "preferred_language")
+                                .await
+                                .ok()
+                                .flatten()
+                                .unwrap_or_else(|| "English".to_string());
+                            let msg = OutgoingMessage {
+                                text: i18n::heartbeat_interval_updated(&lang, *mins),
+                                metadata: MessageMetadata::default(),
+                                reply_target: Some(self.heartbeat_config.reply_target.clone()),
+                            };
+                            if let Err(e) = ch.send(msg).await {
+                                warn!("heartbeat interval notify failed: {e}");
+                            }
+                        }
+                    }
+                }
+            }
+            *text = strip_heartbeat_markers(text);
+        }
+
+        // SKILL_IMPROVE
+        if let Some(improve_line) = extract_skill_improve(text) {
+            if let Some((skill_name, lesson)) = parse_skill_improve_line(&improve_line) {
+                let data_dir = shellexpand(&self.data_dir);
+                let skill_path =
+                    PathBuf::from(&data_dir).join(format!("skills/{skill_name}/SKILL.md"));
+                if skill_path.exists() {
+                    match std::fs::read_to_string(&skill_path) {
+                        Ok(mut content) => {
+                            // Append under "## Lessons Learned" section.
+                            if let Some(pos) = content.find("## Lessons Learned") {
+                                // Find end of the "## Lessons Learned" line.
+                                let insert_pos = content[pos..]
+                                    .find('\n')
+                                    .map(|i| pos + i)
+                                    .unwrap_or(content.len());
+                                content.insert_str(insert_pos, &format!("\n- {lesson}"));
+                            } else {
+                                content.push_str(&format!("\n\n## Lessons Learned\n- {lesson}\n"));
+                            }
+                            match std::fs::write(&skill_path, &content) {
+                                Ok(()) => {
+                                    info!("skill improved: {skill_name} — {lesson}");
+                                    marker_results
+                                        .push(MarkerResult::SkillImproved { skill_name, lesson });
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "skill improve: failed to write {}: {e}",
+                                        skill_path.display()
+                                    );
+                                    marker_results.push(MarkerResult::SkillImproveFailed {
+                                        skill_name,
+                                        reason: e.to_string(),
+                                    });
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!(
+                                "skill improve: failed to read {}: {e}",
+                                skill_path.display()
+                            );
+                            marker_results.push(MarkerResult::SkillImproveFailed {
+                                skill_name,
+                                reason: e.to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    warn!("skill improve: skill not found: {skill_name}");
+                    marker_results.push(MarkerResult::SkillImproveFailed {
+                        skill_name,
+                        reason: "skill not found".to_string(),
+                    });
+                }
+            }
+            *text = strip_skill_improve(text);
+        }
+
+        // BUG_REPORT
+        if let Some(description) = extract_bug_report(text) {
+            let data_dir = shellexpand(&self.data_dir);
+            match append_bug_report(&data_dir, &description) {
+                Ok(()) => {
+                    info!("bug reported: {description}");
+                    marker_results.push(MarkerResult::BugReported { description });
+                }
+                Err(e) => {
+                    error!("bug report: failed to write BUG.md: {e}");
+                    marker_results.push(MarkerResult::BugReportFailed {
+                        description,
+                        reason: e,
+                    });
+                }
+            }
+            *text = strip_bug_report(text);
+        }
+
+        // Safety net: strip any markers still remaining (catches inline markers
+        // from small models that don't put them on their own line).
+        *text = strip_all_remaining_markers(text);
+
+        marker_results
+    }
+
+    /// Send task scheduling confirmation after processing markers.
+    ///
+    /// Checks for similar existing tasks and formats a confirmation message
+    /// with the actual results from the database (anti-hallucination).
+    pub(super) async fn send_task_confirmation(
+        &self,
+        incoming: &IncomingMessage,
+        marker_results: &[MarkerResult],
+    ) {
+        // Resolve language for i18n.
+        let lang = self
+            .memory
+            .get_fact(&incoming.sender_id, "preferred_language")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "English".to_string());
+
+        // Check for similar existing tasks (only against tasks that existed
+        // BEFORE this batch — exclude descriptions we just created).
+        let just_created: std::collections::HashSet<&str> = marker_results
+            .iter()
+            .filter_map(|r| match r {
+                MarkerResult::TaskCreated { description, .. } => Some(description.as_str()),
+                _ => None,
+            })
+            .collect();
+
+        let mut similar_warnings = Vec::new();
+        let mut seen_warnings = std::collections::HashSet::new();
+        if let Ok(existing_tasks) = self.memory.get_tasks_for_sender(&incoming.sender_id).await {
+            for (_, existing_desc, existing_due, _, _) in &existing_tasks {
+                // Skip tasks we just created in this batch.
+                if just_created.contains(existing_desc.as_str()) {
+                    continue;
+                }
+                // Check if any newly created task is similar to this existing one.
+                let is_similar = just_created.iter().any(|new_desc| {
+                    task_confirmation::descriptions_are_similar(new_desc, existing_desc)
+                });
+                if is_similar && seen_warnings.insert(existing_desc.clone()) {
+                    similar_warnings.push((existing_desc.clone(), existing_due.clone()));
+                }
+            }
+        }
+
+        if let Some(confirmation) =
+            task_confirmation::format_task_confirmation(marker_results, &similar_warnings, &lang)
+        {
+            self.send_text(incoming, &confirmation).await;
+        }
+    }
+}

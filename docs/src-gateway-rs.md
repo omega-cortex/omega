@@ -2,13 +2,31 @@
 
 ## Overview
 
-The **Gateway** is the central orchestrator of Omega's event loop. It sits at the intersection of:
+The **Gateway** is the central orchestrator of Omega's event loop, implemented as a directory module at `src/gateway/` with 9 files. It sits at the intersection of:
 - **Messaging channels** (Telegram, WhatsApp) — where users send messages.
 - **AI providers** (Claude Code CLI, Anthropic API, etc.) — where reasoning happens.
 - **Memory store** (SQLite) — where conversation history and user facts are persisted.
 - **Audit system** — where all interactions are logged for security and debugging.
 
 The gateway's job is simple: listen for messages, process them through a deterministic pipeline, get a response from an AI provider, store the exchange, and send the response back to the user.
+
+## Module Structure
+
+The gateway was modularized from a single `src/gateway.rs` into `src/gateway/` with the following files:
+
+| File | Responsibility |
+|------|----------------|
+| `mod.rs` | Gateway struct, `new()`, `run()`, `dispatch_message()`, `shutdown()`, `send_text()` |
+| `pipeline.rs` | `handle_message()` — the full message processing pipeline, `build_system_prompt()` |
+| `routing.rs` | `classify_and_route()`, `execute_steps()`, `handle_direct_response()` |
+| `process_markers.rs` | `process_markers()`, `send_task_confirmation()` |
+| `auth.rs` | `check_auth()`, `handle_whatsapp_qr()` |
+| `scheduler.rs` | `scheduler_loop()` — background task delivery |
+| `heartbeat.rs` | `heartbeat_loop()` — periodic AI check-ins |
+| `summarizer.rs` | `summarize_and_extract()`, `background_summarizer()`, `summarize_conversation()`, `handle_forget()` |
+| `keywords.rs` | Keyword constants (`SCHEDULING_KW`, `RECALL_KW`, etc.), `kw_match()`, `is_valid_fact()` |
+
+All struct fields use `pub(super)` visibility, keeping the public API unchanged.
 
 ## Conceptual Architecture
 
