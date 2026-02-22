@@ -94,6 +94,53 @@ pub(super) const PROJECTS_KW: &[&str] = &[
     "progetto",
 ];
 
+/// Keywords that trigger user profile injection into the system prompt.
+pub(super) const PROFILE_KW: &[&str] = &[
+    "who am i",
+    "my name",
+    "about me",
+    "my profile",
+    "my facts",
+    "what do you know",
+    "quién soy",
+    "mi nombre",
+    "sobre mí",
+    "quem sou",
+    "meu nome",
+    "sobre mim",
+    "qui suis",
+    "mon nom",
+    "wer bin ich",
+    "mein name",
+    "chi sono",
+    "mio nome",
+    "wie ben ik",
+    "mijn naam",
+    "кто я",
+];
+
+/// Keywords that trigger recent outcomes injection.
+pub(super) const OUTCOMES_KW: &[&str] = &[
+    "how did i",
+    "how am i doing",
+    "reward",
+    "outcome",
+    "feedback",
+    "performance",
+    "cómo lo hice",
+    "resultado",
+    "como me saí",
+    "desempenho",
+    "comment j'ai",
+    "résultat",
+    "wie habe ich",
+    "ergebnis",
+    "come ho fatto",
+    "risultato",
+    "hoe deed ik",
+    "resultaat",
+];
+
 /// Keywords that trigger the meta context section.
 pub(super) const META_KW: &[&str] = &[
     "skill",
@@ -254,6 +301,30 @@ mod tests {
         assert!(kw_match("set up whatsapp", META_KW));
         assert!(kw_match("change my personality", META_KW));
         assert!(!kw_match("good morning", META_KW));
+    }
+
+    #[test]
+    fn test_kw_match_profile() {
+        assert!(kw_match("who am i exactly", PROFILE_KW));
+        assert!(kw_match("tell me about me", PROFILE_KW));
+        assert!(kw_match("what do you know about me", PROFILE_KW));
+        assert!(kw_match("quién soy yo", PROFILE_KW));
+        assert!(kw_match("wer bin ich eigentlich", PROFILE_KW));
+        assert!(kw_match("кто я такой", PROFILE_KW));
+        assert!(!kw_match("good morning", PROFILE_KW));
+        assert!(!kw_match("hello omega", PROFILE_KW));
+    }
+
+    #[test]
+    fn test_kw_match_outcomes() {
+        assert!(kw_match("how did i do today", OUTCOMES_KW));
+        assert!(kw_match("how am i doing overall", OUTCOMES_KW));
+        assert!(kw_match("show my performance", OUTCOMES_KW));
+        assert!(kw_match("any feedback for me", OUTCOMES_KW));
+        assert!(kw_match("cómo lo hice hoy", OUTCOMES_KW));
+        assert!(kw_match("wie habe ich abgeschnitten", OUTCOMES_KW));
+        assert!(!kw_match("good morning", OUTCOMES_KW));
+        assert!(!kw_match("hello omega", OUTCOMES_KW));
     }
 
     #[test]

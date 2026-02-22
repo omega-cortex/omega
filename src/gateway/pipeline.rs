@@ -188,17 +188,26 @@ impl Gateway {
         let needs_scheduling = kw_match(&msg_lower, SCHEDULING_KW);
         let needs_recall = kw_match(&msg_lower, RECALL_KW);
         let needs_tasks = needs_scheduling || kw_match(&msg_lower, TASKS_KW);
-        let needs_projects = active_project.is_some() || kw_match(&msg_lower, PROJECTS_KW);
+        let needs_projects = kw_match(&msg_lower, PROJECTS_KW);
         let needs_meta = kw_match(&msg_lower, META_KW);
+        let needs_profile = kw_match(&msg_lower, PROFILE_KW)
+            || needs_scheduling // timezone/location needed
+            || needs_recall // past context needs identity
+            || needs_tasks; // task context needs identity
+        let needs_summaries = needs_recall;
+        let needs_outcomes = kw_match(&msg_lower, OUTCOMES_KW);
 
         info!(
-            "[{}] prompt needs: scheduling={} recall={} tasks={} projects={} meta={}",
+            "[{}] prompt needs: scheduling={} recall={} tasks={} projects={} meta={} profile={} summaries={} outcomes={}",
             incoming.channel,
             needs_scheduling,
             needs_recall,
             needs_tasks,
             needs_projects,
-            needs_meta
+            needs_meta,
+            needs_profile,
+            needs_summaries,
+            needs_outcomes,
         );
 
         let system_prompt = self.build_system_prompt(
@@ -221,6 +230,9 @@ impl Gateway {
         let context_needs = ContextNeeds {
             recall: needs_recall,
             pending_tasks: needs_tasks,
+            profile: needs_profile,
+            summaries: needs_summaries,
+            outcomes: needs_outcomes,
         };
 
         let context = match self
@@ -286,12 +298,15 @@ impl Gateway {
         }
 
         // --- 5. AUTONOMOUS CLASSIFICATION & MODEL ROUTING ---
+        // Always pass full_history to the classifier — context.history may be empty
+        // during session continuation (cleared at step 4c), leaving the classifier
+        // blind to conversation context and causing misroutes.
         let skill_names: Vec<&str> = self.skills.iter().map(|s| s.name.as_str()).collect();
         if let Some(steps) = self
             .classify_and_route(
                 &clean_incoming.text,
                 active_project.as_deref(),
-                &context.history,
+                &full_history,
                 &skill_names,
             )
             .await
@@ -382,13 +397,15 @@ impl Gateway {
             prompt.push_str(&self.prompts.meta);
         }
 
-        if let Some(project_name) = active_project {
-            if let Some(instructions) =
-                omega_skills::get_project_instructions(projects, project_name)
-            {
-                prompt.push_str(&format!(
-                    "\n\n---\n\n[Active project: {project_name}]\n{instructions}"
-                ));
+        if needs_projects {
+            if let Some(project_name) = active_project {
+                if let Some(instructions) =
+                    omega_skills::get_project_instructions(projects, project_name)
+                {
+                    prompt.push_str(&format!(
+                        "\n\n---\n\n[Active project: {project_name}]\n{instructions}"
+                    ));
+                }
             }
         }
 
@@ -403,14 +420,11 @@ impl Gateway {
                     );
                     prompt.push_str(&checklist);
                 }
+                let mins = self.heartbeat_interval.load(Ordering::Relaxed);
+                prompt.push_str(&format!(
+                    "\n\nHeartbeat pulse: every {mins} minutes. You can report this when asked and change it with HEARTBEAT_INTERVAL: <1-1440>."
+                ));
             }
-        }
-
-        if self.heartbeat_config.enabled {
-            let mins = self.heartbeat_interval.load(Ordering::Relaxed);
-            prompt.push_str(&format!(
-                "\n\nHeartbeat pulse: every {mins} minutes. You can report this when asked and change it with HEARTBEAT_INTERVAL: <1-1440>."
-            ));
         }
 
         if let Some(ref constraint) = self.sandbox_prompt {

@@ -501,14 +501,18 @@ mod tests {
     fn assemble_test_prompt(
         prompts: &Prompts,
         msg: &str,
-        has_active_project: bool,
+        _has_active_project: bool,
     ) -> (String, ContextNeeds) {
         let msg_lower = msg.to_lowercase();
         let needs_scheduling = kw_match(&msg_lower, SCHEDULING_KW);
         let needs_recall = kw_match(&msg_lower, RECALL_KW);
         let needs_tasks = needs_scheduling || kw_match(&msg_lower, TASKS_KW);
-        let needs_projects = has_active_project || kw_match(&msg_lower, PROJECTS_KW);
+        let needs_projects = kw_match(&msg_lower, PROJECTS_KW);
         let needs_meta = kw_match(&msg_lower, META_KW);
+        let needs_profile =
+            kw_match(&msg_lower, PROFILE_KW) || needs_scheduling || needs_recall || needs_tasks;
+        let needs_summaries = needs_recall;
+        let needs_outcomes = kw_match(&msg_lower, OUTCOMES_KW);
 
         let mut prompt = format!(
             "{}\n\n{}\n\n{}",
@@ -531,6 +535,9 @@ mod tests {
         let context_needs = ContextNeeds {
             recall: needs_recall,
             pending_tasks: needs_tasks,
+            profile: needs_profile,
+            summaries: needs_summaries,
+            outcomes: needs_outcomes,
         };
 
         (prompt, context_needs)
@@ -662,10 +669,10 @@ mod tests {
         let prompts = Prompts::default();
         let (prompt, _) = assemble_test_prompt(&prompts, "how is the weather today", true);
 
-        // Projects section injected even without keyword — because project is active
+        // Projects section NOT injected without keyword — keyword-gated since contextual injection
         assert!(
-            prompt.contains("Projects path"),
-            "projects section should be injected when a project is active"
+            !prompt.contains("Projects path"),
+            "projects section should NOT be injected without project keywords"
         );
 
         // Others not injected

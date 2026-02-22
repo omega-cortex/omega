@@ -13,7 +13,7 @@
 | File | Lines (prod) | Responsibility |
 |------|-------------|----------------|
 | `mod.rs` | ~417 | Struct Gateway, `new()`, `run()`, `dispatch_message()`, `shutdown()`, `send_text()`, tests |
-| `keywords.rs` | ~269 | Constants (`MAX_ACTION_RETRIES`, `SCHEDULING_KW`, `RECALL_KW`, `TASKS_KW`, `PROJECTS_KW`, `META_KW`, `SYSTEM_FACT_KEYS`), `kw_match()`, `is_valid_fact()`, tests |
+| `keywords.rs` | ~310 | Constants (`MAX_ACTION_RETRIES`, `SCHEDULING_KW`, `RECALL_KW`, `TASKS_KW`, `PROJECTS_KW`, `PROFILE_KW`, `OUTCOMES_KW`, `META_KW`, `SYSTEM_FACT_KEYS`), `kw_match()`, `is_valid_fact()`, tests |
 | `summarizer.rs` | ~276 | `summarize_and_extract()`, `background_summarizer()`, `summarize_conversation()`, `handle_forget()` |
 | `scheduler.rs` | ~417 | `scheduler_loop()` |
 | `heartbeat.rs` | ~370 | `heartbeat_loop()`, `classify_heartbeat_groups()`, `execute_heartbeat_group()`, `process_heartbeat_markers()`, `build_enrichment()`, `build_system_prompt()`, `send_heartbeat_result()` |
@@ -99,10 +99,12 @@ The gateway reduces system prompt token overhead by ~55% for typical messages. I
 | `SCHEDULING_KW` | Scheduling rules injection (`prompts.scheduling`) | "remind", "schedule", "alarm", "tomorrow", "cancel", "recurring", multilingual variants |
 | `RECALL_KW` | Semantic recall DB query (FTS5 related past messages) | "remember", "last time", "you said", "we discussed", multilingual variants |
 | `TASKS_KW` | Pending tasks DB query | "task", "reminder", "pending", "scheduled", "my tasks", multilingual variants |
-| `PROJECTS_KW` | Projects rules injection (`prompts.projects_rules`) | "project", "activate", "deactivate", multilingual variants |
+| `PROJECTS_KW` | Projects rules injection (`prompts.projects_rules`) + active project instructions | "project", "activate", "deactivate", multilingual variants |
+| `PROFILE_KW` | User profile (facts) injection into prompt | "who am i", "my name", "about me", "my profile", "what do you know", multilingual variants |
+| `OUTCOMES_KW` | Recent reward outcomes injection | "how did i", "how am i doing", "reward", "outcome", "feedback", "performance", multilingual variants |
 | `META_KW` | Meta rules injection (`prompts.meta`) — skill improvement, bug reporting, WhatsApp, personality, purge | "skill", "improve", "bug", "whatsapp", "qr", "personality", "forget", "purge" |
 
-All keyword lists include multilingual variants (Spanish, Portuguese, French, German, Italian, Dutch) for the 8 supported languages.
+All keyword lists include multilingual variants (Spanish, Portuguese, French, German, Italian, Dutch, Russian) for the 8 supported languages.
 
 ### `fn kw_match(msg_lower: &str, keywords: &[&str]) -> bool` (keywords.rs)
 **Purpose:** Check if any keyword in the list is a substring of the lowercased message.
@@ -110,11 +112,14 @@ All keyword lists include multilingual variants (Spanish, Portuguese, French, Ge
 **Logic:** `keywords.iter().any(|kw| msg_lower.contains(kw))` — simple substring match, no tokenization or word boundaries.
 
 ### `ContextNeeds` Struct (from `omega_core::context`)
-**Purpose:** Gates expensive DB queries in `build_context()`. Fields:
+**Purpose:** Gates expensive DB queries and prompt injection in `build_context()`. Fields:
 - `recall: bool` — Load semantic recall (FTS5 related past messages). Triggered by `RECALL_KW`.
 - `pending_tasks: bool` — Load and inject pending scheduled tasks. Triggered by `SCHEDULING_KW` or `TASKS_KW`.
+- `profile: bool` — Inject user facts into prompt. Triggered by `PROFILE_KW` or scheduling/recall/tasks (needs identity context). Facts are always loaded (onboarding/language), but only injected when `true`.
+- `summaries: bool` — Load and inject recent conversation summaries. Triggered by `RECALL_KW` (same gate as recall).
+- `outcomes: bool` — Load and inject recent reward outcomes. Triggered by `OUTCOMES_KW`.
 
-Default: both `true` (full context). The gateway sets them based on keyword detection before calling `build_context()`.
+Default: all `true` (full context). The gateway sets them based on keyword detection before calling `build_context()`. Lessons are always loaded regardless of flags (tiny, high behavioral value).
 
 ### Keyword Detection Logic (in `handle_message`)
 ```rust
@@ -122,33 +127,43 @@ let msg_lower = clean_incoming.text.to_lowercase();
 let needs_scheduling = kw_match(&msg_lower, SCHEDULING_KW);
 let needs_recall    = kw_match(&msg_lower, RECALL_KW);
 let needs_tasks     = needs_scheduling || kw_match(&msg_lower, TASKS_KW);
-let needs_projects  = active_project.is_some() || kw_match(&msg_lower, PROJECTS_KW);
+let needs_projects  = kw_match(&msg_lower, PROJECTS_KW);
 let needs_meta      = kw_match(&msg_lower, META_KW);
+let needs_profile   = kw_match(&msg_lower, PROFILE_KW)
+    || needs_scheduling || needs_recall || needs_tasks;
+let needs_summaries = needs_recall;
+let needs_outcomes  = kw_match(&msg_lower, OUTCOMES_KW);
 ```
 
 **Key rules:**
 - `needs_tasks` is `true` when either scheduling or task keywords match (scheduling implies task awareness).
-- `needs_projects` is `true` when the user has an active project OR mentions project keywords (active project always gets its rules).
+- `needs_projects` is keyword-only — active project instructions are injected only when project keywords match.
+- `needs_profile` cascades from scheduling/recall/tasks (identity context is useful for timezone, past context, and task ownership).
+- `needs_summaries` tracks `needs_recall` — summaries are past conversation context.
+- `needs_outcomes` is keyword-only (feedback/performance queries).
+- Lessons are always injected regardless of keywords (tiny, high behavioral value).
 - Core sections (Identity, Soul, System) are always injected regardless of keywords.
 - Provider name, current time, and platform hint are always injected.
-- Heartbeat awareness and sandbox constraint injection remain unchanged (already keyword/config-gated).
+- Heartbeat interval is now only injected when heartbeat keywords match (moved inside the heartbeat keyword check block).
 
 ### Prompt Composition (Conditional Sections)
 ```
-Always: Identity + Soul + System + provider info + time + platform hint
+Always: Identity + Soul + System + provider info + time + platform hint + lessons
 If SCHEDULING_KW:  + prompts.scheduling
-If PROJECTS_KW or active_project: + prompts.projects_rules
+If PROJECTS_KW:    + prompts.projects_rules + active project instructions
 If META_KW:        + prompts.meta
-If heartbeat keywords: + heartbeat checklist (unchanged)
-If heartbeat enabled: + heartbeat pulse (unchanged)
-If sandbox: + sandbox constraint (unchanged)
+If heartbeat KW:   + heartbeat checklist + heartbeat pulse
+If PROFILE_KW/scheduling/recall/tasks: + user profile (facts)
+If RECALL_KW:      + summaries + semantic recall
+If OUTCOMES_KW:    + recent outcomes
+If sandbox:        + sandbox constraint (unchanged)
 ```
 
 ### `Prompts` Struct Fields (Conditional Sections)
 | Field | Parsed From | Injected When |
 |-------|------------|---------------|
 | `scheduling` | `## Scheduling` in SYSTEM_PROMPT.md | `SCHEDULING_KW` matches |
-| `projects_rules` | `## Projects` in SYSTEM_PROMPT.md | `PROJECTS_KW` matches or `active_project` is set |
+| `projects_rules` | `## Projects` in SYSTEM_PROMPT.md | `PROJECTS_KW` matches |
 | `meta` | `## Meta` in SYSTEM_PROMPT.md | `META_KW` matches |
 
 ## Functions
@@ -528,7 +543,7 @@ If sandbox: + sandbox constraint (unchanged)
   1. Always: `format!("{}\n\n{}\n\n{}", identity, soul, system)` + provider info + current time + platform hint.
   2. Conditionally append `prompts.scheduling` (if `needs_scheduling`), `prompts.projects_rules` (if `needs_projects`), `prompts.meta` (if `needs_meta`).
   3. Conditionally append active project instructions, heartbeat checklist, heartbeat pulse, sandbox constraint (unchanged from prior behavior).
-- Build `ContextNeeds { recall: needs_recall, pending_tasks: needs_tasks }` to gate DB queries.
+- Build `ContextNeeds { recall, pending_tasks, profile, summaries, outcomes }` to gate DB queries and prompt injection.
 - This architecture reduces average token overhead by ~55% for typical messages (e.g., "good morning" skips scheduling rules, task lists, project rules, and meta instructions).
 
 **Stage 5: Build Context from Memory**
@@ -561,7 +576,7 @@ If sandbox: + sandbox constraint (unchanged)
 
 **Stage 5: Classify and Route (Model Selection)**
 - After SILENT suppression check:
-- Call `self.classify_and_route()` unconditionally (no word-count gate). This sends a complexity-aware classification prompt enriched with lightweight context (active project name, last 3 history messages truncated to 80 chars, available skill names) to the provider (no system prompt, no MCP servers) with `ctx.max_turns = Some(25)` (generous limit — classification is best-effort, falls through to DIRECT on failure), `ctx.allowed_tools = Some(vec![])` (disables all tool use), and `ctx.model = Some(self.model_fast.clone())` (classification always uses the fast model). The prompt routes DIRECT for simple questions, conversations, and routine actions (reminders, scheduling, lookups) regardless of quantity, and only produces a step list for genuinely complex work (multi-file code changes, deep research, building, sequential dependencies). When in doubt, prefers DIRECT.
+- Call `self.classify_and_route()` unconditionally (no word-count gate), always passing `full_history` (not `context.history`, which may be empty during session continuation). This sends a complexity-aware classification prompt enriched with lightweight context (active project name, last 3 history messages truncated to 80 chars, available skill names) to the provider (no system prompt, no MCP servers) with `ctx.max_turns = Some(25)` (generous limit — classification is best-effort, falls through to DIRECT on failure), `ctx.allowed_tools = Some(vec![])` (disables all tool use), and `ctx.model = Some(self.model_fast.clone())` (classification always uses the fast model). The prompt routes DIRECT for simple questions, conversations, and routine actions (reminders, scheduling, lookups) regardless of quantity, and only produces a step list for genuinely complex work (multi-file code changes, deep research, building, sequential dependencies). When in doubt, prefers DIRECT.
   - The classification response is parsed by `parse_plan_response()`:
     - If the response contains "DIRECT" (any case) → returns `None`.
     - If the response contains only a single step → returns `None`.
@@ -1282,7 +1297,7 @@ All interactions are logged to SQLite with:
 37. PURGE_FACTS preserves system fact keys (`welcomed`, `preferred_language`, `active_project`, `personality`) — same logic as `/purge` in `commands.rs`.
 38. CANCEL_TASK and UPDATE_TASK use multi-extraction (`extract_all_cancel_tasks()`, `extract_all_update_tasks()`) to process ALL markers in a single response, not just the first. Each marker pushes a `MarkerResult` (TaskCancelled/TaskCancelFailed/TaskUpdated/TaskUpdateFailed) for gateway confirmation display.
 39. The scheduler action loop also processes CANCEL_TASK and UPDATE_TASK markers from action task responses, using the same `extract_all_*` multi-extraction functions (with empty sender_id since action tasks run autonomously).
-40. Token-efficient prompt architecture: `Prompts.scheduling`, `Prompts.projects_rules`, and `Prompts.meta` are only injected when `kw_match()` detects relevant keywords in the user's message. `ContextNeeds` gates DB queries (semantic recall, pending tasks) based on the same keyword detection. Core sections (Identity, Soul, System) are always injected. Average token reduction is ~55% for typical messages.
+40. Token-efficient prompt architecture: `Prompts.scheduling`, `Prompts.projects_rules`, and `Prompts.meta` are only injected when `kw_match()` detects relevant keywords in the user's message. `ContextNeeds` gates DB queries (recall, pending tasks, summaries, outcomes) and prompt injection (user profile) based on keyword detection. Active project instructions are keyword-gated. Heartbeat interval is only injected when heartbeat keywords match. Lessons are always injected (tiny, high value). Core sections (Identity, Soul, System) are always injected. Average token reduction is ~55-70% for typical messages.
 41. REWARD markers (format: `REWARD: +1|domain|lesson`) are processed via multi-extraction. Score must be `-1`, `0`, or `+1`. Stored via `store_outcome()` with source `"conversation"` (regular messages) or `"heartbeat"` (heartbeat responses). Stripped from response before sending.
 42. LESSON markers (format: `LESSON: domain|rule`) are processed via multi-extraction. Stored via `store_lesson()` which upserts by `(sender_id, domain)` — existing rules are replaced and occurrences incremented. Stripped from response before sending.
 43. Outcomes and lessons are injected into the system prompt by `build_context()` (always, not keyword-gated). Outcomes use relative timestamps via `format_relative_time()`. Lessons show `[domain] rule`. Token budget: ~225-450 tokens for both.

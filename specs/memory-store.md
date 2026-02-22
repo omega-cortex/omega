@@ -839,19 +839,20 @@ LIMIT ?
 |-----------|------|-------------|
 | `incoming` | `&IncomingMessage` | The incoming message (provides `channel`, `sender_id`, `text`). |
 | `base_system_prompt` | `&str` | The base system prompt (identity + soul + rules), composed by the gateway from `Prompts.identity`, `Prompts.soul`, and `Prompts.system`. |
-| `needs` | `&ContextNeeds` | Controls which optional context blocks are loaded. `recall` and `pending_tasks` are conditionally loaded based on this parameter. Facts and summaries are always loaded. |
+| `needs` | `&ContextNeeds` | Controls which optional context blocks are loaded and injected. `recall`, `pending_tasks`, `summaries`, and `outcomes` gate DB queries. `profile` gates fact injection into the prompt (facts are always loaded for onboarding/language). Lessons are always loaded. |
 
 **Returns:** `Result<Context, OmegaError>`.
 
 **Logic:**
 1. Call `get_or_create_conversation(channel, sender_id)` to get the active conversation ID.
 2. Fetch recent messages from the conversation (newest first, then reversed to chronological order).
-3. Fetch all facts for the sender (always loaded, errors suppressed, default to empty).
-4. Fetch the 3 most recent closed conversation summaries (always loaded, errors suppressed, default to empty).
+3. Fetch all facts for the sender (always loaded for onboarding/language, errors suppressed, default to empty).
+4. If `needs.summaries` is true, fetch the 3 most recent closed conversation summaries (errors suppressed, default to empty). Otherwise, empty vec.
 5. If `needs.recall` is true, search past messages via FTS5 for cross-conversation recall (errors suppressed, default to empty). Otherwise, empty vec.
 6. If `needs.pending_tasks` is true, fetch pending tasks for the sender (errors suppressed, default to empty). Otherwise, empty vec.
-7. Fetch recent outcomes for the sender (always loaded, limit 15, errors suppressed, default to empty).
+7. If `needs.outcomes` is true, fetch recent outcomes for the sender (limit 15, errors suppressed, default to empty). Otherwise, empty vec.
 8. Fetch all lessons for the sender (always loaded, errors suppressed, default to empty).
+8a. Pass facts to `build_system_prompt()` only when `needs.profile` is true; otherwise pass empty slice.
 9. Resolve language preference:
    - If a `preferred_language` fact exists in the fetched facts, use it.
    - Otherwise, call `detect_language(&incoming.text)` and store the result as a `preferred_language` fact.
@@ -1716,7 +1717,7 @@ at the END of your response.
 │                build_context(incoming, base_prompt, needs)             │
 │                                                                       │
 │  IncomingMessage { channel, sender_id, text }                        │
-│  ContextNeeds { recall: bool, pending_tasks: bool }                  │
+│  ContextNeeds { recall, pending_tasks, profile, summaries, outcomes } │
 │         |                                                             │
 │         v                                                             │
 │  get_or_create_conversation(channel, sender_id)                      │
@@ -1953,7 +1954,7 @@ All tests use an in-memory SQLite store (`sqlite::memory:`) with migrations appl
 20. Skill improvement suggestions are deduplicated by title (case-insensitive) — duplicate inserts are silently ignored.
 21. Limitation status is one of `'open'` or `'resolved'` (table retained for SKILL_IMPROVE storage).
 22. Task type is one of `'reminder'` or `'action'` — default is `'reminder'`.
-23. `build_context()` conditionally loads recall and pending tasks based on the `ContextNeeds` parameter. Facts, summaries, outcomes, and lessons are always loaded.
+23. `build_context()` conditionally loads recall, pending tasks, summaries, and outcomes based on the `ContextNeeds` parameter. Facts are always loaded (needed for onboarding/language) but only injected into the prompt when `needs.profile` is true. Lessons are always loaded (tiny, high behavioral value).
 24. Outcomes have UUID v4 as their primary key. Score is constrained to `{-1, 0, 1}` by a CHECK constraint.
 25. Lessons are unique per `(sender_id, domain)` -- upserts replace the rule and increment occurrences.
 26. Outcomes and lessons are always loaded in `build_context()` (not keyword-gated). They are small (~15 tokens each) and essential for reward awareness.

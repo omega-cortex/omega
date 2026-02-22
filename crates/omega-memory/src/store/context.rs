@@ -52,15 +52,19 @@ impl Store {
             .map(|(role, content)| ContextEntry { role, content })
             .collect();
 
-        // Facts and summaries are always loaded (small, essential).
+        // Facts are always loaded (needed for onboarding + language detection),
+        // but only passed to the prompt when profile injection is needed.
         let facts = self
             .get_facts(&incoming.sender_id)
             .await
             .unwrap_or_default();
-        let summaries = self
-            .get_recent_summaries(&incoming.channel, &incoming.sender_id, 3)
-            .await
-            .unwrap_or_default();
+        let summaries = if needs.summaries {
+            self.get_recent_summaries(&incoming.channel, &incoming.sender_id, 3)
+                .await
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
 
         // Semantic recall and pending tasks are conditionally loaded.
         let recall = if needs.recall {
@@ -78,11 +82,14 @@ impl Store {
             vec![]
         };
 
-        // Outcomes and lessons are always loaded (small, essential for reward awareness).
-        let outcomes = self
-            .get_recent_outcomes(&incoming.sender_id, 15)
-            .await
-            .unwrap_or_default();
+        // Outcomes are conditionally loaded; lessons are always loaded (tiny, high value).
+        let outcomes = if needs.outcomes {
+            self.get_recent_outcomes(&incoming.sender_id, 15)
+                .await
+                .unwrap_or_default()
+        } else {
+            vec![]
+        };
         let lessons = self
             .get_lessons(&incoming.sender_id)
             .await
@@ -152,9 +159,10 @@ impl Store {
             }
         };
 
+        let facts_for_prompt: &[(String, String)] = if needs.profile { &facts } else { &[] };
         let system_prompt = build_system_prompt(
             base_system_prompt,
-            &facts,
+            facts_for_prompt,
             &summaries,
             &recall,
             &pending_tasks,

@@ -2,13 +2,19 @@ use serde::{Deserialize, Serialize};
 
 /// Controls which optional context blocks are loaded and injected.
 ///
-/// Used by the gateway to skip expensive DB queries (semantic recall, pending tasks)
-/// when the user's message doesn't need them — reducing token overhead by ~55%.
+/// Used by the gateway to skip expensive DB queries and prompt sections
+/// when the user's message doesn't need them — reducing token overhead by ~55-70%.
 pub struct ContextNeeds {
     /// Load semantic recall (FTS5 related past messages).
     pub recall: bool,
     /// Load and inject pending scheduled tasks.
     pub pending_tasks: bool,
+    /// Inject user profile (facts) into the system prompt.
+    pub profile: bool,
+    /// Load and inject recent conversation summaries.
+    pub summaries: bool,
+    /// Load and inject recent reward outcomes.
+    pub outcomes: bool,
 }
 
 impl Default for ContextNeeds {
@@ -16,6 +22,9 @@ impl Default for ContextNeeds {
         Self {
             recall: true,
             pending_tasks: true,
+            profile: true,
+            summaries: true,
+            outcomes: true,
         }
     }
 }
