@@ -6,6 +6,8 @@ mod i18n;
 mod init;
 mod init_wizard;
 mod markers;
+mod pair;
+mod provider_builder;
 mod selfcheck;
 mod service;
 mod task_confirmation;
@@ -13,16 +15,10 @@ mod task_confirmation;
 use clap::{Parser, Subcommand};
 use omega_channels::telegram::TelegramChannel;
 use omega_channels::whatsapp::WhatsAppChannel;
-use omega_core::{
-    config::{self, shellexpand, Prompts},
-    context::Context,
-    traits::Provider,
-};
+use omega_core::config::{self, shellexpand, Prompts};
+use omega_core::context::Context;
 use omega_memory::Store;
-use omega_providers::{
-    anthropic::AnthropicProvider, claude_code::ClaudeCodeProvider, gemini::GeminiProvider,
-    ollama::OllamaProvider, openai::OpenAiProvider, openrouter::OpenRouterProvider,
-};
+use omega_providers::claude_code::ClaudeCodeProvider;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -118,217 +114,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     match cli.command {
-        Commands::Start => {
-            let mut cfg = config::load(&cli.config)?;
-
-            // Migrate flat ~/.omega/ layout to structured subdirectories.
-            config::migrate_layout(&cfg.omega.data_dir, &cli.config);
-
-            // Set up logging: stdout + file appender to {data_dir}/logs/omega.log.
-            let data_dir = shellexpand(&cfg.omega.data_dir);
-            let log_dir = PathBuf::from(&data_dir).join("logs");
-            let _ = std::fs::create_dir_all(&log_dir);
-            let file_appender = tracing_appender::rolling::never(&log_dir, "omega.log");
-            let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-            let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-
-            tracing_subscriber::registry()
-                .with(env_filter)
-                .with(tracing_subscriber::fmt::layer()) // stdout
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .with_writer(non_blocking)
-                        .with_ansi(false), // no color codes in file
-                )
-                .init();
-
-            // Env var override: OPENAI_API_KEY → whisper_api_key (if not set in config).
-            if let Some(ref mut tg) = cfg.channel.telegram {
-                let has_key = tg.whisper_api_key.as_ref().is_some_and(|k| !k.is_empty());
-                if !has_key {
-                    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-                        if !key.is_empty() {
-                            tg.whisper_api_key = Some(key);
-                        }
-                    }
-                }
-            }
-
-            // Deploy bundled prompts (SYSTEM_PROMPT.md, WELCOME.toml) on first run.
-            config::install_bundled_prompts(&cfg.omega.data_dir);
-            let mut prompts = Prompts::load(&cfg.omega.data_dir);
-
-            // Deploy bundled skills, migrate legacy flat files, then load from ~/.omega/skills/*/SKILL.md.
-            omega_skills::install_bundled_skills(&cfg.omega.data_dir);
-            omega_skills::migrate_flat_skills(&cfg.omega.data_dir);
-            let skills = omega_skills::load_skills(&cfg.omega.data_dir);
-            let skill_block = omega_skills::build_skill_prompt(&skills);
-            if !skill_block.is_empty() {
-                prompts.system.push_str(&skill_block);
-            }
-
-            // Ensure projects dir exists (projects are hot-reloaded per message).
-            omega_skills::ensure_projects_dir(&cfg.omega.data_dir);
-
-            // Create workspace directory for sandbox isolation.
-            let workspace_path = {
-                let expanded = shellexpand(&cfg.omega.data_dir);
-                let ws = PathBuf::from(&expanded).join("workspace");
-                if let Err(e) = std::fs::create_dir_all(&ws) {
-                    anyhow::bail!("failed to create workspace {}: {e}", ws.display());
-                }
-                ws
-            };
-
-            // Build provider with workspace as working directory.
-            // Returns (provider, model_fast, model_complex).
-            let (provider_box, model_fast, model_complex) = build_provider(&cfg, &workspace_path)?;
-            let provider: Arc<dyn omega_core::traits::Provider> = Arc::from(provider_box);
-
-            tracing::info!(
-                "sandbox mode: {} | workspace: {}",
-                cfg.sandbox.mode.display_name(),
-                workspace_path.display()
-            );
-
-            if !provider.is_available().await {
-                anyhow::bail!("provider '{}' is not available", provider.name());
-            }
-
-            // Build channels.
-            let mut channels: HashMap<String, Arc<dyn omega_core::traits::Channel>> =
-                HashMap::new();
-
-            if let Some(ref tg) = cfg.channel.telegram {
-                if tg.enabled {
-                    if tg.bot_token.is_empty() {
-                        anyhow::bail!(
-                            "Telegram is enabled but bot_token is empty. \
-                             Set it in config.toml or TELEGRAM_BOT_TOKEN env var."
-                        );
-                    }
-                    let channel = TelegramChannel::new(tg.clone());
-                    channels.insert("telegram".to_string(), Arc::new(channel));
-                }
-            }
-
-            if let Some(ref wa) = cfg.channel.whatsapp {
-                if wa.enabled {
-                    let channel = WhatsAppChannel::new(wa.clone(), &cfg.omega.data_dir);
-                    channels.insert("whatsapp".to_string(), Arc::new(channel));
-                }
-            }
-
-            if channels.is_empty() {
-                anyhow::bail!("No channels enabled. Enable at least one channel in config.toml.");
-            }
-
-            // Build memory.
-            let memory = Store::new(&cfg.memory).await?;
-
-            // Self-check before starting.
-            if !selfcheck::run(&cfg, &memory).await {
-                anyhow::bail!("Self-check failed. Fix the issues above before starting.");
-            }
-
-            // Compute sandbox prompt constraint.
-            let sandbox_mode = cfg.sandbox.mode;
-            let sandbox_prompt = sandbox_mode.prompt_constraint(&workspace_path.to_string_lossy());
-
-            // Build and run gateway.
-            println!("OMEGA Ω — Starting agent...");
-            let gw = Arc::new(gateway::Gateway::new(
-                provider,
-                channels,
-                memory,
-                cfg.auth.clone(),
-                cfg.channel.clone(),
-                cfg.heartbeat.clone(),
-                cfg.scheduler.clone(),
-                cfg.api.clone(),
-                prompts,
-                cfg.omega.data_dir.clone(),
-                skills,
-                sandbox_mode.display_name().to_string(),
-                sandbox_prompt,
-                model_fast,
-                model_complex,
-                sandbox_mode,
-            ));
-            gw.run().await?;
-        }
-        Commands::Status => {
-            init_stdout_tracing("error");
-            let cfg = config::load(&cli.config)?;
-            cliclack::intro(console::style("omega status").bold().to_string())?;
-
-            cliclack::log::info(format!(
-                "Config: {}\nProvider: {}",
-                cli.config, cfg.provider.default
-            ))?;
-
-            let available = ClaudeCodeProvider::check_cli().await;
-            if available {
-                cliclack::log::success("claude-code — available")?;
-            } else {
-                cliclack::log::error("claude-code — not found")?;
-            }
-
-            // Check channels.
-            if let Some(ref tg) = cfg.channel.telegram {
-                let status = if tg.enabled && !tg.bot_token.is_empty() {
-                    "configured"
-                } else if tg.enabled {
-                    "enabled but missing bot_token"
-                } else {
-                    "disabled"
-                };
-                cliclack::log::info(format!("telegram — {status}"))?;
-            } else {
-                cliclack::log::info("telegram — not configured")?;
-            }
-
-            if let Some(ref wa) = cfg.channel.whatsapp {
-                let status = if wa.enabled { "enabled" } else { "disabled" };
-                cliclack::log::info(format!("whatsapp — {status}"))?;
-            } else {
-                cliclack::log::info("whatsapp — not configured")?;
-            }
-
-            cliclack::outro("Status check complete")?;
-        }
-        Commands::Ask { message } => {
-            init_stdout_tracing("info");
-            if message.is_empty() {
-                anyhow::bail!("no message provided. Usage: omega ask <message>");
-            }
-
-            let prompt = message.join(" ");
-            let cfg = config::load(&cli.config)?;
-
-            // Ensure workspace exists for ask command too.
-            let workspace_path = {
-                let expanded = shellexpand(&cfg.omega.data_dir);
-                let ws = PathBuf::from(&expanded).join("workspace");
-                let _ = std::fs::create_dir_all(&ws);
-                ws
-            };
-
-            let (provider, _model_fast, _model_complex) = build_provider(&cfg, &workspace_path)?;
-
-            if !provider.is_available().await {
-                anyhow::bail!(
-                    "provider '{}' is not available. Is the claude CLI installed and authenticated?",
-                    provider.name()
-                );
-            }
-
-            let context = Context::new(&prompt);
-            let response = provider.complete(&context).await?;
-            println!("{}", response.text);
-        }
+        Commands::Start => cmd_start(&cli.config).await?,
+        Commands::Status => cmd_status(&cli.config).await?,
+        Commands::Ask { message } => cmd_ask(&cli.config, message).await?,
         Commands::Init {
             telegram_token,
             allowed_users,
@@ -355,7 +143,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Commands::Pair => {
             init_stdout_tracing("error");
-            pair_whatsapp().await?;
+            pair::pair_whatsapp().await?;
         }
         Commands::Service { action } => {
             init_stdout_tracing("error");
@@ -370,61 +158,222 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Standalone WhatsApp pairing via QR code.
-async fn pair_whatsapp() -> anyhow::Result<()> {
-    use omega_channels::whatsapp;
-    use omega_core::shellexpand;
-    use std::path::Path;
+/// Start the OMEGA agent.
+async fn cmd_start(config_path: &str) -> anyhow::Result<()> {
+    let mut cfg = config::load(config_path)?;
 
-    cliclack::intro(console::style("omega pair").bold().to_string())?;
+    // Migrate flat ~/.omega/ layout to structured subdirectories.
+    config::migrate_layout(&cfg.omega.data_dir, config_path);
 
-    let session_db = shellexpand("~/.omega/whatsapp_session/whatsapp.db");
-    let already_paired = Path::new(&session_db).exists();
+    // Set up logging: stdout + file appender to {data_dir}/logs/omega.log.
+    let data_dir = shellexpand(&cfg.omega.data_dir);
+    let log_dir = PathBuf::from(&data_dir).join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+    let file_appender = tracing_appender::rolling::never(&log_dir, "omega.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
-    if already_paired {
-        cliclack::log::success("WhatsApp is already paired.")?;
-        let reprovision: bool = cliclack::confirm("Re-pair? This will unlink the current session.")
-            .initial_value(false)
-            .interact()?;
-        if !reprovision {
-            cliclack::outro("Nothing changed.")?;
-            return Ok(());
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer()) // stdout
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false), // no color codes in file
+        )
+        .init();
+
+    // Env var override: OPENAI_API_KEY → whisper_api_key (if not set in config).
+    if let Some(ref mut tg) = cfg.channel.telegram {
+        let has_key = tg.whisper_api_key.as_ref().is_some_and(|k| !k.is_empty());
+        if !has_key {
+            if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+                if !key.is_empty() {
+                    tg.whisper_api_key = Some(key);
+                }
+            }
         }
-        // Delete stale session so the library generates a fresh QR.
-        let session_dir = shellexpand("~/.omega/whatsapp_session");
-        let _ = std::fs::remove_dir_all(&session_dir);
-        cliclack::log::step("Old session removed.")?;
     }
 
-    cliclack::log::info("Open WhatsApp on your phone → Linked Devices → Link a Device")?;
+    // Deploy bundled prompts (SYSTEM_PROMPT.md, WELCOME.toml) on first run.
+    config::install_bundled_prompts(&cfg.omega.data_dir);
+    let mut prompts = Prompts::load(&cfg.omega.data_dir);
 
-    let (mut qr_rx, mut done_rx) = whatsapp::start_pairing("~/.omega").await?;
+    // Deploy bundled skills, migrate legacy flat files, then load.
+    omega_skills::install_bundled_skills(&cfg.omega.data_dir);
+    omega_skills::migrate_flat_skills(&cfg.omega.data_dir);
+    let skills = omega_skills::load_skills(&cfg.omega.data_dir);
+    let skill_block = omega_skills::build_skill_prompt(&skills);
+    if !skill_block.is_empty() {
+        prompts.system.push_str(&skill_block);
+    }
 
-    // Wait for first QR code.
-    let qr_data = tokio::time::timeout(std::time::Duration::from_secs(30), qr_rx.recv())
-        .await
-        .map_err(|_| anyhow::anyhow!("timed out waiting for QR code"))?
-        .ok_or_else(|| anyhow::anyhow!("QR channel closed"))?;
+    // Ensure projects dir exists (projects are hot-reloaded per message).
+    omega_skills::ensure_projects_dir(&cfg.omega.data_dir);
 
-    let qr_text = whatsapp::generate_qr_terminal(&qr_data)?;
-    cliclack::note("Scan this QR code with WhatsApp", &qr_text)?;
+    // Create workspace directory for sandbox isolation.
+    let workspace_path = {
+        let expanded = shellexpand(&cfg.omega.data_dir);
+        let ws = PathBuf::from(&expanded).join("workspace");
+        if let Err(e) = std::fs::create_dir_all(&ws) {
+            anyhow::bail!("failed to create workspace {}: {e}", ws.display());
+        }
+        ws
+    };
 
-    let spinner = cliclack::spinner();
-    spinner.start("Waiting for scan...");
+    // Build provider with workspace as working directory.
+    let (provider_box, model_fast, model_complex) =
+        provider_builder::build_provider(&cfg, &workspace_path)?;
+    let provider: Arc<dyn omega_core::traits::Provider> = Arc::from(provider_box);
 
-    let paired = tokio::time::timeout(std::time::Duration::from_secs(60), done_rx.recv())
-        .await
-        .map_err(|_| anyhow::anyhow!("pairing timed out"))?
-        .unwrap_or(false);
+    tracing::info!(
+        "sandbox mode: {} | workspace: {}",
+        cfg.sandbox.mode.display_name(),
+        workspace_path.display()
+    );
 
-    if paired {
-        spinner.stop("WhatsApp linked successfully!");
-        cliclack::outro("Pairing complete. Restart omega to pick up the new session.")?;
+    if !provider.is_available().await {
+        anyhow::bail!("provider '{}' is not available", provider.name());
+    }
+
+    // Build channels.
+    let mut channels: HashMap<String, Arc<dyn omega_core::traits::Channel>> = HashMap::new();
+
+    if let Some(ref tg) = cfg.channel.telegram {
+        if tg.enabled {
+            if tg.bot_token.is_empty() {
+                anyhow::bail!(
+                    "Telegram is enabled but bot_token is empty. \
+                     Set it in config.toml or TELEGRAM_BOT_TOKEN env var."
+                );
+            }
+            let channel = TelegramChannel::new(tg.clone());
+            channels.insert("telegram".to_string(), Arc::new(channel));
+        }
+    }
+
+    if let Some(ref wa) = cfg.channel.whatsapp {
+        if wa.enabled {
+            let channel = WhatsAppChannel::new(wa.clone(), &cfg.omega.data_dir);
+            channels.insert("whatsapp".to_string(), Arc::new(channel));
+        }
+    }
+
+    if channels.is_empty() {
+        anyhow::bail!("No channels enabled. Enable at least one channel in config.toml.");
+    }
+
+    // Build memory.
+    let memory = Store::new(&cfg.memory).await?;
+
+    // Self-check before starting.
+    if !selfcheck::run(&cfg, &memory).await {
+        anyhow::bail!("Self-check failed. Fix the issues above before starting.");
+    }
+
+    // Compute sandbox prompt constraint.
+    let sandbox_mode = cfg.sandbox.mode;
+    let sandbox_prompt = sandbox_mode.prompt_constraint(&workspace_path.to_string_lossy());
+
+    // Build and run gateway.
+    println!("OMEGA Ω — Starting agent...");
+    let gw = Arc::new(gateway::Gateway::new(
+        provider,
+        channels,
+        memory,
+        cfg.auth.clone(),
+        cfg.channel.clone(),
+        cfg.heartbeat.clone(),
+        cfg.scheduler.clone(),
+        cfg.api.clone(),
+        prompts,
+        cfg.omega.data_dir.clone(),
+        skills,
+        sandbox_mode.display_name().to_string(),
+        sandbox_prompt,
+        model_fast,
+        model_complex,
+        sandbox_mode,
+    ));
+    gw.run().await
+}
+
+/// Check system health and provider availability.
+async fn cmd_status(config_path: &str) -> anyhow::Result<()> {
+    init_stdout_tracing("error");
+    let cfg = config::load(config_path)?;
+    cliclack::intro(console::style("omega status").bold().to_string())?;
+
+    cliclack::log::info(format!(
+        "Config: {config_path}\nProvider: {}",
+        cfg.provider.default
+    ))?;
+
+    let available = ClaudeCodeProvider::check_cli().await;
+    if available {
+        cliclack::log::success("claude-code — available")?;
     } else {
-        spinner.error("Pairing did not complete.");
-        cliclack::outro("Try again with: omega pair")?;
+        cliclack::log::error("claude-code — not found")?;
     }
 
+    // Check channels.
+    if let Some(ref tg) = cfg.channel.telegram {
+        let status = if tg.enabled && !tg.bot_token.is_empty() {
+            "configured"
+        } else if tg.enabled {
+            "enabled but missing bot_token"
+        } else {
+            "disabled"
+        };
+        cliclack::log::info(format!("telegram — {status}"))?;
+    } else {
+        cliclack::log::info("telegram — not configured")?;
+    }
+
+    if let Some(ref wa) = cfg.channel.whatsapp {
+        let status = if wa.enabled { "enabled" } else { "disabled" };
+        cliclack::log::info(format!("whatsapp — {status}"))?;
+    } else {
+        cliclack::log::info("whatsapp — not configured")?;
+    }
+
+    cliclack::outro("Status check complete")?;
+    Ok(())
+}
+
+/// Send a one-shot message to the agent.
+async fn cmd_ask(config_path: &str, message: Vec<String>) -> anyhow::Result<()> {
+    init_stdout_tracing("info");
+    if message.is_empty() {
+        anyhow::bail!("no message provided. Usage: omega ask <message>");
+    }
+
+    let prompt = message.join(" ");
+    let cfg = config::load(config_path)?;
+
+    // Ensure workspace exists for ask command too.
+    let workspace_path = {
+        let expanded = shellexpand(&cfg.omega.data_dir);
+        let ws = PathBuf::from(&expanded).join("workspace");
+        let _ = std::fs::create_dir_all(&ws);
+        ws
+    };
+
+    let (provider, _model_fast, _model_complex) =
+        provider_builder::build_provider(&cfg, &workspace_path)?;
+
+    if !provider.is_available().await {
+        anyhow::bail!(
+            "provider '{}' is not available. Is the claude CLI installed and authenticated?",
+            provider.name()
+        );
+    }
+
+    let context = Context::new(&prompt);
+    let response = provider.complete(&context).await?;
+    println!("{}", response.text);
     Ok(())
 }
 
@@ -436,132 +385,4 @@ fn init_stdout_tracing(level: &str) {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level)),
         )
         .init();
-}
-
-/// Build the configured provider, returning `(provider, model_fast, model_complex)`.
-///
-/// For Claude Code, `model_fast` and `model_complex` come from its config.
-/// For all other providers, both are set to the provider's single `model` field.
-fn build_provider(
-    cfg: &config::Config,
-    workspace_path: &std::path::Path,
-) -> anyhow::Result<(Box<dyn Provider>, String, String)> {
-    let ws = Some(workspace_path.to_path_buf());
-    let sandbox = cfg.sandbox.mode;
-
-    match cfg.provider.default.as_str() {
-        "claude-code" => {
-            let cc = cfg
-                .provider
-                .claude_code
-                .as_ref()
-                .cloned()
-                .unwrap_or_default();
-            let model_fast = cc.model.clone();
-            let model_complex = cc.model_complex.clone();
-            Ok((
-                Box::new(ClaudeCodeProvider::from_config(
-                    cc.max_turns,
-                    cc.allowed_tools,
-                    cc.timeout_secs,
-                    ws,
-                    sandbox,
-                    cc.max_resume_attempts,
-                    cc.model,
-                )),
-                model_fast,
-                model_complex,
-            ))
-        }
-        "ollama" => {
-            let oc = cfg
-                .provider
-                .ollama
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("provider.ollama section missing in config"))?;
-            let m = oc.model.clone();
-            Ok((
-                Box::new(OllamaProvider::from_config(
-                    oc.base_url.clone(),
-                    oc.model.clone(),
-                    ws,
-                    sandbox,
-                )),
-                m.clone(),
-                m,
-            ))
-        }
-        "openai" => {
-            let oc = cfg
-                .provider
-                .openai
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("provider.openai section missing in config"))?;
-            let m = oc.model.clone();
-            Ok((
-                Box::new(OpenAiProvider::from_config(
-                    oc.base_url.clone(),
-                    oc.api_key.clone(),
-                    oc.model.clone(),
-                    ws,
-                    sandbox,
-                )),
-                m.clone(),
-                m,
-            ))
-        }
-        "anthropic" => {
-            let ac =
-                cfg.provider.anthropic.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("provider.anthropic section missing in config")
-                })?;
-            let m = ac.model.clone();
-            Ok((
-                Box::new(AnthropicProvider::from_config(
-                    ac.api_key.clone(),
-                    ac.model.clone(),
-                    ws,
-                    sandbox,
-                )),
-                m.clone(),
-                m,
-            ))
-        }
-        "openrouter" => {
-            let oc =
-                cfg.provider.openrouter.as_ref().ok_or_else(|| {
-                    anyhow::anyhow!("provider.openrouter section missing in config")
-                })?;
-            let m = oc.model.clone();
-            Ok((
-                Box::new(OpenRouterProvider::from_config(
-                    oc.api_key.clone(),
-                    oc.model.clone(),
-                    ws,
-                    sandbox,
-                )),
-                m.clone(),
-                m,
-            ))
-        }
-        "gemini" => {
-            let gc = cfg
-                .provider
-                .gemini
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("provider.gemini section missing in config"))?;
-            let m = gc.model.clone();
-            Ok((
-                Box::new(GeminiProvider::from_config(
-                    gc.api_key.clone(),
-                    gc.model.clone(),
-                    ws,
-                    sandbox,
-                )),
-                m.clone(),
-                m,
-            ))
-        }
-        other => anyhow::bail!("unsupported provider: {other}"),
-    }
 }

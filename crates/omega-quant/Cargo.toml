@@ -8,7 +8,7 @@ description = "Quantitative trading engine for Omega — Kalman filter, HMM regi
 
 [[bin]]
 name = "omega-quant"
-path = "src/bin/main.rs"
+path = "src/bin/omega_quant/main.rs"
 
 [dependencies]
 tokio = { workspace = true }
