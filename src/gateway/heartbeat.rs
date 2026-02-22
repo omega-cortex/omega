@@ -168,10 +168,7 @@ impl Gateway {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Heartbeat helper functions
-// ---------------------------------------------------------------------------
-
+// --- Heartbeat helper functions ---
 /// Fast Sonnet classification: group heartbeat items by domain.
 ///
 /// Returns `None` for DIRECT (all items related, or ≤3 items).
