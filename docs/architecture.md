@@ -16,7 +16,7 @@ The Claude Code CLI provider supports session-based prompt persistence to avoid 
 
 1. **First message:** The gateway builds a full `Context` (system prompt + history + current message) with `session_id: None`. The provider sends the entire flattened prompt to `claude -p`. The CLI response includes a `session_id` in its JSON output, which the provider returns in `MessageMetadata.session_id`.
 
-2. **Subsequent messages:** The gateway sets `Context.session_id` to the stored session ID. `to_prompt_string()` detects this and skips the system prompt and history (already in the CLI session), emitting only a minimal context update (current time, keyword-gated conditional sections) prepended to the user message. The provider passes `--session-id` to the CLI.
+2. **Subsequent messages:** The gateway sets `Context.session_id` to the stored session ID. `to_prompt_string()` detects this and skips the system prompt and history (already in the CLI session), emitting only a minimal context update (current time, keyword-gated conditional sections) prepended to the user message. The provider passes `--resume` to the CLI.
 
 3. **Invalidation:** The gateway clears the stored session ID when any of these occur:
    - `/forget` command or `FORGET_CONVERSATION` marker

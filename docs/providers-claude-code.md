@@ -265,7 +265,7 @@ When the CLI returns `error_max_turns` with a `session_id`, the provider automat
 Session IDs are passed **into** the provider via `Context.session_id`. The gateway stores the `session_id` returned in `MessageMetadata` after a successful provider call, then sets it on the `Context` for subsequent messages from the same user. This enables prompt persistence:
 
 - **First message:** `Context.session_id` is `None`. The provider sends the full flattened prompt (system prompt + history + current message) via `to_prompt_string()`.
-- **Subsequent messages:** `Context.session_id` is `Some(id)`. The provider passes `--session-id` to the CLI. `to_prompt_string()` skips the system prompt and history (already in the session) and emits only a minimal context update prepended to the user message.
+- **Subsequent messages:** `Context.session_id` is `Some(id)`. The provider passes `--resume` to the CLI. `to_prompt_string()` skips the system prompt and history (already in the session) and emits only a minimal context update prepended to the user message.
 
 The response always includes `session_id` in `MessageMetadata.session_id`, extracted from the CLI's JSON output. The gateway tracks this for the next request.
 

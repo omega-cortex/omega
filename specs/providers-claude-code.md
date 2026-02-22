@@ -187,7 +187,7 @@ The core method. Invokes the Claude Code CLI as a subprocess and parses the resu
 3. **Command assembly:** Builds the subprocess command:
    ```
    claude -p <prompt> --output-format json --max-turns <N>
-         [--session-id <context.session_id>]
+         [--resume <context.session_id>]
          [--allowedTools <tool>]...
    ```
 
@@ -244,7 +244,7 @@ Delegates to `Self::check_cli()`. Returns `true` if the `claude` binary is insta
 
 ### `run_cli(prompt, extra_allowed_tools, model, context_disabled_tools, session_id)` (private, async)
 
-Private helper that assembles and executes the `claude` CLI subprocess. Called by `complete()`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. The `context_disabled_tools: bool` parameter is `true` when the caller explicitly set `context.allowed_tools = Some(vec![])`. The `session_id: Option<&str>` parameter comes from `Context.session_id` — when `Some`, passes `--session-id` to the CLI for conversation continuity.
+Private helper that assembles and executes the `claude` CLI subprocess. Called by `complete()`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. The `context_disabled_tools: bool` parameter is `true` when the caller explicitly set `context.allowed_tools = Some(vec![])`. The `session_id: Option<&str>` parameter comes from `Context.session_id` — when `Some`, passes `--resume` to the CLI for conversation continuity.
 
 Permission logic (3 branches):
 1. **Tools disabled** (`context_disabled_tools = true`): passes `--allowedTools ""` to disable all tool use (used by classification calls).
@@ -268,7 +268,7 @@ The subprocess is invoked with the following arguments:
 | `--output-format` | `json` | Yes |
 | `--max-turns` | `self.max_turns` (default `10`) | Yes |
 | `--model` | Effective model string | Only if model is non-empty |
-| `--session-id` | `session_id` parameter (from Context) | Only if `session_id` is `Some` |
+| `--resume` | `session_id` parameter (from Context) | Only if `session_id` is `Some` |
 | `--dangerously-skip-permissions` | (flag, no value) | Only when `allowed_tools` is empty (full access mode) |
 | `--allowedTools` | One per tool in `self.allowed_tools` + MCP patterns | Only when `allowed_tools` is non-empty, or for MCP patterns in full access mode |
 
