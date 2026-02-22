@@ -1928,8 +1928,8 @@ impl Gateway {
 
         // If session call failed, retry with full context (session may be stale).
         let response = match provider_result {
-            Ok(Err(ref _e)) if context.session_id.is_some() => {
-                warn!("session call failed, retrying with full context");
+            Ok(Err(ref e)) if context.session_id.is_some() => {
+                warn!("session call failed: {e}, retrying with full context");
                 if let Ok(mut sessions) = self.cli_sessions.lock() {
                     sessions.remove(&sender_key);
                 }

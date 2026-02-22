@@ -314,9 +314,9 @@ impl ClaudeCodeProvider {
             cmd.arg("--model").arg(model);
         }
 
-        // Session continuity.
+        // Session continuity: --resume resumes an existing conversation by session ID.
         if let Some(sid) = session_id {
-            cmd.arg("--session-id").arg(sid);
+            cmd.arg("--resume").arg(sid);
         }
 
         // Tool permissions: In `-p` (non-interactive) mode, Claude Code
