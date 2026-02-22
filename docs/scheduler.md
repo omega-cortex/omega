@@ -338,9 +338,17 @@ If the scheduler delivers a task but fails to mark it as complete (e.g., databas
 
 Action tasks invoke the AI provider, which executes commands (e.g., sending emails via `gog gmail send`). Before verification, the scheduler blindly marked tasks as `delivered` the moment the provider returned *any* response — even if the action actually failed. There was no audit trail and no retry mechanism.
 
-### The Solution: `ACTION_OUTCOME` Marker
+### The Solution: Context Enrichment + `ACTION_OUTCOME` Marker
 
-The scheduler injects a verification instruction into the system prompt for action tasks. The provider must end its response with one of:
+The scheduler enriches the action task system prompt with:
+
+1. **User profile** — Facts from the database (name, preferences, context) so the AI knows who the task owner is.
+2. **Language preference** — The user's `preferred_language` fact, ensuring responses match their language.
+3. **Delivery context** — Explicit instruction that the AI's text response will be delivered directly to the task owner via their messaging channel (Telegram/WhatsApp). The AI does NOT need to use external services (email, APIs, contacts, curl) to "send" messages — it simply composes the message as its response and the gateway delivers it.
+
+This prevents the AI from hallucinating external delivery mechanisms (e.g., trying to send emails or search contacts) when the task says "send someone a message."
+
+The provider must also end its response with one of:
 
 ```
 ACTION_OUTCOME: success

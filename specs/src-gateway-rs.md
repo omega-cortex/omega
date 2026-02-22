@@ -271,8 +271,10 @@ If sandbox: + sandbox constraint (unchanged)
 3. For each due task `(id, channel_name, sender_id, reply_target, description, repeat, task_type)`:
    - **Action tasks:**
      a. Start timing with `Instant::now()`.
-     b. Inject `ACTION_OUTCOME:` verification instruction into system prompt.
-     c. Invoke provider with full tool/MCP access.
+     b. Enrich system prompt with user profile (facts from DB) and language preference.
+     c. Inject delivery context instruction — tells the AI its text response will be delivered directly to the task owner via their messaging channel (no external email/API/curl needed).
+     d. Inject `ACTION_OUTCOME:` verification instruction into system prompt.
+     e. Invoke provider with full tool/MCP access.
      d. Parse `ACTION_OUTCOME:` marker from response (`Success`, `Failed(reason)`, or missing).
      e. Process response markers (SCHEDULE, SCHEDULE_ACTION, CANCEL_TASK, UPDATE_TASK, HEARTBEAT).
      f. Write audit log entry with `[ACTION]` prefix, elapsed time, status.

@@ -73,6 +73,43 @@ impl Gateway {
                                 chrono::Local::now().format("%Y-%m-%d %H:%M %Z")
                             ));
 
+                            // Enrich with user profile so the AI knows who the owner is.
+                            let facts = store.get_facts(sender_id).await.unwrap_or_default();
+                            let profile = omega_memory::store::format_user_profile(&facts);
+                            if !profile.is_empty() {
+                                system.push_str("\n\n");
+                                system.push_str(&profile);
+                            }
+
+                            // Resolve language preference.
+                            let language = facts
+                                .iter()
+                                .find(|(k, _)| k == "preferred_language")
+                                .map(|(_, v)| v.as_str())
+                                .unwrap_or("English");
+                            system
+                                .push_str(&format!("\n\nIMPORTANT: Always respond in {language}."));
+
+                            // Critical: tell the AI how action task delivery works.
+                            system.push_str(&format!(
+                                "\n\nIMPORTANT — Action Task Delivery:\n\
+                                 You are executing a scheduled action task for {owner}. \
+                                 Your text response will be delivered DIRECTLY to {owner} \
+                                 via {channel}. You do NOT need to send messages through \
+                                 external services (email, APIs, contacts, curl). Simply \
+                                 write the message as your response — the system delivers \
+                                 it automatically to {owner}.\n\
+                                 If the task says 'send someone a message', compose that \
+                                 message as your response text. Do NOT use email, curl, \
+                                 or any external messaging tool.",
+                                owner = facts
+                                    .iter()
+                                    .find(|(k, _)| k == "name")
+                                    .map(|(_, v)| v.as_str())
+                                    .unwrap_or("the user"),
+                                channel = channel_name,
+                            ));
+
                             // Inject verification instruction for outcome tracking.
                             system.push_str(concat!(
                                 "\n\nIMPORTANT — Action Task Verification:\n",
