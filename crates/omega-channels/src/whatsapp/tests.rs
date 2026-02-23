@@ -104,6 +104,28 @@ fn test_sanitize_preserves_plain_text() {
 }
 
 #[test]
+fn test_split_message_multibyte() {
+    // Cyrillic: each char is 2 bytes. 100 chars = 200 bytes.
+    let text = "\u{0411}".repeat(100);
+    // byte 151 falls inside a 2-byte char boundary
+    let chunks = split_message(&text, 151);
+    assert!(!chunks.is_empty());
+    let reassembled: String = chunks.iter().copied().collect();
+    assert_eq!(reassembled, text);
+}
+
+#[test]
+fn test_split_message_emoji_boundary() {
+    // Each emoji is 4 bytes. 50 emojis = 200 bytes.
+    let text = "\u{1f30d}".repeat(50);
+    // byte 10 falls inside a 4-byte emoji
+    let chunks = split_message(&text, 10);
+    assert!(!chunks.is_empty());
+    let reassembled: String = chunks.iter().copied().collect();
+    assert_eq!(reassembled, text);
+}
+
+#[test]
 fn test_retry_delays_exponential() {
     assert_eq!(RETRY_DELAYS_MS.len(), 3, "should have 3 retry attempts");
     assert_eq!(RETRY_DELAYS_MS[0], 500, "first delay 500ms");

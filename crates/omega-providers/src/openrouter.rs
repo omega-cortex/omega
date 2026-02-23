@@ -31,7 +31,10 @@ impl OpenRouterProvider {
     /// Create from config values.
     pub fn from_config(api_key: String, model: String, workspace_path: Option<PathBuf>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .expect("failed to build HTTP client"),
             api_key,
             model,
             workspace_path,

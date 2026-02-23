@@ -123,3 +123,30 @@ fn test_tg_message_text_only() {
     assert_eq!(msg.text.as_deref(), Some("hello"));
     assert!(msg.voice.is_none());
 }
+
+#[test]
+fn test_split_message_multibyte() {
+    // Each Cyrillic 'Б' is 2 bytes in UTF-8. 100 chars = 200 bytes.
+    let text = "\u{0411}".repeat(100);
+    assert_eq!(text.len(), 200);
+    // max_len=151 lands at byte 151, which is inside a 2-byte char (chars end at even byte offsets)
+    let chunks = split_message(&text, 151);
+    assert!(!chunks.is_empty());
+    for chunk in &chunks {
+        // Each chunk must be valid UTF-8 and not exceed max_len + 1 byte (char boundary adjustment)
+        assert!(chunk.len() <= 152);
+    }
+}
+
+#[test]
+fn test_split_message_emoji_boundary() {
+    // Each 🌍 is 4 bytes. 50 emojis = 200 bytes.
+    let text = "\u{1f30d}".repeat(50);
+    assert_eq!(text.len(), 200);
+    // max_len=10 means 2.5 emojis per chunk; byte 10 falls inside the 3rd emoji
+    let chunks = split_message(&text, 10);
+    assert!(!chunks.is_empty());
+    // Verify we got all the content back
+    let reassembled: String = chunks.iter().copied().collect();
+    assert_eq!(reassembled, text);
+}

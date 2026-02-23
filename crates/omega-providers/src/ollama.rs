@@ -27,7 +27,10 @@ impl OllamaProvider {
     /// Create from config values.
     pub fn from_config(base_url: String, model: String, workspace_path: Option<PathBuf>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .expect("failed to build HTTP client"),
             base_url,
             model,
             workspace_path,

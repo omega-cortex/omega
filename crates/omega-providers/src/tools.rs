@@ -348,14 +348,16 @@ impl ToolExecutor {
     }
 }
 
-/// Truncate output to `max_chars`, appending a note if truncated.
-fn truncate_output(s: &str, max_chars: usize) -> String {
-    if s.len() <= max_chars {
+/// Truncate output to at most `max_bytes` bytes at a valid UTF-8 char boundary,
+/// appending a note if truncated.
+fn truncate_output(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
         s.to_string()
     } else {
-        let truncated = &s[..max_chars];
+        let boundary = s.floor_char_boundary(max_bytes);
+        let truncated = &s[..boundary];
         format!(
-            "{truncated}\n\n... (output truncated: {} total chars, showing first {max_chars})",
+            "{truncated}\n\n... (output truncated: {} total bytes, showing first {boundary})",
             s.len()
         )
     }
@@ -519,7 +521,7 @@ mod tests {
         let result = truncate_output(&s, 50);
         assert!(result.starts_with(&"a".repeat(50)));
         assert!(result.contains("output truncated"));
-        assert!(result.contains("100 total chars"));
+        assert!(result.contains("100 total bytes"));
     }
 
     #[tokio::test]
@@ -637,5 +639,25 @@ mod tests {
             .await;
         assert!(result.is_error);
         assert!(result.content.contains("Unknown tool"));
+    }
+
+    #[test]
+    fn test_truncate_output_multibyte_boundary() {
+        // Russian text: each Cyrillic char is 2 bytes in UTF-8
+        let s = "\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442} \u{043c}\u{0438}\u{0440}!"; // "Привет мир!" = 20 bytes, 11 chars
+                                                                                              // Truncating at byte 5 falls inside the 3rd char (П=2, р=2, и starts at byte 4, ends at byte 6)
+                                                                                              // So byte 5 is in the middle of the 3rd character.
+        let result = truncate_output(s, 5);
+        // Should NOT panic; should truncate at a valid char boundary
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_truncate_output_emoji_boundary() {
+        let s = "Hello \u{1f30d} World"; // 🌍 is 4 bytes, string is "Hello 🌍 World"
+                                         // "Hello " = 6 bytes, 🌍 = 4 bytes (bytes 6..10), so byte 8 lands mid-emoji
+        let result = truncate_output(s, 8);
+        // Should NOT panic; should truncate at a valid char boundary
+        assert!(!result.is_empty());
     }
 }

@@ -1923,3 +1923,102 @@ async fn test_get_all_lessons_limit_50() {
         all.len()
     );
 }
+
+// --- Context truncation UTF-8 safety tests ---
+
+#[test]
+fn test_build_system_prompt_recall_multibyte_truncation() {
+    use super::context::build_system_prompt;
+
+    // Create recalled content with CJK characters that exceed the 200-byte truncation.
+    // Each CJK char is 3 bytes, so 100 chars = 300 bytes. Byte 200 falls mid-char (200/3 = 66.67).
+    let long_cyrillic = "\u{4e2d}".repeat(100);
+    let recall = vec![(
+        "user".to_string(),
+        long_cyrillic,
+        "2026-01-01 12:00:00".to_string(),
+    )];
+
+    // This should NOT panic when truncating the recalled content at byte 200.
+    let result = build_system_prompt("base rules", &[], &[], &recall, &[], &[], &[], "en", None);
+    assert!(result.contains("Related past context"));
+}
+
+// --- FTS5 query sanitization tests ---
+
+#[tokio::test]
+async fn test_search_messages_with_fts5_operators() {
+    let store = test_store().await;
+    let conv_id = store
+        .get_or_create_conversation("telegram", "user1", "default")
+        .await
+        .unwrap();
+
+    // Store a message so FTS5 index has content.
+    let incoming = IncomingMessage {
+        id: uuid::Uuid::new_v4(),
+        channel: "telegram".to_string(),
+        sender_id: "user1".to_string(),
+        sender_name: None,
+        text: "the server is NOT working properly".to_string(),
+        timestamp: chrono::Utc::now(),
+        reply_to: None,
+        attachments: vec![],
+        reply_target: Some("chat1".to_string()),
+        is_group: false,
+    };
+    let response = omega_core::message::OutgoingMessage {
+        text: "I will investigate".to_string(),
+        metadata: omega_core::message::MessageMetadata {
+            provider_used: "test".to_string(),
+            tokens_used: None,
+            processing_time_ms: 0,
+            model: None,
+            session_id: None,
+        },
+        reply_target: None,
+    };
+    store
+        .store_exchange(&incoming, &response, "default")
+        .await
+        .unwrap();
+
+    // Search with FTS5 operator characters -- should NOT cause an error.
+    // "NOT" is an FTS5 operator; without sanitization this causes a parse error.
+    let result = store
+        .search_messages("NOT working", &conv_id, "user1", 5)
+        .await;
+    assert!(
+        result.is_ok(),
+        "FTS5 operators in query should not cause an error: {:?}",
+        result.err()
+    );
+
+    // Parentheses are FTS5 grouping operators.
+    let result = store
+        .search_messages("error (crash)", &conv_id, "user1", 5)
+        .await;
+    assert!(
+        result.is_ok(),
+        "FTS5 parentheses in query should not cause an error: {:?}",
+        result.err()
+    );
+
+    // Asterisk is FTS5 prefix operator.
+    let result = store.search_messages("work*", &conv_id, "user1", 5).await;
+    assert!(
+        result.is_ok(),
+        "FTS5 asterisk in query should not cause an error: {:?}",
+        result.err()
+    );
+
+    // Double quotes are FTS5 phrase query delimiters.
+    let result = store
+        .search_messages(r#"say "hello world""#, &conv_id, "user1", 5)
+        .await;
+    assert!(
+        result.is_ok(),
+        "FTS5 quotes in query should not cause an error: {:?}",
+        result.err()
+    );
+}

@@ -38,7 +38,10 @@ impl OpenAiProvider {
         workspace_path: Option<PathBuf>,
     ) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .expect("failed to build HTTP client"),
             base_url,
             api_key,
             model,

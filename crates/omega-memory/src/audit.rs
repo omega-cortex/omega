@@ -88,6 +88,38 @@ fn truncate(s: &str, max: usize) -> &str {
     if s.len() <= max {
         s
     } else {
-        &s[..max]
+        &s[..s.floor_char_boundary(max)]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_ascii() {
+        assert_eq!(truncate("hello", 10), "hello");
+        assert_eq!(truncate("hello world", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_multibyte() {
+        // "Привет мир!" in UTF-8: each Cyrillic letter is 2 bytes, space is 1 byte
+        // П(2) р(2) и(2) в(2) е(2) т(2) ' '(1) м(2) и(2) р(2) !(1) = 21 bytes
+        let s = "\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442} \u{043c}\u{0438}\u{0440}!";
+        // byte 5 falls inside the 3rd character (и starts at byte 4, ends at byte 6)
+        let result = truncate(s, 5);
+        // Should NOT panic; should truncate at a valid char boundary
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_truncate_emoji() {
+        // "Hi 🎉 there": H(1) i(1) ' '(1) 🎉(4) ' '(1) ...
+        // byte 4 falls inside the 🎉 emoji (bytes 3..7)
+        let s = "Hi \u{1f389} there";
+        let result = truncate(s, 4);
+        // Should NOT panic; should truncate at a valid char boundary
+        assert!(!result.is_empty());
     }
 }

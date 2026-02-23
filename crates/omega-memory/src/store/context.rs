@@ -329,7 +329,8 @@ pub(super) fn build_system_prompt(
         prompt.push_str("\n\nRelated past context:");
         for (_role, content, timestamp) in recall {
             let truncated = if content.len() > 200 {
-                format!("{}...", &content[..200])
+                let boundary = content.floor_char_boundary(200);
+                format!("{}...", &content[..boundary])
             } else {
                 content.clone()
             };

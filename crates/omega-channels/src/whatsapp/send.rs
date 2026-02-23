@@ -144,6 +144,9 @@ pub(super) fn sanitize_for_whatsapp(text: &str) -> String {
 }
 
 /// Split a long message into chunks that respect WhatsApp's 4096-char limit.
+///
+/// All slice boundaries are aligned to UTF-8 char boundaries to avoid panics
+/// on multi-byte content (Cyrillic, CJK, emoji, etc.).
 pub(super) fn split_message(text: &str, max_len: usize) -> Vec<&str> {
     if text.len() <= max_len {
         return vec![text];
@@ -153,7 +156,7 @@ pub(super) fn split_message(text: &str, max_len: usize) -> Vec<&str> {
     let mut start = 0;
 
     while start < text.len() {
-        let end = (start + max_len).min(text.len());
+        let end = text.floor_char_boundary((start + max_len).min(text.len()));
         let break_at = if end < text.len() {
             text[start..end]
                 .rfind('\n')

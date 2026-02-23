@@ -63,6 +63,11 @@ impl Store {
             return Ok(Vec::new());
         }
 
+        // Wrap in double quotes and escape internal quotes to prevent FTS5 operator
+        // injection (AND, OR, NOT, NEAR, *, etc.). This forces FTS5 to treat the
+        // input as a phrase literal.
+        let sanitized = format!("\"{}\"", query.replace('"', "\"\""));
+
         let rows: Vec<(String, String, String)> = sqlx::query_as(
             "SELECT m.role, m.content, m.timestamp \
              FROM messages_fts fts \
@@ -74,7 +79,7 @@ impl Store {
              ORDER BY rank \
              LIMIT ?",
         )
-        .bind(query)
+        .bind(&sanitized)
         .bind(exclude_conversation_id)
         .bind(sender_id)
         .bind(limit)
