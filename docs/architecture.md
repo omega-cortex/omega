@@ -363,3 +363,147 @@ Deploys a workspace `CLAUDE.md` template on startup, appends dynamic content (sk
 | Per-sender serialization | No race conditions, no duplicate provider calls |
 | Auto-resume on max_turns | Long tasks complete without user intervention |
 | Delayed status updates | No noise for fast responses (<15s) |
+
+---
+
+## Concrete Example: Scheduling a Reminder
+
+To see all the phases working together, let's trace what happens when you send:
+
+> "Schedule for tomorrow to call Juan at 5pm"
+
+### 1. Keyword Detection (`gateway/keywords.rs`)
+
+The message is lowercased and scanned against keyword arrays. Two hits:
+
+- `"schedule"` matches `SCHEDULING_KW`
+- `"tomorrow"` matches `SCHEDULING_KW`
+
+This triggers a cascade of flags:
+
+```
+needs_scheduling = true     ← "schedule" + "tomorrow" matched
+needs_tasks      = true     ← automatically true when needs_scheduling is true
+needs_profile    = true     ← automatically true when needs_scheduling is true
+                              (timezone/location needed for UTC conversion)
+```
+
+### 2. Prompt Injection — What Gets Appended
+
+Because `needs_scheduling = true`, the `## Scheduling` section from `SYSTEM_PROMPT.md` is appended to the system prompt. This teaches Claude **how** to create tasks:
+
+```
+You have a built-in scheduler — an internal task queue stored in your own
+database, polled every 60 seconds...
+
+Initial due_at rule: Always set the first due_at to the NEXT upcoming
+occurrence... The scheduler uses UTC — convert the user's local time to
+UTC before emitting the marker.
+
+Reminders: To schedule a reminder, use this marker on its own line:
+SCHEDULE: <description> | <ISO 8601 datetime> | <once/daily/weekly/...>
+
+Action Tasks: For tasks that require you to EXECUTE an action:
+SCHEDULE_ACTION: <what to do> | <ISO 8601 datetime> | <once/daily/...>
+
+Task awareness (MANDATORY): Before creating ANY new reminder, you MUST
+review the "User's scheduled tasks" section in your context...
+```
+
+Without the scheduling keywords, this entire block is **not sent** — Claude doesn't even know the marker syntax exists. This is the core of the conditional injection: teach Claude capabilities only when they're relevant.
+
+### 3. Context Enrichment — What Gets Loaded from SQLite
+
+Because the keyword cascade set `needs_profile` and `needs_tasks`, `build_context()` loads additional data:
+
+**User profile** (because `needs_profile = true` — timezone needed for UTC conversion):
+```
+User profile:
+- name: Daniel
+- timezone: Europe/Lisbon
+- location: Portugal
+```
+
+**Pending tasks** (because `needs_tasks = true` — Claude must check for duplicates before creating):
+```
+User's scheduled tasks:
+- [a1b2c3d4] Daily standup reminder (due: 2026-02-24 09:00, daily)
+- [e5f6g7h8] Call dentist [action] (due: 2026-02-25 10:00, once)
+```
+
+**Learned lessons** (always loaded, tiny):
+```
+Learned behavioral rules:
+- [scheduling] User prefers reminders 15 minutes before, not at the exact time
+```
+
+### 4. What Claude Actually Sees
+
+The full assembled prompt sent to `claude -p`:
+
+```
+[Identity section]           ← first message only (skipped on session continuation)
+[Soul section]               ← first message only
+[System section]             ← first message only
+
+[Scheduling section]         ← INJECTED because "schedule" keyword matched
+
+User profile:                ← INJECTED because scheduling needs timezone
+- name: Daniel
+- timezone: Europe/Lisbon
+
+User's scheduled tasks:      ← INJECTED so Claude checks for duplicates
+- [a1b2c3d4] Daily standup reminder (due: 2026-02-24 09:00, daily)
+
+Learned behavioral rules:    ← always injected
+- [scheduling] User prefers reminders 15 minutes before
+
+IMPORTANT: Always respond in English.
+
+--- conversation history ---
+user: Schedule for tomorrow to call Juan at 5pm
+```
+
+### 5. What Claude Responds (raw, before processing)
+
+```
+I'll set that up for you — a reminder to call Juan tomorrow at 5pm.
+
+SCHEDULE: Call Juan | 2026-02-24T17:00:00Z | once
+REWARD: +1|scheduling|straightforward reminder request
+```
+
+### 6. What the Gateway Does (marker processing)
+
+1. **Extract** `SCHEDULE:` → parse description, datetime, repeat → call `memory.create_task()` → insert row in `scheduled_tasks` table
+2. **Extract** `REWARD:` → parse score, domain, lesson → call `memory.store_outcome()` → insert row in `outcomes` table
+3. **Strip** both marker lines from the text
+4. **Run** `strip_all_remaining_markers()` safety net (catches anything missed)
+
+### 7. What You See on Telegram
+
+**Message 1** (the response):
+```
+I'll set that up for you — a reminder to call Juan tomorrow at 5pm.
+```
+
+**Message 2** (task confirmation from `task_confirmation.rs`):
+```
+✓ Reminder created: Call Juan — Feb 24 at 5:00 PM (once)
+```
+
+The markers are invisible. The scheduling instructions were only injected because your message contained the right keywords. If you had said "hello, how are you?" — none of the scheduling section, profile data, or pending tasks would have been loaded or sent to Claude.
+
+### Comparison: What a Simple "Hello" Triggers
+
+For contrast, sending just "hello" matches **no** keyword arrays:
+
+```
+needs_scheduling = false
+needs_tasks      = false
+needs_profile    = false
+needs_recall     = false
+needs_outcomes   = false
+```
+
+Claude receives only the core sections (Identity + Soul + System) with no conditional sections, no profile, no tasks, no summaries. The prompt is ~55-70% smaller than the scheduling example above.
