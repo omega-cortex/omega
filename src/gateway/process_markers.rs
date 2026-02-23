@@ -2,13 +2,9 @@
 
 use super::keywords::SYSTEM_FACT_KEYS;
 use super::Gateway;
-use crate::i18n;
 use crate::markers::*;
 use crate::task_confirmation::{self, MarkerResult};
-use omega_core::{
-    config::shellexpand,
-    message::{IncomingMessage, MessageMetadata, OutgoingMessage},
-};
+use omega_core::{config::shellexpand, message::IncomingMessage};
 use std::sync::atomic::Ordering;
 use tracing::{error, info, warn};
 
@@ -312,24 +308,8 @@ impl Gateway {
                     HeartbeatAction::SetInterval(mins) => {
                         self.heartbeat_interval.store(*mins, Ordering::Relaxed);
                         info!("heartbeat: interval changed to {mins} minutes");
-                        // Notify owner via heartbeat channel (localized).
-                        if let Some(ch) = self.channels.get(&self.heartbeat_config.channel) {
-                            let lang = self
-                                .memory
-                                .get_fact(&incoming.sender_id, "preferred_language")
-                                .await
-                                .ok()
-                                .flatten()
-                                .unwrap_or_else(|| "English".to_string());
-                            let msg = OutgoingMessage {
-                                text: i18n::heartbeat_interval_updated(&lang, *mins),
-                                metadata: MessageMetadata::default(),
-                                reply_target: Some(self.heartbeat_config.reply_target.clone()),
-                            };
-                            if let Err(e) = ch.send(msg).await {
-                                warn!("heartbeat interval notify failed: {e}");
-                            }
-                        }
+                        // No separate notification — the AI's response text already
+                        // confirms the change to the user.
                     }
                 }
             }

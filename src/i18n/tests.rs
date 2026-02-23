@@ -146,11 +146,6 @@ fn test_format_helpers() {
     assert!(tasks_updated_confirmed("English", 3).contains("3 tasks"));
     assert!(tasks_updated_confirmed("Spanish", 2).contains("2 tareas"));
 
-    // heartbeat_interval_updated
-    assert!(heartbeat_interval_updated("English", 15).contains("15 minutes"));
-    assert!(heartbeat_interval_updated("Spanish", 30).contains("30 minutos"));
-    assert!(heartbeat_interval_updated("Russian", 5)
-        .contains("5 \u{043c}\u{0438}\u{043d}\u{0443}\u{0442}"));
 }
 
 #[test]

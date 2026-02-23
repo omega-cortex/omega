@@ -193,16 +193,3 @@ pub fn task_save_failed(lang: &str, n: usize) -> String {
     }
 }
 
-/// Format the heartbeat interval updated notification.
-pub fn heartbeat_interval_updated(lang: &str, mins: u64) -> String {
-    match lang {
-        "Spanish" => format!("\u{23f1}\u{fe0f} Intervalo de pulso actualizado a {mins} minutos."),
-        "Portuguese" => format!("\u{23f1}\u{fe0f} Intervalo de pulso atualizado para {mins} minutos."),
-        "French" => format!("\u{23f1}\u{fe0f} Intervalle de pouls mis \u{00e0} jour \u{00e0} {mins} minutes."),
-        "German" => format!("\u{23f1}\u{fe0f} Pulsintervall auf {mins} Minuten aktualisiert."),
-        "Italian" => format!("\u{23f1}\u{fe0f} Intervallo del battito aggiornato a {mins} minuti."),
-        "Dutch" => format!("\u{23f1}\u{fe0f} Hartslag-interval bijgewerkt naar {mins} minuten."),
-        "Russian" => format!("\u{23f1}\u{fe0f} \u{0418}\u{043d}\u{0442}\u{0435}\u{0440}\u{0432}\u{0430}\u{043b} \u{043f}\u{0443}\u{043b}\u{044c}\u{0441}\u{0430} \u{043e}\u{0431}\u{043d}\u{043e}\u{0432}\u{043b}\u{0451}\u{043d} \u{0434}\u{043e} {mins} \u{043c}\u{0438}\u{043d}\u{0443}\u{0442}."),
-        _ => format!("\u{23f1}\u{fe0f} Heartbeat interval updated to {mins} minutes."),
-    }
-}
