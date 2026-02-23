@@ -12,7 +12,7 @@ A personal AI agent infrastructure written in Rust. Omega connects to messaging 
 - **Real memory** -- SQLite-backed conversations, facts, summaries. Omega learns who you are across sessions.
 - **OS-level sandbox** -- Seatbelt (macOS) / Landlock (Linux) filesystem enforcement. Not just prompt-based.
 - **Skill improvement** -- Detects its own mistakes, fixes them immediately, and updates the skill's instructions so they never repeat.
-- **Quantitative trading** -- Built-in Kalman filter, HMM regime detection, Kelly sizing, IBKR TWS integration with bracket orders and circuit breakers.
+- **Quantitative trading** -- External [`omega-trader`](https://github.com/omgagi/omega-trader) CLI with Kalman filter, HMM regime detection, Kelly sizing, IBKR TWS integration.
 - **Runs locally** -- Your messages never touch third-party servers beyond the AI provider.
 
 ## Architecture
@@ -38,7 +38,7 @@ You (Telegram / WhatsApp)
   +----------+
 ```
 
-Cargo workspace with 7 crates:
+Cargo workspace with 6 crates:
 
 | Crate | Purpose |
 |-------|---------|
@@ -48,7 +48,6 @@ Cargo workspace with 7 crates:
 | `omega-memory` | SQLite storage, conversation history, facts, scheduled tasks, audit log |
 | `omega-skills` | Skill loader with TOML/YAML frontmatter, project system, trigger-based MCP server activation |
 | `omega-sandbox` | Seatbelt (macOS) / Landlock (Linux) filesystem enforcement with 3-level isolation |
-| `omega-quant` | Standalone CLI -- Kalman filter, HMM, Kelly criterion, Merton allocation, IBKR TWS API |
 
 ## Quick Start
 
@@ -137,25 +136,9 @@ All HTTP providers include an agentic tool-execution loop (bash, read, write, ed
 | `/project <name>` | Activate or deactivate a project |
 | `/help` | Show all commands |
 
-## Quantitative Trading (omega-quant)
+## Quantitative Trading
 
-Standalone CLI binary for quantitative analysis and trade execution via IBKR TWS:
-
-```bash
-omega-quant check                          # Test TWS connectivity
-omega-quant scan --scan-code MOST_ACTIVE   # Market scanner
-omega-quant analyze AAPL --bars 100        # Kalman + HMM + Kelly analysis
-omega-quant order AAPL BUY 10 --stop-loss 1.5 --take-profit 3.0  # Bracket order
-omega-quant positions                      # Open positions + P&L
-omega-quant pnl DU1234567                  # Daily account P&L
-omega-quant close AAPL                     # Close position
-omega-quant orders                         # List open orders
-omega-quant cancel 12345                   # Cancel an order
-```
-
-**Math pipeline**: Raw price -> Kalman filter (smooth + trend) -> HMM regime detection (Bull/Bear/Lateral) -> Merton optimal allocation -> Kelly fractional sizing -> Execution strategy (Immediate/TWAP).
-
-**Safety**: Circuit breaker (2% deviation abort), daily limits (trades + USD), cooldown between trades, bracket orders (SL/TP), paper trading by default (TWS port 7497).
+Trading is handled by the standalone [`omega-trader`](https://github.com/omgagi/omega-trader) binary, invoked via the `ibkr-trader` skill.
 
 ## System Service
 

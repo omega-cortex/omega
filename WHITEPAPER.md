@@ -30,9 +30,8 @@ https://github.com/omega-cortex/omega
 8. [Skills & Extensibility](#8-skills--extensibility)
 9. [Distribution & Installation](#9-distribution--installation)
 10. [Competitive Analysis](#10-competitive-analysis)
-11. [Trading Integration](#11-trading-integration)
-12. [Roadmap](#12-roadmap)
-13. [Conclusion](#13-conclusion)
+11. [Roadmap](#11-roadmap)
+12. [Conclusion](#12-conclusion)
 
 ---
 
@@ -203,28 +202,13 @@ Developers can build from source via Cargo. The repository includes a `flake.nix
 | Prompt injection filter | ✓ | ✗ | ✗ |
 | Persistent memory | ✓ (SQLite) | ✓ (SQLite) | △ |
 | Multi-provider | ✓ (5 backends) | ✗ (Claude only) | varies |
-| Algo trading | ✓ (IBKR TWAP) | LLM-based (vibes) | ✗ |
 | Self-hosted | ✓ | ✓ | ✗ (usually cloud) |
 
 The comparison is not about feature count. OpenClaw offers more integrations (13+ messaging platforms, dozens of community skills). Omega's thesis is that for a personal AI agent — one that manages your messages, files, and potentially your finances — security properties are more important than integration breadth. A smaller, auditable codebase with OS-level isolation is a fundamentally different product than a large, extensible platform with known vulnerabilities.
 
 ---
 
-## 11. Trading Integration
-
-Omega includes an experimental algorithmic trading module (`omega-quant`) that interfaces with Interactive Brokers via the TWS API (`ibapi` crate). The trading system supports TWAP (Time-Weighted Average Price) and Immediate execution algorithms — institutional-grade order types designed to minimize market impact.
-
-The design philosophy explicitly rejects the "vibes trading" approach prevalent in the AI agent space, where users give LLMs direct access to funded wallets and ask them to make buy/sell decisions based on sentiment analysis. This approach has been shown to produce poor risk-adjusted returns (Sortino ratios below 0.05 in controlled benchmarks).
-
-Instead, Omega's trading integration follows three principles:
-
-- **Human-in-the-loop** — Every trade requires explicit user confirmation via the messaging interface. The LLM translates intent into structured orders; the user approves.
-- **Paper trading by default** — New installations connect to TWS paper trading port (7497) with simulated funds. Switching to live trading requires an explicit, confirmed action.
-- **Hardcoded risk limits** — Maximum position size (2% of equity), daily loss limit (3%), and circuit breaker (5% drawdown) are enforced at the CLI level, not the LLM level. The AI cannot override these limits.
-
----
-
-## 12. Roadmap
+## 11. Roadmap
 
 | Phase | Deliverable | Status |
 |-------|-------------|--------|
@@ -237,7 +221,7 @@ Instead, Omega's trading integration follows three principles:
 
 ---
 
-## 13. Conclusion
+## 12. Conclusion
 
 Omega represents a different philosophy in the AI agent space: that the agent managing your personal communications, files, and financial transactions should be built with the same engineering rigor applied to critical infrastructure. Memory safety is not optional. Sandboxing is not an afterthought. Auditability is not a feature — it is a requirement.
 

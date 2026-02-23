@@ -65,8 +65,5 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 - [providers-claude-code.md](providers-claude-code.md) — Claude Code CLI provider, MCP settings, JSON response handling
 - [agentic-tools.md](agentic-tools.md) — Built-in tool executor, MCP client, agentic loop pattern
 
-### Quantitative Trading
-- [quant.md](quant.md) — Standalone CLI tool (omega-quant), signal format, safety guardrails, skill-based invocation
-
 ### Development
 - [development.md](development.md) — Build, test, lint, code conventions, contribution guidelines

@@ -66,10 +66,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [skills-lib.md](skills-lib.md) — Skill loader + project loader + MCP trigger matching (skills from `~/.omega/skills/*/SKILL.md`, projects from `~/.omega/projects/*/ROLE.md`)
 - [skills-cargo-toml.md](skills-cargo-toml.md) — omega-skills crate Cargo.toml
 
-### Milestone 8: omega-quant
-- [quant.md](quant.md) — Standalone CLI binary + library (Kalman filter, HMM regime detection, Kelly sizing, IBKR connectivity, execution, skill-based invocation)
-
-### Milestone 9: omega-sandbox
+### Milestone 8: omega-sandbox
 - [sandbox-lib.md](sandbox-lib.md) — Blocklist-based system protection (always-on, blocks writes to OS dirs + memory.db)
 - [sandbox-cargo-toml.md](sandbox-cargo-toml.md) — Sandbox crate Cargo.toml
 

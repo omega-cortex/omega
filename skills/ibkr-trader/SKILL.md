@@ -1,12 +1,12 @@
 ---
-name: "ibkr-quant"
+name: "ibkr-trader"
 description: "Autonomous trading via IBKR — multi-asset (stocks, forex, crypto), bracket orders, scanner, positions, P&L monitoring."
 trigger: "quant|trading|signal|ibkr|market|regime|kelly|position|interactive brokers|stock|portfolio|analyze|forex|crypto|scanner|bracket|pnl|close"
 ---
 
-# IBKR Quant Engine — Autonomous Trading
+# IBKR Trader — Autonomous Trading
 
-You have `omega-quant`, a standalone CLI for quantitative trading via Interactive Brokers. You are the strategist — omega-quant provides the tools; you make the decisions.
+You have `omega-trader`, a standalone CLI for quantitative trading via Interactive Brokers (from https://github.com/omgagi/omega-trader). You are the strategist — omega-trader provides the tools; you make the decisions.
 
 ## Account Configuration
 
@@ -17,7 +17,7 @@ You have `omega-quant`, a standalone CLI for quantitative trading via Interactiv
 | Portfolio | `YOUR_PORTFOLIO_VALUE` |
 | Host | `127.0.0.1` |
 
-**IMPORTANT**: Replace the placeholders above with your actual values in `~/.omega/skills/ibkr-quant/SKILL.md`. Always use the correct `--port` in every command.
+**IMPORTANT**: Replace the placeholders above with your actual values in `~/.omega/skills/ibkr-trader/SKILL.md`. Always use the correct `--port` in every command.
 
 **Paper vs Live account detection**: IBKR account IDs starting with `DU` are **ALWAYS paper trading accounts**. Live accounts start with `U` (e.g., `U1234567`). If the Account above starts with `DU`, you are in paper mode — treat all trades as simulated. Never tell the user they are trading with real money when the account starts with `DU`.
 
@@ -27,22 +27,22 @@ You have `omega-quant`, a standalone CLI for quantitative trading via Interactiv
 
 ```bash
 # Step 1: Connectivity
-omega-quant check --port YOUR_PORT
+omega-trader check --port YOUR_PORT
 
 # Step 2: Current positions
-omega-quant positions --port YOUR_PORT
+omega-trader positions --port YOUR_PORT
 
 # Step 3: Daily P&L
-omega-quant pnl YOUR_ACCOUNT_ID --port YOUR_PORT
+omega-trader pnl YOUR_ACCOUNT_ID --port YOUR_PORT
 
 # Step 4: Test stock scanner
-omega-quant scan --scan-code MOST_ACTIVE --instrument STK --location STK.US.MAJOR --count 3 --port YOUR_PORT
+omega-trader scan --scan-code MOST_ACTIVE --instrument STK --location STK.US.MAJOR --count 3 --port YOUR_PORT
 
 # Step 5: Test forex data (24/5)
-timeout 12 omega-quant analyze EUR/USD --asset-class forex --portfolio YOUR_PORTFOLIO --bars 1 --port YOUR_PORT
+timeout 12 omega-trader analyze EUR/USD --asset-class forex --portfolio YOUR_PORTFOLIO --bars 1 --port YOUR_PORT
 
 # Step 6: Test crypto scanner
-omega-quant scan --scan-code HOT_BY_VOLUME --instrument CRYPTO --location CRYPTO.PAXOS --count 1 --port YOUR_PORT
+omega-trader scan --scan-code HOT_BY_VOLUME --instrument CRYPTO --location CRYPTO.PAXOS --count 1 --port YOUR_PORT
 ```
 
 **Report to user with this format:**
@@ -83,7 +83,7 @@ TWS settings to check:
 ### 1. `check` — Verify connectivity
 
 ```bash
-omega-quant check --port YOUR_PORT
+omega-trader check --port YOUR_PORT
 ```
 
 Returns: `{"connected": true, "host": "127.0.0.1", "port": YOUR_PORT}`
@@ -94,13 +94,13 @@ Returns: `{"connected": true, "host": "127.0.0.1", "port": YOUR_PORT}`
 
 ```bash
 # Most active US stocks
-omega-quant scan --scan-code MOST_ACTIVE --instrument STK --location STK.US.MAJOR --count 10 --port YOUR_PORT
+omega-trader scan --scan-code MOST_ACTIVE --instrument STK --location STK.US.MAJOR --count 10 --port YOUR_PORT
 
 # Stocks above $10 with high volume
-omega-quant scan --scan-code HOT_BY_VOLUME --instrument STK --location STK.US.MAJOR --count 10 --min-price 10 --min-volume 1000000 --port YOUR_PORT
+omega-trader scan --scan-code HOT_BY_VOLUME --instrument STK --location STK.US.MAJOR --count 10 --min-price 10 --min-volume 1000000 --port YOUR_PORT
 
 # Top gainers
-omega-quant scan --scan-code TOP_PERC_GAIN --instrument STK --location STK.US.MAJOR --count 10 --port YOUR_PORT
+omega-trader scan --scan-code TOP_PERC_GAIN --instrument STK --location STK.US.MAJOR --count 10 --port YOUR_PORT
 ```
 
 Scan codes: `MOST_ACTIVE`, `HOT_BY_VOLUME`, `TOP_PERC_GAIN`, `TOP_PERC_LOSE`, `HIGH_OPEN_GAP`, `LOW_OPEN_GAP`
@@ -113,13 +113,13 @@ Returns: JSON array of `{rank, symbol, security_type, exchange, currency}`
 
 ```bash
 # Stock (only during market hours 9:30am-4pm ET, or with extended hours subscription)
-omega-quant analyze AAPL --asset-class stock --portfolio YOUR_PORTFOLIO --bars 10 --port YOUR_PORT
+omega-trader analyze AAPL --asset-class stock --portfolio YOUR_PORTFOLIO --bars 10 --port YOUR_PORT
 
 # Forex (24/5 — Sun 5pm to Fri 5pm ET)
-omega-quant analyze EUR/USD --asset-class forex --portfolio YOUR_PORTFOLIO --bars 10 --port YOUR_PORT
+omega-trader analyze EUR/USD --asset-class forex --portfolio YOUR_PORTFOLIO --bars 10 --port YOUR_PORT
 
 # Crypto (24/7 — requires crypto data subscription)
-omega-quant analyze BTC --asset-class crypto --portfolio YOUR_PORTFOLIO --bars 10 --port YOUR_PORT
+omega-trader analyze BTC --asset-class crypto --portfolio YOUR_PORTFOLIO --bars 10 --port YOUR_PORT
 ```
 
 Each signal contains: `regime`, `regime_probabilities`, `filtered_price`, `trend`, `merton_allocation`, `kelly_fraction`, `kelly_position_usd`, `kelly_should_trade`, `direction`, `action`, `execution`, `confidence`, `reasoning`
@@ -142,16 +142,16 @@ If `analyze` hangs or times out, the market for that asset class is likely close
 
 ```bash
 # Bracket order with SL/TP and all safety checks
-omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --account YOUR_ACCOUNT_ID --portfolio YOUR_PORTFOLIO --max-positions 3 --port YOUR_PORT
+omega-trader order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --account YOUR_ACCOUNT_ID --portfolio YOUR_PORTFOLIO --max-positions 3 --port YOUR_PORT
 
 # Forex bracket
-omega-quant order EUR/USD buy 20000 --asset-class forex --stop-loss 0.5 --take-profit 1.0 --account YOUR_ACCOUNT_ID --portfolio YOUR_PORTFOLIO --max-positions 3 --port YOUR_PORT
+omega-trader order EUR/USD buy 20000 --asset-class forex --stop-loss 0.5 --take-profit 1.0 --account YOUR_ACCOUNT_ID --portfolio YOUR_PORTFOLIO --max-positions 3 --port YOUR_PORT
 
 # Crypto bracket
-omega-quant order BTC buy 0.1 --asset-class crypto --stop-loss 2.0 --take-profit 5.0 --account YOUR_ACCOUNT_ID --portfolio YOUR_PORTFOLIO --max-positions 3 --port YOUR_PORT
+omega-trader order BTC buy 0.1 --asset-class crypto --stop-loss 2.0 --take-profit 5.0 --account YOUR_ACCOUNT_ID --portfolio YOUR_PORTFOLIO --max-positions 3 --port YOUR_PORT
 
 # Simple market order (no SL/TP — avoid unless closing)
-omega-quant order AAPL buy 100 --asset-class stock --port YOUR_PORT
+omega-trader order AAPL buy 100 --asset-class stock --port YOUR_PORT
 ```
 
 Safety checks (automatic with flags):
@@ -163,7 +163,7 @@ Bracket orders create 3 linked orders: MKT entry → LMT take-profit → STP sto
 ### 5. `positions` — List open positions
 
 ```bash
-omega-quant positions --port YOUR_PORT
+omega-trader positions --port YOUR_PORT
 ```
 
 Returns: JSON array of `{account, symbol, security_type, quantity, avg_cost}`
@@ -173,7 +173,7 @@ Returns: JSON array of `{account, symbol, security_type, quantity, avg_cost}`
 ### 6. `pnl` — Daily P&L
 
 ```bash
-omega-quant pnl YOUR_ACCOUNT_ID --port YOUR_PORT
+omega-trader pnl YOUR_ACCOUNT_ID --port YOUR_PORT
 ```
 
 Returns: `{daily_pnl, unrealized_pnl, realized_pnl}`
@@ -182,19 +182,19 @@ Returns: `{daily_pnl, unrealized_pnl, realized_pnl}`
 
 ```bash
 # Close entire position (auto-detects side and quantity)
-omega-quant close AAPL --asset-class stock --port YOUR_PORT
+omega-trader close AAPL --asset-class stock --port YOUR_PORT
 
 # Partial close
-omega-quant close AAPL --asset-class stock --quantity 50 --port YOUR_PORT
+omega-trader close AAPL --asset-class stock --quantity 50 --port YOUR_PORT
 
 # Close forex
-omega-quant close EUR/USD --asset-class forex --port YOUR_PORT
+omega-trader close EUR/USD --asset-class forex --port YOUR_PORT
 ```
 
 ### 8. `orders` — List open/pending orders
 
 ```bash
-omega-quant orders --port YOUR_PORT
+omega-trader orders --port YOUR_PORT
 ```
 
 Returns: JSON array of `{order_id, symbol, action, quantity, order_type, limit_price, stop_price, status, filled, remaining, parent_id}`
@@ -205,10 +205,10 @@ Returns: JSON array of `{order_id, symbol, action, quantity, order_type, limit_p
 
 ```bash
 # Cancel a specific order by ID
-omega-quant cancel --order-id 42 --port YOUR_PORT
+omega-trader cancel --order-id 42 --port YOUR_PORT
 
 # Cancel ALL open orders
-omega-quant cancel --port YOUR_PORT
+omega-trader cancel --port YOUR_PORT
 ```
 
 **Use this to clean up duplicate orders** or to cancel pending bracket legs (SL/TP) that are no longer needed.
@@ -275,7 +275,7 @@ SCHEDULE_ACTION: 1m | Monitor open positions and P&L, close if regime changed
 
 ## TWS Configuration Requirements
 
-For omega-quant to work correctly, these TWS settings must be configured:
+For omega-trader to work correctly, these TWS settings must be configured:
 
 **API Settings** (File → Global Configuration → API → Settings):
 - [x] **Enable ActiveX and Socket Clients** — MUST be checked

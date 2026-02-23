@@ -31,8 +31,8 @@ const BUNDLED_SKILLS: &[(&str, &str)] = &[
         include_str!("../../../skills/skill-creator/SKILL.md"),
     ),
     (
-        "ibkr-quant",
-        include_str!("../../../skills/ibkr-quant/SKILL.md"),
+        "ibkr-trader",
+        include_str!("../../../skills/ibkr-trader/SKILL.md"),
     ),
 ];
 

@@ -44,7 +44,7 @@ The best engine part is the one you can remove. Less is more — always opt for 
 
 ## Architecture
 
-Cargo workspace with 7 crates:
+Cargo workspace with 6 crates:
 
 | Crate | Purpose |
 |-------|---------|
@@ -54,7 +54,8 @@ Cargo workspace with 7 crates:
 | `omega-memory` | SQLite storage — conversations, audit, scheduled tasks, user profiles, aliases, reward-based learning |
 | `omega-skills` | Skill loader (`~/.omega/skills/*/SKILL.md`) + project loader (`~/.omega/projects/*/ROLE.md`), MCP server activation |
 | `omega-sandbox` | OS-level protection — Seatbelt (macOS), Landlock (Linux). Blocks access to memory.db and config.toml. Always active |
-| `omega-quant` | Standalone CLI + library — quantitative trading via IBKR TWS API. Decoupled from gateway, invoked via skill |
+
+Trading is handled by the external [`omega-trader`](https://github.com/omgagi/omega-trader) binary, invoked via the `ibkr-trader` skill.
 
 Gateway: `src/gateway/` directory module — orchestrates message pipeline from arrival through auth, context building, keyword-gated prompt composition, model routing (Sonnet for simple, Opus for complex), provider call, marker processing, and response delivery. See `docs/architecture.md` for the full pipeline and feature details.
 

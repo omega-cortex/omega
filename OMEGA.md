@@ -2,7 +2,7 @@
 
 Omega is a personal AI agent that connects messaging platforms to AI providers. You message it on Telegram or WhatsApp, it thinks using Claude (or another AI), and replies — remembering your conversations, preferences, and scheduled tasks across sessions.
 
-But Omega is far more than a chat relay. It has its own native intelligence layer — background loops that monitor and summarize; a marker system that lets the AI trigger real-world side effects; autonomous model routing that picks the right brain for each task; autonomous skill improvement; a quantitative trading engine; and OS-level system protection. The AI provider is just one piece. Most of the magic happens in Rust, before and after the AI ever sees your message.
+But Omega is far more than a chat relay. It has its own native intelligence layer — background loops that monitor and summarize; a marker system that lets the AI trigger real-world side effects; autonomous model routing that picks the right brain for each task; autonomous skill improvement; and OS-level system protection. The AI provider is just one piece. Most of the magic happens in Rust, before and after the AI ever sees your message.
 
 This document explains how every piece fits together.
 
@@ -37,15 +37,12 @@ This document explains how every piece fits together.
 │                 │          │───> Audit Log                          │
 │                 │          │───> Skills & Projects                  │
 │                 │          │───> System Protection (OS-level)       │
-│                 │          │───> Quant Engine                       │
 │                 └──────────┘                                        │
 │                      │                                              │
 │          ┌───────────┼───────────┐                                  │
 │          ▼           ▼           ▼                                  │
 │     Summarizer    Scheduler   Heartbeat                             │
 │          │                       │                                  │
-│          │    Quant IBKR Feed    │                                  │
-│          │     (if enabled)      │                                  │
 │          └───────────────────────┘                                  │
 │            (background loops)                                       │
 └──────────────────────────────────────────────────────────────────────┘
@@ -76,7 +73,6 @@ Before diving into the architecture, here's the key distinction: Omega is **not*
 | **Summarizer** | Polls every 60s for idle conversations (30+ min). Auto-generates summaries + extracts facts as key:value pairs. This is how Omega builds long-term memory. |
 | **Scheduler** | Polls every 60s for due tasks. **Reminder** tasks deliver text to the user. **Action** tasks invoke the provider autonomously with full system prompt + MCP tools. |
 | **Heartbeat** | Periodic self-check (default 30 min, dynamic interval). Reads `~/.omega/HEARTBEAT.md` checklist, enriches with user facts. Suppresses "HEARTBEAT_OK". Respects active hours. |
-| **Quant price feed** | When enabled via `/quant enable`, connects to IB Gateway via TWS API, streams real-time bars, processes each through the quant engine, stores latest signal for injection into user message context. |
 | **Graceful shutdown** | On SIGINT, summarizes all active conversations then stops channels cleanly. |
 
 ### Marker-Driven Actions
@@ -168,7 +164,7 @@ You type a message on Telegram
     │     │            • Group chat rules (if applicable)       │
     │     │            • System protection (blocklist)           │
     │     │            • Heartbeat checklist awareness          │
-    │     │            • Quant advisory signal (if enabled)     │
+    │     │                                                     │
     │     │            (omega-memory/src/store.rs               │
     │     │             :: build_context + build_system_prompt)  │
     │     │                                                     │
@@ -236,9 +232,9 @@ You type a message on Telegram
 
 ---
 
-## The Seven Crates
+## The Six Crates
 
-Omega is organized as a Cargo workspace with seven independent crates — like Lego blocks that snap together.
+Omega is organized as a Cargo workspace with six independent crates — like Lego blocks that snap together.
 
 ### omega-core — The Foundation
 
@@ -377,7 +373,7 @@ Skills are markdown files with TOML or YAML frontmatter that teach Omega new cap
 ~/.omega/skills/custom-tool/SKILL.md
 ```
 
-**5 bundled skills** auto-deployed on first run: claude-code, google-workspace, playwright-mcp, skill-creator, ibkr-quant.
+**5 bundled skills** auto-deployed on first run: claude-code, google-workspace, playwright-mcp, skill-creator, ibkr-trader.
 
 **Skill features:**
 - **Availability check** — verifies required CLI tools are installed (e.g., `npx`, `gog`)
@@ -409,51 +405,11 @@ Always-on blocklist-based filesystem protection. No configuration, no modes — 
 
 The provider subprocess is always started with `current_dir` set to `~/.omega/workspace/`. Domain-specific databases go in `~/.omega/stores/` (writable), separate from protected `~/.omega/data/`.
 
-### omega-quant — Quantitative Trading Engine
-
-**Files:** `crates/omega-quant/src/`
-
-A fully native trading pipeline — no external AI involved. Pure Rust math:
-
-```
-IBKR TWS real-time bar
-         │
-         ▼
-    Kalman Filter ──── 2D state [price, trend], process/measurement noise
-         │
-         ▼
-    EWMA Volatility + Hurst Exponent (R/S analysis: mean-reverting vs trending)
-         │
-         ▼
-    HMM Regime Detection ──── 3 states: Bull / Bear / Lateral
-         │                    5 discrete observations, Baum-Welch training
-         ▼
-    Merton Allocation ──── (mu - r) / (gamma * sigma^2), clamped [-0.5, 1.5]
-         │
-         ▼
-    Fractional Kelly ──── 25% of full Kelly, max 10% allocation
-         │
-         ▼
-    Direction / Action / Execution Strategy
-```
-
-| Component | File | What It Does |
-|-----------|------|-------------|
-| **Kalman filter** | `kalman.rs` | 2D state (price + trend), 2x2 covariance matrix, no external math library |
-| **HMM** | `hmm.rs` | 3-state regime detection, forward belief update, Baum-Welch training |
-| **Kelly criterion** | `kelly.rs` | Fractional sizing (25%), max 10% allocation, min 55% confidence threshold |
-| **Execution planning** | `execution.rs` | Immediate (<0.1% daily volume) vs TWAP (3-20 slices) vs NoTrade (>1%) |
-| **Live executor** | `executor.rs` | Circuit breaker (2% deviation, 3 consecutive failures), daily limits, crash recovery |
-| **Market data** | `market_data.rs` | IBKR TWS real-time price feed via `ibapi` crate with auto-reconnect |
-| **Signal types** | `signal.rs` | `QuantSignal` with regime, direction, confidence, Kelly sizing, Merton allocation |
-
-The quant engine outputs advisory signals that are injected into the system prompt — the AI sees "ADVISORY (NOT FINANCIAL ADVICE): regime=Bull, direction=Long, confidence=72%..." as context, not as a command.
-
 ---
 
 ## The Background Loops
 
-While the gateway processes messages, four independent loops run concurrently:
+While the gateway processes messages, three independent loops run concurrently:
 
 ### 1. Summarizer — Long-Term Memory
 
@@ -518,12 +474,6 @@ Every N minutes (default 30, adjustable via `HEARTBEAT_INTERVAL:` marker + `Arc<
 
 The checklist is managed conversationally — say "keep an eye on my water intake" and Omega adds it via `HEARTBEAT_ADD:`. Say "stop monitoring water" and it's removed via `HEARTBEAT_REMOVE:`.
 
-### 4. Quant Price Feed (Optional)
-
-**Location:** `gateway.rs` (lazy init via `/quant enable` command)
-
-When enabled via the `/quant` bot command, connects to IB Gateway via TWS API (ibapi crate) and streams 5-second real-time bars. A consumer loop processes each bar through the full `QuantEngine` pipeline (Kalman → HMM → Merton → Kelly), storing the latest signal for injection into the next user message's context. Configuration (symbol, portfolio value, paper/live mode) stored in SQLite facts table — no config.toml needed.
-
 ---
 
 ## The Marker System
@@ -568,7 +518,7 @@ The system prompt is not hardcoded. It lives at `~/.omega/SYSTEM_PROMPT.md` (aut
 - Pending scheduled tasks
 - Language instruction: "Always respond in Spanish"
 - System protection (blocklist enforcement)
-- Quant advisory signal (if enabled)
+
 - Onboarding hints (graduated by fact count)
 
 By the time the AI sees your message, it has a complete picture of who you are, what you've discussed before, what you're working on, and how to format its response.
@@ -596,7 +546,7 @@ Commands are handled locally by `commands.rs :: handle()` — they never reach t
 | `/projects` | List all projects, marks the active one |
 | `/project [name\|off]` | Activate, deactivate, or show current project (clears conversation on change) |
 | `/whatsapp` | Start WhatsApp QR pairing |
-| `/quant` | Manage IBKR quant engine (enable/disable/symbol/portfolio/paper/live) |
+| `/quant` | Manage IBKR trading (enable/disable via external `omega-trader` binary) |
 
 Commands use the `CommandContext` struct which bundles the store, channel info, sender, text, uptime, provider name, skills, projects, heartbeat status, and heartbeat interval into a single parameter.
 
@@ -660,7 +610,7 @@ The **self-check** (`src/selfcheck.rs`) runs at startup: verifies database acces
 │   │   └── SKILL.md
 │   ├── skill-creator/
 │   │   └── SKILL.md
-│   └── ibkr-quant/
+│   └── ibkr-trader/
 │       └── SKILL.md
 ├── projects/
 │   └── my-app/
@@ -685,8 +635,7 @@ omega/                     ← Repository root
 │   ├── omega-channels/    ← Messaging platforms (Telegram, WhatsApp)
 │   ├── omega-memory/      ← SQLite storage, audit logging, context building
 │   ├── omega-skills/      ← Skills loader, project loader, MCP trigger matching
-│   ├── omega-sandbox/     ← OS-level filesystem enforcement (Seatbelt, Landlock)
-│   └── omega-quant/       ← Quantitative trading engine (Kalman, HMM, Kelly, IBKR)
+│   └── omega-sandbox/     ← OS-level filesystem enforcement (Seatbelt, Landlock)
 ├── prompts/
 │   ├── SYSTEM_PROMPT.md   ← Bundled AI personality (source of truth)
 │   └── WELCOME.toml       ← Bundled welcome messages
@@ -699,7 +648,7 @@ omega/                     ← Repository root
 │   │   └── SKILL.md
 │   ├── skill-creator/
 │   │   └── SKILL.md
-│   └── ibkr-quant/
+│   └── ibkr-trader/
 │       └── SKILL.md
 ├── specs/                 ← Technical specifications (mirror of implementation)
 ├── docs/                  ← Developer-facing guides

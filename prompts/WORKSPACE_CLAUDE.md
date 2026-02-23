@@ -140,7 +140,7 @@ When the user asks you to build anything — a script, tool, app, service, libra
 4. Implement in `backend/` (and `frontend/` if needed)
 5. Write docs in `docs/`
 6. Test and verify
-7. **Create a skill** — after the build is working, create `~/.omega/skills/<project-name>/SKILL.md` with YAML frontmatter (`name`, `description`, `trigger` keywords) and a body documenting every CLI subcommand/flag. This lets you invoke the tool autonomously in future conversations. Follow the pattern in `~/.omega/skills/ibkr-quant/SKILL.md` — the skill is the interface between you and the tool.
+7. **Create a skill** — after the build is working, create `~/.omega/skills/<project-name>/SKILL.md` with YAML frontmatter (`name`, `description`, `trigger` keywords) and a body documenting every CLI subcommand/flag. This lets you invoke the tool autonomously in future conversations. Follow the pattern in `~/.omega/skills/ibkr-trader/SKILL.md` — the skill is the interface between you and the tool.
 
 ## Key Conventions
 

@@ -89,11 +89,6 @@ active_end = "22:00"
 channel = "telegram"
 reply_target = ""               # Chat ID for delivery
 
-# --- Quantitative Trading ---
-# Quant is now configured via the /quant Telegram bot command.
-# No config.toml section needed. Settings stored in SQLite facts table.
-# Requires IB Gateway running locally (paper: port 4002, live: port 4001).
-
 # --- HTTP API (for SaaS dashboard integration) ---
 
 [api]
