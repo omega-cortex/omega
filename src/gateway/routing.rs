@@ -176,11 +176,11 @@ impl Gateway {
         &self,
         incoming: &IncomingMessage,
         mut context: Context,
-        sender_key: &str,
         full_system_prompt: String,
         full_history: Vec<ContextEntry>,
         typing_handle: Option<tokio::task::JoinHandle<()>>,
         active_project: Option<&str>,
+        project_key: &str,
     ) {
         // Snapshot workspace images before provider call.
         let workspace_path = PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
@@ -234,9 +234,10 @@ impl Gateway {
         let response = match provider_result {
             Ok(Err(ref e)) if context.session_id.is_some() => {
                 warn!("session call failed: {e}, retrying with full context");
-                if let Ok(mut sessions) = self.cli_sessions.lock() {
-                    sessions.remove(sender_key);
-                }
+                let _ = self
+                    .memory
+                    .clear_session(&incoming.channel, &incoming.sender_id, project_key)
+                    .await;
                 context.session_id = None;
                 context.system_prompt = full_system_prompt;
                 context.history = full_history;
@@ -332,9 +333,10 @@ impl Gateway {
 
         // Capture session_id from provider response for future continuations.
         if let Some(ref sid) = response.metadata.session_id {
-            if let Ok(mut sessions) = self.cli_sessions.lock() {
-                sessions.insert(sender_key.to_string(), sid.clone());
-            }
+            let _ = self
+                .memory
+                .store_session(&incoming.channel, &incoming.sender_id, project_key, sid)
+                .await;
         }
 
         // Stop typing indicator.
@@ -349,7 +351,11 @@ impl Gateway {
             .await;
 
         // --- STORE IN MEMORY ---
-        if let Err(e) = self.memory.store_exchange(incoming, &response).await {
+        if let Err(e) = self
+            .memory
+            .store_exchange(incoming, &response, project_key)
+            .await
+        {
             error!("failed to store exchange: {e}");
         }
 

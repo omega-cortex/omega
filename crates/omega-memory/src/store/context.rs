@@ -32,8 +32,9 @@ impl Store {
         needs: &ContextNeeds,
         active_project: Option<&str>,
     ) -> Result<Context, OmegaError> {
+        let project_key = active_project.unwrap_or("");
         let conv_id = self
-            .get_or_create_conversation(&incoming.channel, &incoming.sender_id)
+            .get_or_create_conversation(&incoming.channel, &incoming.sender_id, project_key)
             .await?;
 
         // Load recent messages from this conversation.

@@ -56,7 +56,18 @@ pub(super) async fn handle_forget(
     sender_id: &str,
     lang: &str,
 ) -> String {
-    match store.close_current_conversation(channel, sender_id).await {
+    // Note: /forget is intercepted early in pipeline.rs via Gateway::handle_forget()
+    // which has full project context. This fallback uses personal scope.
+    let project = store
+        .get_fact(sender_id, "active_project")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    match store
+        .close_current_conversation(channel, sender_id, &project)
+        .await
+    {
         Ok(true) => i18n::t("conversation_cleared", lang).to_string(),
         Ok(false) => i18n::t("no_active_conversation", lang).to_string(),
         Err(e) => format!("Error: {e}"),

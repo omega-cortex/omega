@@ -12,6 +12,7 @@ mod conversations;
 mod facts;
 mod messages;
 mod outcomes;
+mod sessions;
 mod tasks;
 
 pub use context::{detect_language, format_user_profile};
@@ -172,6 +173,10 @@ impl Store {
             (
                 "011_project_learning",
                 include_str!("../../migrations/011_project_learning.sql"),
+            ),
+            (
+                "012_project_sessions",
+                include_str!("../../migrations/012_project_sessions.sql"),
             ),
         ];
 

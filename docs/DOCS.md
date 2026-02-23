@@ -37,6 +37,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 - [memory-migration-009.md](memory-migration-009.md) — Task retry columns for action failure handling
 - [memory-migration-010.md](memory-migration-010.md) — Reward-based learning tables (outcomes + lessons)
 - [memory-migration-011.md](memory-migration-011.md) — Project-scoped learning (project column on outcomes, lessons, scheduled_tasks)
+- [memory-migration-012.md](memory-migration-012.md) — Project-scoped sessions (project_sessions table, project column on conversations)
 
 ### HTTP API
 - [api.md](api.md) — HTTP API for SaaS dashboard integration (health, WhatsApp QR pairing)

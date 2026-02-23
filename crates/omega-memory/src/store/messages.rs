@@ -13,9 +13,10 @@ impl Store {
         &self,
         incoming: &IncomingMessage,
         response: &OutgoingMessage,
+        project: &str,
     ) -> Result<(), OmegaError> {
         let conv_id = self
-            .get_or_create_conversation(&incoming.channel, &incoming.sender_id)
+            .get_or_create_conversation(&incoming.channel, &incoming.sender_id, project)
             .await?;
 
         // Store user message.

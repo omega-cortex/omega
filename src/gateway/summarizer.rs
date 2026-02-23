@@ -5,7 +5,6 @@ use super::Gateway;
 use crate::i18n;
 use omega_core::{context::Context, traits::Provider};
 use omega_memory::Store;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
@@ -108,14 +107,13 @@ impl Gateway {
         provider: Arc<dyn Provider>,
         summarize_prompt: String,
         facts_prompt: String,
-        cli_sessions: Arc<std::sync::Mutex<HashMap<String, String>>>,
     ) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
 
             match store.find_idle_conversations().await {
                 Ok(convos) => {
-                    for (conv_id, channel, sender_id) in &convos {
+                    for (conv_id, channel, sender_id, project) in &convos {
                         if let Err(e) = Self::summarize_conversation(
                             &store,
                             &provider,
@@ -127,10 +125,8 @@ impl Gateway {
                         {
                             error!("failed to summarize conversation {conv_id}: {e}");
                         }
-                        // Clear CLI session when conversation is closed due to idle timeout.
-                        if let Ok(mut sessions) = cli_sessions.lock() {
-                            sessions.remove(&format!("{channel}:{sender_id}"));
-                        }
+                        // Clear CLI session for this project when conversation is closed.
+                        let _ = store.clear_session(channel, sender_id, project).await;
                     }
                 }
                 Err(e) => {
@@ -223,14 +219,25 @@ impl Gateway {
             .flatten()
             .unwrap_or_else(|| "English".to_string());
 
-        // Find the active conversation for this sender.
+        // Scope forget to the active project.
+        let active_project = self
+            .memory
+            .get_fact(sender_id, "active_project")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let project_key = active_project.as_str();
+
+        // Find the active conversation for this sender + project.
         let conv: Option<(String,)> = sqlx::query_as(
             "SELECT id FROM conversations \
-             WHERE channel = ? AND sender_id = ? AND status = 'active' \
+             WHERE channel = ? AND sender_id = ? AND project = ? AND status = 'active' \
              ORDER BY last_activity DESC LIMIT 1",
         )
         .bind(channel)
         .bind(sender_id)
+        .bind(project_key)
         .fetch_optional(self.memory.pool())
         .await
         .ok()
@@ -241,13 +248,14 @@ impl Gateway {
                 // Close immediately so new messages start a fresh conversation.
                 let _ = self
                     .memory
-                    .close_current_conversation(channel, sender_id)
+                    .close_current_conversation(channel, sender_id, project_key)
                     .await;
 
                 // Clear CLI session — next message starts fresh.
-                if let Ok(mut sessions) = self.cli_sessions.lock() {
-                    sessions.remove(&format!("{channel}:{sender_id}"));
-                }
+                let _ = self
+                    .memory
+                    .clear_session(channel, sender_id, project_key)
+                    .await;
 
                 // Summarize + extract facts in the background.
                 let store = self.memory.clone();

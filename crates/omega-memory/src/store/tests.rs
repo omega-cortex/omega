@@ -1325,3 +1325,213 @@ async fn test_migration_existing_data_gets_empty_project() {
     assert_eq!(lessons.len(), 1);
     assert_eq!(lessons[0].2, "", "default project should be empty string");
 }
+
+// --- Project session tests ---
+
+#[tokio::test]
+async fn test_store_and_get_session() {
+    let store = test_store().await;
+
+    // No session initially.
+    let sid = store.get_session("telegram", "user1", "").await.unwrap();
+    assert!(sid.is_none());
+
+    // Store a session.
+    store
+        .store_session("telegram", "user1", "", "session-abc")
+        .await
+        .unwrap();
+    let sid = store.get_session("telegram", "user1", "").await.unwrap();
+    assert_eq!(sid, Some("session-abc".to_string()));
+}
+
+#[tokio::test]
+async fn test_session_upsert() {
+    let store = test_store().await;
+
+    store
+        .store_session("telegram", "user1", "", "session-1")
+        .await
+        .unwrap();
+    store
+        .store_session("telegram", "user1", "", "session-2")
+        .await
+        .unwrap();
+
+    let sid = store.get_session("telegram", "user1", "").await.unwrap();
+    assert_eq!(sid, Some("session-2".to_string()), "upsert should update");
+}
+
+#[tokio::test]
+async fn test_session_project_isolation() {
+    let store = test_store().await;
+
+    // Store sessions for different projects.
+    store
+        .store_session("telegram", "user1", "", "personal-session")
+        .await
+        .unwrap();
+    store
+        .store_session("telegram", "user1", "trader", "trader-session")
+        .await
+        .unwrap();
+
+    // Each project has its own session.
+    let personal = store.get_session("telegram", "user1", "").await.unwrap();
+    assert_eq!(personal, Some("personal-session".to_string()));
+
+    let trader = store
+        .get_session("telegram", "user1", "trader")
+        .await
+        .unwrap();
+    assert_eq!(trader, Some("trader-session".to_string()));
+}
+
+#[tokio::test]
+async fn test_clear_session() {
+    let store = test_store().await;
+
+    store
+        .store_session("telegram", "user1", "trader", "session-x")
+        .await
+        .unwrap();
+    store
+        .clear_session("telegram", "user1", "trader")
+        .await
+        .unwrap();
+
+    let sid = store
+        .get_session("telegram", "user1", "trader")
+        .await
+        .unwrap();
+    assert!(sid.is_none(), "session should be cleared");
+}
+
+#[tokio::test]
+async fn test_clear_all_sessions_for_sender() {
+    let store = test_store().await;
+
+    store
+        .store_session("telegram", "user1", "", "s1")
+        .await
+        .unwrap();
+    store
+        .store_session("telegram", "user1", "trader", "s2")
+        .await
+        .unwrap();
+    store
+        .store_session("whatsapp", "user1", "", "s3")
+        .await
+        .unwrap();
+
+    store.clear_all_sessions_for_sender("user1").await.unwrap();
+
+    assert!(store
+        .get_session("telegram", "user1", "")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store
+        .get_session("telegram", "user1", "trader")
+        .await
+        .unwrap()
+        .is_none());
+    assert!(store
+        .get_session("whatsapp", "user1", "")
+        .await
+        .unwrap()
+        .is_none());
+}
+
+// --- Project-scoped conversation tests ---
+
+#[tokio::test]
+async fn test_conversation_project_isolation() {
+    let store = test_store().await;
+
+    // Create conversations for different projects.
+    let personal = store
+        .get_or_create_conversation("telegram", "user1", "")
+        .await
+        .unwrap();
+    let trader = store
+        .get_or_create_conversation("telegram", "user1", "trader")
+        .await
+        .unwrap();
+
+    assert_ne!(
+        personal, trader,
+        "different projects should get different conversations"
+    );
+
+    // Same project returns same conversation.
+    let personal2 = store
+        .get_or_create_conversation("telegram", "user1", "")
+        .await
+        .unwrap();
+    assert_eq!(
+        personal, personal2,
+        "same project should return same conversation"
+    );
+}
+
+#[tokio::test]
+async fn test_close_current_conversation_project_scoped() {
+    let store = test_store().await;
+
+    // Create conversations for two projects.
+    let _personal = store
+        .get_or_create_conversation("telegram", "user1", "")
+        .await
+        .unwrap();
+    let _trader = store
+        .get_or_create_conversation("telegram", "user1", "trader")
+        .await
+        .unwrap();
+
+    // Close only the trader project conversation.
+    let closed = store
+        .close_current_conversation("telegram", "user1", "trader")
+        .await
+        .unwrap();
+    assert!(closed, "should close trader conversation");
+
+    // Personal conversation should still be active.
+    let personal_again = store
+        .get_or_create_conversation("telegram", "user1", "")
+        .await
+        .unwrap();
+    assert_eq!(
+        personal_again, _personal,
+        "personal conversation should still be active"
+    );
+
+    // Trader should get a new conversation.
+    let trader_new = store
+        .get_or_create_conversation("telegram", "user1", "trader")
+        .await
+        .unwrap();
+    assert_ne!(
+        trader_new, _trader,
+        "closed trader should create new conversation"
+    );
+}
+
+#[tokio::test]
+async fn test_find_idle_conversations_includes_project() {
+    let store = test_store().await;
+
+    // Manually insert an old conversation with a project.
+    sqlx::query(
+        "INSERT INTO conversations (id, channel, sender_id, project, status, last_activity) \
+         VALUES ('old1', 'telegram', 'user1', 'trader', 'active', datetime('now', '-3 hours'))",
+    )
+    .execute(store.pool())
+    .await
+    .unwrap();
+
+    let idle = store.find_idle_conversations().await.unwrap();
+    assert_eq!(idle.len(), 1);
+    assert_eq!(idle[0].0, "old1");
+    assert_eq!(idle[0].3, "trader", "should include project field");
+}

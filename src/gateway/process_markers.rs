@@ -198,7 +198,7 @@ impl Gateway {
         if has_forget_marker(text) {
             match self
                 .memory
-                .close_current_conversation(&incoming.channel, &incoming.sender_id)
+                .close_current_conversation(&incoming.channel, &incoming.sender_id, project)
                 .await
             {
                 Ok(true) => info!("conversation cleared via marker for {}", incoming.sender_id),
@@ -208,9 +208,10 @@ impl Gateway {
                 Err(e) => error!("failed to clear conversation via marker: {e}"),
             }
             // Clear CLI session — next message starts fresh.
-            if let Ok(mut sessions) = self.cli_sessions.lock() {
-                sessions.remove(&format!("{}:{}", incoming.channel, incoming.sender_id));
-            }
+            let _ = self
+                .memory
+                .clear_session(&incoming.channel, &incoming.sender_id, project)
+                .await;
             *text = strip_forget_marker(text);
         }
 

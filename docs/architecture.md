@@ -250,7 +250,7 @@ While Claude works, the gateway sends delayed status messages to keep the user i
 
 ### 6.1 Capture Session ID
 
-Store the returned `session_id` in the `cli_sessions` map (keyed by `channel:sender_id`). The next message from this sender will use `--resume` with this ID.
+Store the returned `session_id` in SQLite via `store_session(channel, sender_id, project, session_id)`, keyed by `(channel, sender_id, project)`. The next message from this sender in the same project will use `--resume` with this ID. Sessions survive process restarts and are isolated per project.
 
 ### 6.2 Process Markers
 
@@ -305,7 +305,7 @@ If other messages from this sender were buffered during processing, pop and proc
 
 ## Session-Based Prompt Persistence
 
-The Claude Code CLI supports session continuity to avoid re-sending the full system prompt on every message.
+The Claude Code CLI supports session continuity to avoid re-sending the full system prompt on every message. Sessions are persisted in SQLite (the `project_sessions` table) and scoped per `(channel, sender_id, project)`.
 
 ### How It Works
 
@@ -313,25 +313,40 @@ The Claude Code CLI supports session continuity to avoid re-sending the full sys
 
 2. **Subsequent messages:** Gateway sets `Context.session_id`. The provider passes `--resume <session_id>`. System prompt is replaced with a minimal context update (current time + keyword-gated sections only). History is cleared (already in the CLI session). **Token savings: ~90-99%.**
 
-3. **Invalidation:** Session ID is cleared on `/forget`, `FORGET_CONVERSATION` marker, idle timeout, or provider error.
+3. **Invalidation:** Session ID is cleared on `/forget`, `FORGET_CONVERSATION` marker, idle timeout, or provider error. `/forget` clears the session for the current project only; a full sender reset clears all project sessions.
 
 4. **Fallback:** If a session-based call fails, the gateway retries with a fresh full-context call. The user never sees the failure.
 
+### Project-Scoped Sessions
+
+Sessions are stored in SQLite via the `project_sessions` table (migration 012), keyed by `(channel, sender_id, project)`. This replaces the previous in-memory `HashMap<String, String>`.
+
+**Key behaviors:**
+- **Restart survival:** Sessions persist across process restarts — no lost context on service bounce.
+- **Project isolation:** Each project gets its own CLI session. Switching from project A to project B does not kill project A's session. Returning to project A resumes via `--resume`.
+- **Conversations are also project-scoped:** The `conversations` table carries a `project` column, so conversation history is isolated per project.
+
 ```
-Gateway                          Provider (Claude Code CLI)
-  |                                    |
-  |-- Context(session_id: None) ------>|  First call: full prompt
-  |<-- MessageMetadata(session_id) ----|  Returns session_id
-  |                                    |
-  |  [stores session_id per user]      |
-  |                                    |
-  |-- Context(session_id: "abc") ----->|  Continuation: minimal prompt
-  |<-- MessageMetadata(session_id) ----|  Same or new session_id
-  |                                    |
-  |  [/forget or error]                |
-  |  [clears session_id]               |
-  |                                    |
-  |-- Context(session_id: None) ------>|  Fresh full prompt (new session)
+Gateway                          SQLite                Provider (Claude Code CLI)
+  |                                 |                        |
+  |-- get_session(ch, sid, proj) -->|                        |
+  |<-- None                         |                        |
+  |                                 |                        |
+  |-- Context(session_id: None) ----|----------------------->|  First call: full prompt
+  |<-- MessageMetadata(session_id) -|------------------------|  Returns session_id
+  |                                 |                        |
+  |-- store_session(ch,sid,proj,s)->|  Persisted to SQLite   |
+  |                                 |                        |
+  |-- get_session(ch, sid, proj) -->|                        |
+  |<-- Some("abc")                  |                        |
+  |                                 |                        |
+  |-- Context(session_id: "abc") ---|----------------------->|  Continuation: minimal prompt
+  |<-- MessageMetadata(session_id) -|------------------------|  Same or new session_id
+  |                                 |                        |
+  |  [/forget or error]             |                        |
+  |-- clear_session(ch,sid,proj) -->|  Removed from SQLite   |
+  |                                 |                        |
+  |-- Context(session_id: None) ----|----------------------->|  Fresh full prompt (new session)
 ```
 
 **Scope:** Claude Code CLI only. HTTP-based providers always receive the full context — they have no session mechanism.

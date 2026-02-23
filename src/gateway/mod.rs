@@ -55,9 +55,6 @@ pub struct Gateway {
     pub(super) active_senders: Mutex<HashMap<String, Vec<IncomingMessage>>>,
     /// Shared heartbeat interval (minutes) — updated at runtime via `HEARTBEAT_INTERVAL:` marker.
     pub(super) heartbeat_interval: Arc<AtomicU64>,
-    /// Active CLI sessions per sender (channel:sender_id → session_id).
-    /// Used for session-based prompt persistence with Claude Code CLI.
-    pub(super) cli_sessions: Arc<std::sync::Mutex<HashMap<String, String>>>,
     /// Path to config.toml — used for persisting runtime changes (e.g. heartbeat interval).
     pub(super) config_path: String,
 }
@@ -101,7 +98,6 @@ impl Gateway {
             model_complex,
             active_senders: Mutex::new(HashMap::new()),
             heartbeat_interval,
-            cli_sessions: Arc::new(std::sync::Mutex::new(HashMap::new())),
             config_path,
         }
     }
@@ -160,10 +156,8 @@ impl Gateway {
         let bg_provider = self.provider.clone();
         let bg_summarize = self.prompts.summarize.clone();
         let bg_facts = self.prompts.facts.clone();
-        let bg_sessions = self.cli_sessions.clone();
         let bg_handle = tokio::spawn(async move {
-            Self::background_summarizer(bg_store, bg_provider, bg_summarize, bg_facts, bg_sessions)
-                .await;
+            Self::background_summarizer(bg_store, bg_provider, bg_summarize, bg_facts).await;
         });
 
         // Spawn scheduler loop.
@@ -363,7 +357,7 @@ impl Gateway {
         // Summarize all active conversations.
         match self.memory.find_all_active_conversations().await {
             Ok(convos) => {
-                for (conv_id, _channel, _sender_id) in &convos {
+                for (conv_id, _channel, _sender_id, _project) in &convos {
                     if let Err(e) = Self::summarize_conversation(
                         &self.memory,
                         &self.provider,

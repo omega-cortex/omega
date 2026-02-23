@@ -262,65 +262,91 @@ impl Gateway {
         context.mcp_servers = mcp_servers;
 
         // --- 4c. SESSION-BASED PROMPT PERSISTENCE (Claude Code CLI only) ---
-        let sender_key = format!("{}:{}", incoming.channel, incoming.sender_id);
+        let project_key = active_project.as_deref().unwrap_or("");
         let full_system_prompt = context.system_prompt.clone();
         let full_history = context.history.clone();
 
         if self.provider.name() == "claude-code" {
-            if let Ok(sessions) = self.cli_sessions.lock() {
-                if let Some(sid) = sessions.get(&sender_key) {
-                    context.session_id = Some(sid.clone());
+            if let Ok(Some(sid)) = self
+                .memory
+                .get_session(&incoming.channel, &incoming.sender_id, project_key)
+                .await
+            {
+                context.session_id = Some(sid);
 
-                    let mut minimal = format!(
-                        "Current time: {}",
-                        chrono::Local::now().format("%Y-%m-%d %H:%M %Z")
-                    );
-                    if needs_scheduling {
-                        minimal.push_str("\n\n");
-                        minimal.push_str(&self.prompts.scheduling);
-                    }
-                    if needs_projects {
-                        minimal.push_str("\n\n");
-                        minimal.push_str(&self.prompts.projects_rules);
-                    }
-                    if needs_meta {
-                        minimal.push_str("\n\n");
-                        minimal.push_str(&self.prompts.meta);
-                    }
+                let mut minimal = format!(
+                    "Current time: {}",
+                    chrono::Local::now().format("%Y-%m-%d %H:%M %Z")
+                );
+                if needs_scheduling {
+                    minimal.push_str("\n\n");
+                    minimal.push_str(&self.prompts.scheduling);
+                }
+                if needs_projects {
+                    minimal.push_str("\n\n");
+                    minimal.push_str(&self.prompts.projects_rules);
+                }
+                if needs_meta {
+                    minimal.push_str("\n\n");
+                    minimal.push_str(&self.prompts.meta);
+                }
 
-                    // Project awareness + active ROLE.md in continuations
-                    if !projects.is_empty() {
-                        let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
-                        let active_note = match active_project.as_deref() {
-                            Some(ap) => format!(" (active: {ap})"),
-                            None => String::new(),
-                        };
+                // Project awareness + active ROLE.md in continuations
+                if !projects.is_empty() {
+                    let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
+                    let active_note = match active_project.as_deref() {
+                        Some(ap) => format!(" (active: {ap})"),
+                        None => String::new(),
+                    };
+                    minimal.push_str(&format!(
+                        "\n\nAvailable projects: [{}]{}.",
+                        names.join(", "),
+                        active_note,
+                    ));
+                }
+                if let Some(ref project_name) = active_project {
+                    if let Some(proj) = projects.iter().find(|p| &p.name == project_name) {
                         minimal.push_str(&format!(
-                            "\n\nAvailable projects: [{}]{}.",
-                            names.join(", "),
-                            active_note,
+                            "\n\n---\n\n[Active project: {project_name}]\n{}",
+                            proj.instructions
                         ));
-                    }
-                    if let Some(ref project_name) = active_project {
-                        if let Some(instructions) =
-                            omega_skills::get_project_instructions(&projects, project_name)
-                        {
-                            minimal.push_str(&format!(
-                                "\n\n---\n\n[Active project: {project_name}]\n{instructions}"
-                            ));
+                        // Inject project-declared skills
+                        if !proj.skills.is_empty() {
+                            let project_skills: Vec<_> = self
+                                .skills
+                                .iter()
+                                .filter(|s| proj.skills.contains(&s.name))
+                                .collect();
+                            if !project_skills.is_empty() {
+                                minimal.push_str("\n\n[Project skills]");
+                                for s in &project_skills {
+                                    let status = if s.available {
+                                        "installed"
+                                    } else {
+                                        "not installed"
+                                    };
+                                    minimal.push_str(&format!(
+                                        "\n- {} [{}]: {} → Read {}",
+                                        s.name,
+                                        status,
+                                        s.description,
+                                        s.path.display()
+                                    ));
+                                }
+                            }
                         }
                     }
-
-                    context.system_prompt = minimal;
-                    context.history.clear();
-
-                    info!(
-                        "[{}] system prompt: ~{} tokens ({} chars) [session continuation]",
-                        incoming.channel,
-                        context.system_prompt.len() / 4,
-                        context.system_prompt.len()
-                    );
                 }
+
+                context.system_prompt = minimal;
+                context.history.clear();
+
+                info!(
+                    "[{}] system prompt: ~{} tokens ({} chars) [session continuation]",
+                    incoming.channel,
+                    context.system_prompt.len() / 4,
+                    context.system_prompt.len()
+                );
             }
         }
 
@@ -337,11 +363,11 @@ impl Gateway {
         self.handle_direct_response(
             &incoming,
             context,
-            &sender_key,
             full_system_prompt,
             full_history,
             typing_handle,
             active_project.as_deref(),
+            project_key,
         )
         .await;
 
@@ -419,12 +445,36 @@ impl Gateway {
         // Active project ROLE.md — always injected when a project is active
         // (not gated by needs_projects — that gates management rules only)
         if let Some(project_name) = active_project {
-            if let Some(instructions) =
-                omega_skills::get_project_instructions(projects, project_name)
-            {
+            if let Some(proj) = projects.iter().find(|p| p.name == project_name) {
                 prompt.push_str(&format!(
-                    "\n\n---\n\n[Active project: {project_name}]\n{instructions}"
+                    "\n\n---\n\n[Active project: {project_name}]\n{}",
+                    proj.instructions
                 ));
+                // Inject project-declared skills
+                if !proj.skills.is_empty() {
+                    let project_skills: Vec<_> = self
+                        .skills
+                        .iter()
+                        .filter(|s| proj.skills.contains(&s.name))
+                        .collect();
+                    if !project_skills.is_empty() {
+                        prompt.push_str("\n\n[Project skills]");
+                        for s in &project_skills {
+                            let status = if s.available {
+                                "installed"
+                            } else {
+                                "not installed"
+                            };
+                            prompt.push_str(&format!(
+                                "\n- {} [{}]: {} → Read {}",
+                                s.name,
+                                status,
+                                s.description,
+                                s.path.display()
+                            ));
+                        }
+                    }
+                }
             }
         }
 

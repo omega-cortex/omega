@@ -5,7 +5,7 @@ use omega_core::error::OmegaError;
 use uuid::Uuid;
 
 impl Store {
-    /// Get or create an active conversation for a given channel + sender.
+    /// Get or create an active conversation for a given channel + sender + project.
     ///
     /// Only returns conversations that are `active` AND have `last_activity`
     /// within the timeout window. Otherwise creates a new one.
@@ -13,16 +13,18 @@ impl Store {
         &self,
         channel: &str,
         sender_id: &str,
+        project: &str,
     ) -> Result<String, OmegaError> {
         // Find active conversation within the timeout window.
         let row: Option<(String,)> = sqlx::query_as(
             "SELECT id FROM conversations \
-             WHERE channel = ? AND sender_id = ? AND status = 'active' \
+             WHERE channel = ? AND sender_id = ? AND project = ? AND status = 'active' \
              AND datetime(last_activity) > datetime('now', ? || ' minutes') \
              ORDER BY last_activity DESC LIMIT 1",
         )
         .bind(channel)
         .bind(sender_id)
+        .bind(project)
         .bind(-CONVERSATION_TIMEOUT_MINUTES)
         .fetch_optional(&self.pool)
         .await
@@ -43,12 +45,13 @@ impl Store {
         // Create new conversation.
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO conversations (id, channel, sender_id, status, last_activity) \
-             VALUES (?, ?, ?, 'active', datetime('now'))",
+            "INSERT INTO conversations (id, channel, sender_id, project, status, last_activity) \
+             VALUES (?, ?, ?, ?, 'active', datetime('now'))",
         )
         .bind(&id)
         .bind(channel)
         .bind(sender_id)
+        .bind(project)
         .execute(&self.pool)
         .await
         .map_err(|e| OmegaError::Memory(format!("insert failed: {e}")))?;
@@ -59,9 +62,9 @@ impl Store {
     /// Find active conversations that have been idle beyond the timeout.
     pub async fn find_idle_conversations(
         &self,
-    ) -> Result<Vec<(String, String, String)>, OmegaError> {
-        let rows: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT id, channel, sender_id FROM conversations \
+    ) -> Result<Vec<(String, String, String, String)>, OmegaError> {
+        let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+            "SELECT id, channel, sender_id, project FROM conversations \
              WHERE status = 'active' \
              AND datetime(last_activity) <= datetime('now', ? || ' minutes')",
         )
@@ -76,9 +79,9 @@ impl Store {
     /// Find all active conversations (for shutdown).
     pub async fn find_all_active_conversations(
         &self,
-    ) -> Result<Vec<(String, String, String)>, OmegaError> {
-        let rows: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT id, channel, sender_id FROM conversations WHERE status = 'active'",
+    ) -> Result<Vec<(String, String, String, String)>, OmegaError> {
+        let rows: Vec<(String, String, String, String)> = sqlx::query_as(
+            "SELECT id, channel, sender_id, project FROM conversations WHERE status = 'active'",
         )
         .fetch_all(&self.pool)
         .await
@@ -122,18 +125,20 @@ impl Store {
         Ok(())
     }
 
-    /// Close the current active conversation for a sender (for /forget).
+    /// Close the current active conversation for a sender + project (for /forget).
     pub async fn close_current_conversation(
         &self,
         channel: &str,
         sender_id: &str,
+        project: &str,
     ) -> Result<bool, OmegaError> {
         let result = sqlx::query(
             "UPDATE conversations SET status = 'closed', updated_at = datetime('now') \
-             WHERE channel = ? AND sender_id = ? AND status = 'active'",
+             WHERE channel = ? AND sender_id = ? AND project = ? AND status = 'active'",
         )
         .bind(channel)
         .bind(sender_id)
+        .bind(project)
         .execute(&self.pool)
         .await
         .map_err(|e| OmegaError::Memory(format!("update failed: {e}")))?;

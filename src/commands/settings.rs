@@ -124,7 +124,7 @@ pub(super) async fn handle_projects(
 /// Handle /project — activate, deactivate, or show current project.
 pub(super) async fn handle_project(
     store: &Store,
-    channel: &str,
+    _channel: &str,
     sender_id: &str,
     text: &str,
     projects: &[omega_skills::Project],
@@ -146,27 +146,19 @@ pub(super) async fn handle_project(
     }
 
     if arg == "off" {
-        // Deactivate.
+        // Deactivate — session persists in SQLite for later resume.
         match store.delete_fact(sender_id, "active_project").await {
-            Ok(true) => {
-                // Close conversation for a clean context.
-                let _ = store.close_current_conversation(channel, sender_id).await;
-                i18n::t("project_deactivated", lang).to_string()
-            }
+            Ok(true) => i18n::t("project_deactivated", lang).to_string(),
             Ok(false) => i18n::t("no_active_project", lang).to_string(),
             Err(e) => format!("Error: {e}"),
         }
     } else {
-        // Activate a project.
+        // Activate — old project's session persists for future resume.
         if omega_skills::get_project_instructions(projects, &arg).is_none() {
             return i18n::project_not_found(lang, &arg);
         }
         match store.store_fact(sender_id, "active_project", &arg).await {
-            Ok(()) => {
-                // Close conversation for a clean context.
-                let _ = store.close_current_conversation(channel, sender_id).await;
-                i18n::project_activated(lang, &arg)
-            }
+            Ok(()) => i18n::project_activated(lang, &arg),
             Err(e) => format!("Error: {e}"),
         }
     }
