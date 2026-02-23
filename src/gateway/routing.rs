@@ -14,8 +14,9 @@ use tracing::{error, info, warn};
 impl Gateway {
     /// Classify a message and route to the appropriate model.
     ///
-    /// Always runs a fast Sonnet classification call. Returns parsed steps for
-    /// complex tasks or `None` for simple/direct responses.
+    /// Currently disabled for conversations (all go DIRECT). Kept for future
+    /// re-enablement. Still used conceptually by heartbeat (separate classifier).
+    #[allow(dead_code)]
     pub(super) async fn classify_and_route(
         &self,
         message: &str,
@@ -60,6 +61,7 @@ impl Gateway {
     }
 
     /// Execute a list of steps autonomously, with progress updates and retry.
+    #[allow(dead_code)]
     pub(super) async fn execute_steps(
         &self,
         incoming: &IncomingMessage,

@@ -324,43 +324,10 @@ impl Gateway {
             }
         }
 
-        // --- 5. AUTONOMOUS CLASSIFICATION & MODEL ROUTING ---
-        // Always pass full_history to the classifier — context.history may be empty
-        // during session continuation (cleared at step 4c), leaving the classifier
-        // blind to conversation context and causing misroutes.
-        let skill_names: Vec<&str> = self.skills.iter().map(|s| s.name.as_str()).collect();
-        if let Some(steps) = self
-            .classify_and_route(
-                &clean_incoming.text,
-                active_project.as_deref(),
-                &full_history,
-                &skill_names,
-            )
-            .await
-        {
-            info!(
-                "[{}] classification: {} steps → model {}",
-                incoming.channel,
-                steps.len(),
-                self.model_complex
-            );
-            context.model = Some(self.model_complex.clone());
-            self.execute_steps(
-                &incoming,
-                &clean_incoming.text,
-                &context,
-                &steps,
-                active_project.as_deref(),
-            )
-            .await;
-
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            return;
-        }
-
-        // Direct response → Sonnet handles it.
+        // --- 5. MODEL ROUTING ---
+        // Classification disabled for conversations — all user messages go DIRECT
+        // to avoid stochastic misroutes and the ~9s classification overhead.
+        // Heartbeat has its own classifier in heartbeat.rs (unchanged).
         info!(
             "[{}] classification: DIRECT → model {}",
             incoming.channel, self.model_fast
