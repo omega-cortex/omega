@@ -554,7 +554,7 @@ The system prompt is not hardcoded. It lives at `~/.omega/SYSTEM_PROMPT.md` (aut
 
 **Static base** (from file, three sections):
 - **Identity** — autonomous executor with concrete behavioral examples ("You are an agent that DOES things")
-- **Soul** — personality, context-aware tone, explicit boundaries, emoji policy
+- **Soul** — personality, context-aware tone, explicit boundaries (behavioral details learned via reward system)
 - **System** — operational rules, group chat participation, marker instructions
 
 **Dynamic enrichment** (from memory + context):

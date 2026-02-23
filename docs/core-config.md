@@ -335,7 +335,7 @@ impl Default for MemoryConfig {
 
 On first startup, Omega automatically deploys two template files to `data_dir` (default `~/.omega/`):
 
-- **`SYSTEM_PROMPT.md`** — The system prompt with three main sections (`## Identity`, `## Soul`, `## System`) plus auxiliary sections (Summarize, Facts, Heartbeat, Heartbeat Checklist). Identity defines the agent as an autonomous executor with concrete behavioral examples. Soul defines personality, context-aware tone (precise for code, patient for personal), explicit boundaries (privacy, half-baked replies, human-judgment escalation), and emoji policy. System defines operational rules including group chat participation guidelines. Edit this file to customize the AI's behavior.
+- **`SYSTEM_PROMPT.md`** — The system prompt with three main sections (`## Identity`, `## Soul`, `## System`) plus auxiliary sections (Summarize, Facts, Heartbeat, Heartbeat Checklist). Identity defines the agent as an autonomous executor with concrete behavioral examples. Soul defines personality, context-aware tone (precise for code, patient for personal), and explicit boundaries (privacy, half-baked replies, human-judgment escalation). System defines operational rules including reward-based learning awareness and marker instructions. Edit this file to customize the AI's behavior.
 - **`WELCOME.toml`** — Privacy-focused welcome messages in 8 languages (English, Spanish, Portuguese, French, German, Italian, Dutch, Russian). Edit this file to customize the greeting users receive.
 
 These files are embedded in the binary at compile time from the `prompts/` directory in the repository. On startup, `install_bundled_prompts()` writes them to `data_dir` only if they don't already exist — **user edits are never overwritten**.
