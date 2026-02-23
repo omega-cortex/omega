@@ -398,13 +398,7 @@ mod tests {
 
     #[test]
     fn test_generate_config_full() {
-        let config = generate_config(
-            "123:ABC",
-            &[42],
-            Some("sk-key"),
-            true,
-            Some("me@gmail.com"),
-        );
+        let config = generate_config("123:ABC", &[42], Some("sk-key"), true, Some("me@gmail.com"));
         assert!(config.contains("bot_token = \"123:ABC\""));
         assert!(config.contains("allowed_users = [42]"));
         assert!(
@@ -502,5 +496,4 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid user ID"));
     }
-
 }

@@ -32,11 +32,7 @@ pub struct GeminiProvider {
 
 impl GeminiProvider {
     /// Create from config values.
-    pub fn from_config(
-        api_key: String,
-        model: String,
-        workspace_path: Option<PathBuf>,
-    ) -> Self {
+    pub fn from_config(api_key: String, model: String, workspace_path: Option<PathBuf>) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_key,
@@ -478,11 +474,7 @@ mod tests {
 
     #[test]
     fn test_gemini_provider_name() {
-        let p = GeminiProvider::from_config(
-            "AIza-test".into(),
-            "gemini-2.0-flash".into(),
-            None,
-        );
+        let p = GeminiProvider::from_config("AIza-test".into(), "gemini-2.0-flash".into(), None);
         assert_eq!(p.name(), "gemini");
         assert!(p.requires_api_key());
     }

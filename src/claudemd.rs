@@ -153,11 +153,7 @@ pub async fn claudemd_loop(
 }
 
 /// Run `claude -p` as a direct subprocess for CLAUDE.md maintenance.
-async fn run_claude(
-    prompt: &str,
-    workspace: &Path,
-    data_dir: &Path,
-) -> Result<(), String> {
+async fn run_claude(prompt: &str, workspace: &Path, data_dir: &Path) -> Result<(), String> {
     let mut cmd = omega_sandbox::protected_command("claude", data_dir);
     cmd.current_dir(workspace)
         .env_remove("CLAUDECODE")

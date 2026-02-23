@@ -30,11 +30,7 @@ pub struct OllamaProvider {
 
 impl OllamaProvider {
     /// Create from config values.
-    pub fn from_config(
-        base_url: String,
-        model: String,
-        workspace_path: Option<PathBuf>,
-    ) -> Self {
+    pub fn from_config(base_url: String, model: String, workspace_path: Option<PathBuf>) -> Self {
         Self {
             client: reqwest::Client::new(),
             base_url,
@@ -403,11 +399,7 @@ mod tests {
 
     #[test]
     fn test_ollama_provider_name() {
-        let p = OllamaProvider::from_config(
-            "http://localhost:11434".into(),
-            "llama3".into(),
-            None,
-        );
+        let p = OllamaProvider::from_config("http://localhost:11434".into(), "llama3".into(), None);
         assert_eq!(p.name(), "ollama");
         assert!(!p.requires_api_key());
     }

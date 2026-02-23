@@ -34,11 +34,7 @@ pub struct OpenRouterProvider {
 
 impl OpenRouterProvider {
     /// Create from config values.
-    pub fn from_config(
-        api_key: String,
-        model: String,
-        workspace_path: Option<PathBuf>,
-    ) -> Self {
+    pub fn from_config(api_key: String, model: String, workspace_path: Option<PathBuf>) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_key,
