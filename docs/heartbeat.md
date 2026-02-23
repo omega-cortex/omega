@@ -17,6 +17,8 @@ The heartbeat runs as a background loop inside the gateway, firing at clock-alig
    - **Recent conversation summaries** (last 3 closed conversations) — gives the AI context about recent activity.
    - **Learned behavioral rules** (all distilled lessons across all users) — prevents repeating mistakes the system has already learned from (e.g., "user trains Saturday mornings, no need to nag after 12:00").
    - **Recent outcomes** (last 24h, up to 20 entries across all users) — gives the AI awareness of what happened recently and whether interventions were helpful (+1), neutral (0), or annoying (-1).
+
+   **Important:** Enrichment is injected BEFORE the checklist template in the prompt, not after. This ensures learned behavioral rules (especially output format constraints) frame the AI's approach before it encounters detailed checklist instructions. Without this ordering, verbose checklist items can overwhelm single-line behavioral lessons.
 4. **Compose system prompt** -- The heartbeat attaches the full Identity/Soul/System prompt (plus sandbox constraints if applicable) to the provider call. Computed once and shared across all groups.
 5. **Classify by domain** -- A fast Sonnet classification call (no tools) groups related checklist items by domain. If all items are closely related or there are 3 or fewer items, the classifier returns DIRECT and a single Opus call handles everything. Otherwise, items are grouped (e.g., trading tasks together, personal reminders together, system monitoring together).
 6. **Execute groups in parallel** -- Each group gets its own focused Opus session via `tokio::spawn`. Related items stay together (5 trading items = 1 call), unrelated domains are separated (crypto vs training = 2 concurrent calls). MCP servers are matched per-group so each group gets only the tools it needs. For DIRECT, a single Opus call processes the full checklist (unchanged behavior).
@@ -56,6 +58,8 @@ This prevents notification fatigue. Without suppression, you would receive a mes
 **Content-aware suppression:** The gateway strips `HEARTBEAT_OK` from the response and checks if meaningful content remains. If the AI included both a user-facing message (e.g., a training reminder) and `HEARTBEAT_OK`, the reminder is still delivered -- only the `HEARTBEAT_OK` token is removed. This prevents accountability items from being silently swallowed when the AI mistakenly appends `HEARTBEAT_OK` to a response that should reach the user.
 
 **Prompt enforcement:** The heartbeat checklist prompt explicitly instructs the AI that items requiring user interaction (reminders, accountability, motivation) are NEVER "fine" and always require notification. The AI must NOT respond with `HEARTBEAT_OK` when any checklist item involves reminding, pushing, or motivating the user.
+
+**Learned rule override:** The heartbeat checklist template includes an OUTPUT FORMAT override block. When the AI has learned behavioral rules about output verbosity (e.g., "heartbeat reports must be minimal"), those rules are BINDING and override the default checklist behavior. This prevents a pattern where detailed checklist instructions drown out learned brevity rules. The override is enforced by injecting enrichment (including lessons) before the checklist in the prompt, and by an explicit directive in the template that says learned rules take precedence.
 
 ## Active Hours
 
@@ -191,8 +195,8 @@ The heartbeat is split across two files:
 
 | File | Responsibility |
 |------|---------------|
-| `src/gateway/heartbeat.rs` | Main heartbeat loop, clock alignment, global + per-project execution |
-| `src/gateway/heartbeat_helpers.rs` | Shared helpers: enrichment building, classification, group execution, marker processing |
+| `src/gateway/heartbeat.rs` | Main heartbeat loop, clock alignment, global + per-project execution, prompt assembly (enrichment-first ordering) |
+| `src/gateway/heartbeat_helpers.rs` | Shared helpers: enrichment building, system prompt composition, marker processing, result delivery |
 
 The extraction of helpers keeps the main loop readable while concentrating reusable logic (enrichment assembly, Sonnet classification, parallel group execution) in a focused module.
 
@@ -209,7 +213,7 @@ After running the global heartbeat (`~/.omega/prompts/HEARTBEAT.md`), the heartb
 1. **Scan active projects** -- The heartbeat queries all users' `active_project` facts via `get_all_facts_by_key("active_project")` to find projects with engaged users
 2. **Check for HEARTBEAT.md** -- For each active project, check if `~/.omega/projects/<name>/HEARTBEAT.md` exists and has content
 3. **Load ROLE.md** -- The project's `ROLE.md` is prepended to the system prompt, giving the AI project-specific role context
-4. **Scoped enrichment** -- Lessons and outcomes are loaded with the project filter: project-specific entries first, general entries fill the rest
+4. **Scoped enrichment** -- Lessons and outcomes are loaded with the project filter: project-specific entries first, general entries fill the rest. Enrichment is injected before the checklist template so learned rules frame behavior
 5. **Execute** -- The same classify-then-route pattern applies: Sonnet groups items by domain, Opus executes groups in parallel
 6. **Scoped markers** -- Any `REWARD:` or `LESSON:` markers emitted during project heartbeat execution are tagged with the project name
 

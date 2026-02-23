@@ -890,7 +890,7 @@ At each clock-aligned boundary (e.g. :00 and :30 for a 30-minute interval), the 
    - **Recent conversation summaries** from `memory.get_all_recent_summaries(3)`.
    - **Learned behavioral rules** from `memory.get_all_lessons()` (all distilled lessons across all users).
    - **Recent outcomes** from `memory.get_all_recent_outcomes(24, 20)` (last 24h, up to 20 entries).
-   This gives the AI provider awareness of who the user is, what they've been working on, what behavioral rules have been learned, and how recent interactions went.
+   This gives the AI provider awareness of who the user is, what they've been working on, what behavioral rules have been learned, and how recent interactions went. **Enrichment is injected BEFORE the checklist template** in the prompt so learned behavioral rules (especially output format constraints) frame the AI's approach before it encounters detailed instructions. The heartbeat template includes an OUTPUT FORMAT override block that makes learned rules binding over default verbosity.
 4. **System Prompt** -- Composes the full Identity/Soul/System prompt (plus sandbox constraints) and attaches it to the context, ensuring the AI has proper role boundaries during heartbeat calls.
 5. **Model & MCP** -- Sets the Opus model (`model_complex`) for powerful active execution. Matches skill triggers on checklist content to inject relevant MCP servers.
 6. **Provider Call** -- Sends the enriched prompt with the full system prompt to the AI provider for active execution.

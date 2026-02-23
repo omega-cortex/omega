@@ -276,8 +276,11 @@ async fn execute_heartbeat_group(
     interval: Arc<AtomicU64>,
     project: String,
 ) -> Option<(String, i64)> {
-    let mut prompt = heartbeat_template.replace("{checklist}", &group_items);
-    prompt.push_str(&enrichment);
+    // Enrichment (facts, lessons, outcomes) goes BEFORE the checklist so learned
+    // behavioral rules frame the AI's approach before it encounters detailed instructions.
+    let mut prompt = enrichment;
+    prompt.push('\n');
+    prompt.push_str(&heartbeat_template.replace("{checklist}", &group_items));
 
     let mut ctx = Context::new(&prompt);
     ctx.system_prompt = system_prompt;

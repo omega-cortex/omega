@@ -133,7 +133,7 @@ All lessons are injected into every conversation context and every heartbeat enr
 | Context | Outcomes | Lessons |
 |---------|----------|---------|
 | Regular conversation | Last 15 (per user, relative timestamps) | All (per user) |
-| Heartbeat enrichment | Last 24h (all users, up to 20) | All (all users) |
+| Heartbeat enrichment | Last 24h (all users, up to 20) | All (all users, injected BEFORE checklist) |
 
 ### Marker Processing
 
@@ -173,6 +173,8 @@ Gateway upserts lesson (occurrences++), strips marker
     v
 All future interactions see this rule → OMEGA adapts behavior
 ```
+
+**Heartbeat prompt ordering:** In heartbeat execution, enrichment (including lessons) is injected BEFORE the checklist template. This ensures learned behavioral rules frame the AI's approach before encountering detailed checklist instructions. The heartbeat template also includes an OUTPUT FORMAT override block that makes learned rules binding over default verbosity.
 
 ### Project-Scoped Learning
 

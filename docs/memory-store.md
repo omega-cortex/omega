@@ -420,7 +420,7 @@ let lessons = store.get_all_lessons().await?;
 Both outcomes and lessons are injected into every AI provider context, with project-aware layering:
 
 - **Regular conversations**: Last 15 outcomes and all lessons for the current user, scoped to the active project. Project-specific entries appear first, general entries fill the rest. Appended to the system prompt via `build_system_prompt()`.
-- **Heartbeat enrichment**: All lessons across all users and outcomes from the last 24 hours are included in the heartbeat context via `build_enrichment()`. Per-project heartbeats use project-scoped queries.
+- **Heartbeat enrichment**: All lessons across all users and outcomes from the last 24 hours are included in the heartbeat context via `build_enrichment()`. Enrichment is injected BEFORE the checklist template in the prompt so learned rules (especially output format constraints) frame behavior before detailed instructions. Per-project heartbeats use project-scoped queries.
 
 This gives OMEGA continuous awareness of what worked, what did not, and what behavioral rules it has learned -- informing every future interaction.
 

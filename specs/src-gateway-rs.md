@@ -353,7 +353,7 @@ If sandbox:        + sandbox constraint (unchanged)
 **Purpose:** Fast Sonnet classification that groups related checklist items by domain. Returns `None` for DIRECT (all items closely related or ≤3 items). Returns `Some(groups)` when items span different domains. Reuses `parse_plan_response()` for parsing. On failure, returns `None` (safe fallback).
 
 #### `async fn execute_heartbeat_group(provider, model_complex, group_items, heartbeat_template, enrichment, system_prompt, skills, memory, sender_id, channel_name, interval, project) -> Option<(String, i64)>`
-**Purpose:** Execute a single heartbeat group via Opus. Builds the prompt from the heartbeat template with the group's items, enriches with pre-computed context, matches MCP servers per group, calls the provider, processes markers via `process_heartbeat_markers()` (with `project` scope), and evaluates HEARTBEAT_OK. Returns `None` if OK, `Some((text, elapsed_ms))` if content for the user.
+**Purpose:** Execute a single heartbeat group via Opus. Builds the prompt with enrichment FIRST (facts, lessons, outcomes), then the heartbeat template with the group's items. This ordering ensures learned behavioral rules frame the AI's approach before encountering detailed checklist instructions. Matches MCP servers per group, calls the provider, processes markers via `process_heartbeat_markers()` (with `project` scope), and evaluates HEARTBEAT_OK. Returns `None` if OK, `Some((text, elapsed_ms))` if content for the user.
 
 ### Heartbeat Helper Functions (heartbeat_helpers.rs)
 
