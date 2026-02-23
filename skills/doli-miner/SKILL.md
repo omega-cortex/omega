@@ -23,25 +23,25 @@ Download pre-built binaries from [GitHub Releases](https://github.com/e-weil/dol
 
 **macOS (Apple Silicon):**
 ```bash
-sudo installer -pkg doli-v0.3.2-aarch64-apple-darwin.pkg -target /
+sudo installer -pkg doli-VERSION-aarch64-apple-darwin.pkg -target /
 ```
 
 **Ubuntu/Debian:**
 ```bash
-curl -LO https://github.com/e-weil/doli/releases/latest/download/doli-v0.3.2-x86_64-unknown-linux-gnu.deb
-sudo dpkg -i doli-v0.3.2-*.deb
+curl -LO https://github.com/e-weil/doli/releases/latest/download/doli-VERSION-x86_64-unknown-linux-gnu.deb
+sudo dpkg -i doli-VERSION-*.deb
 ```
 
 **Fedora/RHEL:**
 ```bash
-curl -LO https://github.com/e-weil/doli/releases/latest/download/doli-v0.3.2-x86_64-unknown-linux-gnu.rpm
-sudo rpm -i doli-v0.3.2-*.rpm
+curl -LO https://github.com/e-weil/doli/releases/latest/download/doli-VERSION-x86_64-unknown-linux-gnu.rpm
+sudo rpm -i doli-VERSION-*.rpm
 ```
 
 **From tarball (any platform):**
 ```bash
-tar -xzf doli-v0.3.2-*.tar.gz
-sudo cp doli-v0.3.2-*/doli-node doli-v0.3.2-*/doli /usr/local/bin/
+tar -xzf doli-VERSION-*.tar.gz
+sudo cp doli-VERSION-*/doli-node doli-VERSION-*/doli /usr/local/bin/
 ```
 
 Verify: `doli --version && doli-node --version`
