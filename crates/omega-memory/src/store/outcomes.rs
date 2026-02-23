@@ -114,10 +114,12 @@ impl Store {
         Ok(rows)
     }
 
-    /// Store or update a distilled lesson (upsert by sender_id + domain + project).
+    /// Store a distilled lesson with content-based deduplication.
     ///
-    /// If a lesson already exists for this domain+project, the rule is replaced and
-    /// occurrences is incremented. Otherwise a new lesson is created.
+    /// Multiple lessons can exist per (sender_id, domain, project). If the exact
+    /// same rule text already exists, its `occurrences` counter is bumped instead
+    /// of creating a duplicate. After insertion, a cap of 10 lessons per
+    /// (sender_id, domain, project) is enforced — oldest are pruned.
     pub async fn store_lesson(
         &self,
         sender_id: &str,
@@ -125,22 +127,62 @@ impl Store {
         rule: &str,
         project: &str,
     ) -> Result<(), OmegaError> {
-        let id = uuid::Uuid::new_v4().to_string();
-        sqlx::query(
-            "INSERT INTO lessons (id, sender_id, domain, rule, project) VALUES (?, ?, ?, ?, ?) \
-             ON CONFLICT(sender_id, domain, project) DO UPDATE SET \
-             rule = excluded.rule, \
-             occurrences = occurrences + 1, \
-             updated_at = datetime('now')",
+        // Content dedup: check if exact same rule text exists.
+        let existing: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM lessons \
+             WHERE sender_id = ? AND domain = ? AND project = ? AND rule = ?",
         )
-        .bind(&id)
         .bind(sender_id)
         .bind(domain)
-        .bind(rule)
         .bind(project)
-        .execute(&self.pool)
+        .bind(rule)
+        .fetch_optional(&self.pool)
         .await
-        .map_err(|e| OmegaError::Memory(format!("store lesson: {e}")))?;
+        .map_err(|e| OmegaError::Memory(format!("store lesson check: {e}")))?;
+
+        if let Some((id,)) = existing {
+            // Reinforce: bump occurrences + updated_at.
+            sqlx::query(
+                "UPDATE lessons SET occurrences = occurrences + 1, \
+                 updated_at = datetime('now') WHERE id = ?",
+            )
+            .bind(&id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| OmegaError::Memory(format!("store lesson reinforce: {e}")))?;
+        } else {
+            // New distinct rule — insert.
+            let id = uuid::Uuid::new_v4().to_string();
+            sqlx::query(
+                "INSERT INTO lessons (id, sender_id, domain, rule, project) \
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(&id)
+            .bind(sender_id)
+            .bind(domain)
+            .bind(rule)
+            .bind(project)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| OmegaError::Memory(format!("store lesson insert: {e}")))?;
+
+            // Cap enforcement: keep at most 10 per (sender, domain, project).
+            // Use rowid as tiebreaker for deterministic ordering when updated_at matches.
+            sqlx::query(
+                "DELETE FROM lessons WHERE id IN ( \
+                     SELECT id FROM lessons \
+                     WHERE sender_id = ? AND domain = ? AND project = ? \
+                     ORDER BY updated_at DESC, rowid DESC LIMIT -1 OFFSET 10 \
+                 )",
+            )
+            .bind(sender_id)
+            .bind(domain)
+            .bind(project)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| OmegaError::Memory(format!("store lesson cap: {e}")))?;
+        }
+
         Ok(())
     }
 
@@ -161,7 +203,8 @@ impl Store {
                 sqlx::query_as(
                     "SELECT domain, rule, project FROM lessons \
                      WHERE sender_id = ? AND (project = ? OR project = '') \
-                     ORDER BY CASE WHEN project = ? THEN 0 ELSE 1 END, updated_at DESC",
+                     ORDER BY CASE WHEN project = ? THEN 0 ELSE 1 END, updated_at DESC \
+                     LIMIT 50",
                 )
                 .bind(sender_id)
                 .bind(p)
@@ -172,7 +215,8 @@ impl Store {
             None => {
                 sqlx::query_as(
                     "SELECT domain, rule, project FROM lessons \
-                     WHERE sender_id = ? AND project = '' ORDER BY updated_at DESC",
+                     WHERE sender_id = ? AND project = '' ORDER BY updated_at DESC \
+                     LIMIT 50",
                 )
                 .bind(sender_id)
                 .fetch_all(&self.pool)
@@ -192,25 +236,27 @@ impl Store {
         &self,
         project: Option<&str>,
     ) -> Result<Vec<(String, String, String)>, OmegaError> {
-        let rows: Vec<(String, String, String)> = match project {
-            Some(p) => {
-                sqlx::query_as(
-                    "SELECT domain, rule, project FROM lessons \
+        let rows: Vec<(String, String, String)> =
+            match project {
+                Some(p) => {
+                    sqlx::query_as(
+                        "SELECT domain, rule, project FROM lessons \
                      WHERE project = ? OR project = '' \
-                     ORDER BY CASE WHEN project = ? THEN 0 ELSE 1 END, updated_at DESC",
-                )
-                .bind(p)
-                .bind(p)
-                .fetch_all(&self.pool)
-                .await
-            }
-            None => {
-                sqlx::query_as("SELECT domain, rule, project FROM lessons ORDER BY updated_at DESC")
+                     ORDER BY CASE WHEN project = ? THEN 0 ELSE 1 END, updated_at DESC \
+                     LIMIT 50",
+                    )
+                    .bind(p)
+                    .bind(p)
                     .fetch_all(&self.pool)
                     .await
+                }
+                None => sqlx::query_as(
+                    "SELECT domain, rule, project FROM lessons ORDER BY updated_at DESC LIMIT 50",
+                )
+                .fetch_all(&self.pool)
+                .await,
             }
-        }
-        .map_err(|e| OmegaError::Memory(format!("get all lessons: {e}")))?;
+            .map_err(|e| OmegaError::Memory(format!("get all lessons: {e}")))?;
         Ok(rows)
     }
 }

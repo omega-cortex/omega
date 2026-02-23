@@ -62,6 +62,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [memory-migration-010.md](memory-migration-010.md) — Reward-based learning tables (outcomes for working memory, lessons for long-term behavioral rules)
 - [memory-migration-011.md](memory-migration-011.md) — Project-scoped learning (project columns on outcomes, lessons, scheduled_tasks)
 - [memory-migration-012.md](memory-migration-012.md) — Project-scoped sessions (project_sessions table, project column on conversations)
+- [memory-migration-013.md](memory-migration-013.md) — Multi-lesson support (remove UNIQUE constraint, content dedup, cap enforcement)
 
 ### Milestone 7: omega-skills
 - [skills-lib.md](skills-lib.md) — Skill loader + project loader + MCP trigger matching (skills from `~/.omega/skills/*/SKILL.md`, projects from `~/.omega/projects/*/ROLE.md`). Split into `skills.rs`, `projects.rs`, `parse.rs` submodules; `lib.rs` is a thin re-export orchestrator

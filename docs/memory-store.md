@@ -116,7 +116,7 @@ occurrences INTEGER            -- How many times this pattern has been observed 
 created_at  TEXT               -- When the lesson was first created
 updated_at  TEXT               -- When the lesson was last updated
 ```
-Lessons are unique per `(sender_id, domain, project)`. Storing a lesson with the same domain and project overwrites the rule and increments the `occurrences` counter, tracking how strongly a pattern has been reinforced. Indexed on `(sender_id)` and `(sender_id, project)` for per-user and project-scoped queries.
+Multiple lessons can exist per `(sender_id, domain, project)`. Each distinct rule text becomes its own row. Storing a lesson with identical rule text bumps the `occurrences` counter (content dedup). A cap of 10 lessons per (sender_id, domain, project) is enforced — oldest are pruned on insert. Query functions include a LIMIT 50 safety cap. Indexed on `(sender_id)`, `(sender_id, project)`, and `(sender_id, domain, project)` for per-user, project-scoped, and domain-scoped queries.
 
 **_migrations** -- Tracks which database migrations have been applied.
 

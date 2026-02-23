@@ -1175,7 +1175,7 @@ async fn test_lessons_project_layering() {
 }
 
 #[tokio::test]
-async fn test_lessons_project_upsert_unique() {
+async fn test_lessons_project_separate() {
     let store = test_store().await;
 
     // Same domain, different projects → separate lessons.
@@ -1198,7 +1198,7 @@ async fn test_lessons_project_upsert_unique() {
         "same domain, different projects = separate"
     );
 
-    // Upsert within same project → replaces rule.
+    // New distinct rule text → creates a new row (multi-lesson).
     store
         .store_lesson("user1", "risk", "Updated trading risk", "omega-trader")
         .await
@@ -1207,9 +1207,166 @@ async fn test_lessons_project_upsert_unique() {
         .get_lessons("user1", Some("omega-trader"))
         .await
         .unwrap();
-    assert_eq!(updated.len(), 2, "upsert should not create new row");
-    let trading_lesson = updated.iter().find(|l| l.2 == "omega-trader").unwrap();
-    assert_eq!(trading_lesson.1, "Updated trading risk");
+    assert_eq!(
+        updated.len(),
+        3,
+        "different rule text creates new row (multi-lesson)"
+    );
+    let trading_rules: Vec<&str> = updated
+        .iter()
+        .filter(|l| l.2 == "omega-trader")
+        .map(|l| l.1.as_str())
+        .collect();
+    assert!(trading_rules.contains(&"Trading risk rule"));
+    assert!(trading_rules.contains(&"Updated trading risk"));
+}
+
+#[tokio::test]
+async fn test_lessons_multi_per_domain() {
+    let store = test_store().await;
+
+    // Store 3 different rules under the same (sender, domain, project).
+    store
+        .store_lesson("user1", "trading", "Always set stop-losses", "")
+        .await
+        .unwrap();
+    store
+        .store_lesson("user1", "trading", "Never risk more than 2%", "")
+        .await
+        .unwrap();
+    store
+        .store_lesson("user1", "trading", "Check volume before entry", "")
+        .await
+        .unwrap();
+
+    let lessons = store.get_lessons("user1", None).await.unwrap();
+    assert_eq!(lessons.len(), 3, "all 3 distinct rules should be stored");
+    let rules: Vec<&str> = lessons.iter().map(|l| l.1.as_str()).collect();
+    assert!(rules.contains(&"Always set stop-losses"));
+    assert!(rules.contains(&"Never risk more than 2%"));
+    assert!(rules.contains(&"Check volume before entry"));
+}
+
+#[tokio::test]
+async fn test_lessons_content_dedup() {
+    let store = test_store().await;
+
+    // Store the same rule text twice.
+    store
+        .store_lesson("user1", "trading", "Always set stop-losses", "")
+        .await
+        .unwrap();
+    store
+        .store_lesson("user1", "trading", "Always set stop-losses", "")
+        .await
+        .unwrap();
+
+    // Should be 1 row with occurrences = 2.
+    let lessons = store.get_lessons("user1", None).await.unwrap();
+    assert_eq!(
+        lessons.len(),
+        1,
+        "duplicate rule text should not create new row"
+    );
+
+    // Verify occurrences was bumped.
+    let (occurrences,): (i64,) = sqlx::query_as(
+        "SELECT occurrences FROM lessons WHERE sender_id = 'user1' AND domain = 'trading'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(occurrences, 2, "occurrences should be 2 after dedup");
+}
+
+#[tokio::test]
+async fn test_lessons_cap_enforcement() {
+    let store = test_store().await;
+
+    // Store 12 distinct lessons for the same (sender, domain, project).
+    for i in 0..12 {
+        store
+            .store_lesson("user1", "trading", &format!("Rule number {i}"), "")
+            .await
+            .unwrap();
+    }
+
+    let lessons = store.get_lessons("user1", None).await.unwrap();
+    assert_eq!(
+        lessons.len(),
+        10,
+        "cap should prune to 10 per (sender, domain, project)"
+    );
+
+    // The oldest 2 (Rule number 0 and Rule number 1) should have been pruned.
+    let rules: Vec<&str> = lessons.iter().map(|l| l.1.as_str()).collect();
+    assert!(
+        !rules.contains(&"Rule number 0"),
+        "oldest rule should be pruned"
+    );
+    assert!(
+        !rules.contains(&"Rule number 1"),
+        "second-oldest rule should be pruned"
+    );
+    assert!(
+        rules.contains(&"Rule number 11"),
+        "newest rule should remain"
+    );
+}
+
+#[tokio::test]
+async fn test_lessons_cap_project_isolation() {
+    let store = test_store().await;
+
+    // Store 12 lessons in project A.
+    for i in 0..12 {
+        store
+            .store_lesson(
+                "user1",
+                "trading",
+                &format!("Project A rule {i}"),
+                "project-a",
+            )
+            .await
+            .unwrap();
+    }
+
+    // Store 3 lessons in project B (same domain).
+    for i in 0..3 {
+        store
+            .store_lesson(
+                "user1",
+                "trading",
+                &format!("Project B rule {i}"),
+                "project-b",
+            )
+            .await
+            .unwrap();
+    }
+
+    // Project A should be capped at 10.
+    let a_lessons: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT domain, rule, project FROM lessons \
+         WHERE sender_id = 'user1' AND project = 'project-a'",
+    )
+    .fetch_all(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(a_lessons.len(), 10, "project A capped at 10");
+
+    // Project B should have all 3 — cap is per (sender, domain, project).
+    let b_lessons: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT domain, rule, project FROM lessons \
+         WHERE sender_id = 'user1' AND project = 'project-b'",
+    )
+    .fetch_all(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        b_lessons.len(),
+        3,
+        "project B unaffected by project A's cap"
+    );
 }
 
 #[tokio::test]

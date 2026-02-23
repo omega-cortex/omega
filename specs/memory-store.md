@@ -310,10 +310,10 @@ CREATE TABLE IF NOT EXISTS outcomes (
 
 ### Table: `lessons`
 
-Created by `010_outcomes.sql`, **recreated** by `011_project_learning.sql` (adds `project` column and updated UNIQUE constraint). Distilled behavioral rules — permanent long-term memory.
+Created by `010_outcomes.sql`, **recreated** by `011_project_learning.sql` (adds `project` column), **recreated again** by `013_multi_lessons.sql` (removes UNIQUE constraint for multi-lesson support). Distilled behavioral rules — permanent long-term memory.
 
 ```sql
-CREATE TABLE IF NOT EXISTS lessons (
+CREATE TABLE lessons (
     id          TEXT PRIMARY KEY,
     sender_id   TEXT NOT NULL,
     domain      TEXT NOT NULL,
@@ -321,8 +321,7 @@ CREATE TABLE IF NOT EXISTS lessons (
     project     TEXT NOT NULL DEFAULT '',
     occurrences INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(sender_id, domain, project)
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
 
@@ -333,15 +332,16 @@ CREATE TABLE IF NOT EXISTS lessons (
 | `domain` | `TEXT` | `NOT NULL` | Domain/category (e.g., `"training"`, `"scheduling"`). |
 | `rule` | `TEXT` | `NOT NULL` | The distilled behavioral rule (e.g., `"User trains Saturday mornings, no need to nag after 12:00"`). |
 | `project` | `TEXT` | `NOT NULL`, default `''` | Project scope: empty string = general, non-empty = project-scoped. Added by migration 011. |
-| `occurrences` | `INTEGER` | `NOT NULL`, default `1` | Number of times this domain's lesson has been updated (confidence signal). |
+| `occurrences` | `INTEGER` | `NOT NULL`, default `1` | How many times this exact rule has been reinforced (content dedup). |
 | `created_at` | `TEXT` | `NOT NULL`, default `datetime('now')` | When the lesson was first created. |
 | `updated_at` | `TEXT` | `NOT NULL`, default `datetime('now')` | When the lesson was last updated. |
 
-**Unique constraint:** `(sender_id, domain, project)` -- each user has at most one lesson per domain per project. Upserts replace the rule and increment occurrences. Changed from `(sender_id, domain)` in migration 011.
+**No UNIQUE constraint** -- multiple lessons can exist per `(sender_id, domain, project)`. Deduplication and capping are enforced in application code (`store_lesson()`): identical rule text bumps `occurrences`, new distinct text inserts a new row, and a cap of 10 per `(sender_id, domain, project)` prunes the oldest. Query functions include a LIMIT 50 safety cap. Changed from `UNIQUE(sender_id, domain, project)` in migration 013.
 
 **Indexes:**
 - `idx_lessons_sender` on `(sender_id)` -- for per-sender lesson queries.
 - `idx_lessons_project` on `(sender_id, project)` -- for project-scoped lesson queries. Added by migration 011.
+- `idx_lessons_domain` on `(sender_id, domain, project)` -- for content dedup lookups and cap enforcement. Added by migration 013.
 
 ## Migrations
 
