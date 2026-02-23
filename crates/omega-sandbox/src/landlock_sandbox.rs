@@ -1,11 +1,13 @@
 //! Linux Landlock LSM enforcement — broad allowlist approach.
 //!
-//! Landlock cannot deny subdirectories of an allowed parent, so we use a broad
-//! allowlist: read-only on `/` (covers system dirs), full access to `$HOME`,
-//! `/tmp`, `/var/tmp`, `/opt`, `/srv`, `/run`, `/media`, `/mnt`.
+//! Landlock uses a broad allowlist: read-only on `/` (covers system dirs),
+//! full access to `$HOME`, `/tmp`, `/var/tmp`, `/opt`, `/srv`, `/run`,
+//! `/media`, `/mnt`. Then applies restrictive rules to `{data_dir}/data/`
+//! and `{data_dir}/config.toml` (Refer-only access blocks both reads and
+//! writes via Landlock's intersection semantics).
 //!
-//! Note: memory.db protection on Linux relies on `is_write_blocked()` (code-level),
-//! not Landlock (can't deny subdirs of allowed parent).
+//! Code-level enforcement via `is_read_blocked()` and `is_write_blocked()`
+//! provides additional protection on all platforms.
 
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
@@ -27,19 +29,22 @@ fn full_access() -> BitFlags<AccessFs> {
     AccessFs::from_all(ABI::V5)
 }
 
-/// Build a [`Command`] with Landlock write restrictions applied via `pre_exec`.
+/// Build a [`Command`] with Landlock read/write restrictions applied via `pre_exec`.
 ///
 /// The child process will have:
 /// - Read and execute access to the entire filesystem (`/`)
 /// - Full access to `$HOME`, `/tmp`, `/var/tmp`, `/opt`, `/srv`, `/run`, `/media`, `/mnt`
+/// - Restricted access to `{data_dir}/data/` and `{data_dir}/config.toml` (Refer-only,
+///   which blocks both reads and writes via Landlock intersection semantics)
 ///
 /// System directories (`/bin`, `/sbin`, `/usr`, `/etc`, `/lib`, etc.) are implicitly
 /// read-only because only `/` gets read access and writable paths are explicitly listed.
 ///
 /// If the kernel does not support Landlock, logs a warning and falls back
 /// to a plain command.
-pub(crate) fn protected_command(program: &str, _data_dir: &std::path::Path) -> Command {
+pub(crate) fn protected_command(program: &str, data_dir: &std::path::Path) -> Command {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let data_dir_owned = data_dir.to_path_buf();
 
     let mut cmd = Command::new(program);
 
@@ -47,7 +52,7 @@ pub(crate) fn protected_command(program: &str, _data_dir: &std::path::Path) -> C
     // the landlock crate (which uses syscalls), no async or allocator abuse.
     unsafe {
         cmd.pre_exec(move || {
-            apply_landlock(&home).map_err(|e| {
+            apply_landlock(&home, &data_dir_owned).map_err(|e| {
                 std::io::Error::new(std::io::ErrorKind::PermissionDenied, e.to_string())
             })
         });
@@ -56,8 +61,16 @@ pub(crate) fn protected_command(program: &str, _data_dir: &std::path::Path) -> C
     cmd
 }
 
+/// Minimal access — blocks both reads and writes via Landlock intersection.
+///
+/// When combined with `full_access` on a parent path, effective access =
+/// `full_access ∩ Refer = Refer` — no ReadFile, no WriteFile.
+fn refer_only() -> BitFlags<AccessFs> {
+    AccessFs::Refer.into()
+}
+
 /// Apply Landlock restrictions to the current process.
-fn apply_landlock(home: &str) -> Result<(), anyhow::Error> {
+fn apply_landlock(home: &str, data_dir: &std::path::Path) -> Result<(), anyhow::Error> {
     let home_dir = PathBuf::from(home);
 
     let mut ruleset = Ruleset::default()
@@ -77,6 +90,18 @@ fn apply_landlock(home: &str) -> Result<(), anyhow::Error> {
         if p.exists() {
             ruleset = ruleset.add_rules(path_beneath_rules(&[p], full_access()))?;
         }
+    }
+
+    // Restrict data dir (memory.db) — Refer-only blocks reads and writes.
+    let data_data = data_dir.join("data");
+    if data_data.exists() {
+        ruleset = ruleset.add_rules(path_beneath_rules(&[data_data], refer_only()))?;
+    }
+
+    // Restrict config.toml (API keys) — Refer-only blocks reads and writes.
+    let config_file = data_dir.join("config.toml");
+    if config_file.exists() {
+        ruleset = ruleset.add_rules(path_beneath_rules(&[config_file], refer_only()))?;
     }
 
     let status = ruleset.restrict_self()?;
@@ -109,6 +134,14 @@ mod tests {
         assert!(flags.contains(AccessFs::WriteFile));
         assert!(flags.contains(AccessFs::ReadFile));
         assert!(flags.contains(AccessFs::MakeDir));
+    }
+
+    #[test]
+    fn test_refer_only_blocks_reads_and_writes() {
+        let flags = refer_only();
+        assert!(flags.contains(AccessFs::Refer));
+        assert!(!flags.contains(AccessFs::ReadFile));
+        assert!(!flags.contains(AccessFs::WriteFile));
     }
 
     #[test]

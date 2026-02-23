@@ -3,18 +3,21 @@
 //! OS-level system protection for the Omega agent.
 //!
 //! Uses a **blocklist** approach: everything is allowed by default, then
-//! dangerous system directories and OMEGA's core database are blocked.
+//! dangerous system directories and OMEGA's core data are blocked.
 //!
-//! - **macOS**: Apple Seatbelt via `sandbox-exec -p <profile>` — denies writes
-//!   to `/System`, `/bin`, `/sbin`, `/usr/{bin,sbin,lib,libexec}`, `/private/etc`,
-//!   `/Library`, and `{data_dir}/data/` (memory.db).
+//! - **macOS**: Apple Seatbelt via `sandbox-exec -p <profile>` — denies reads
+//!   and writes to `{data_dir}/data/` (memory.db) and `config.toml`; denies
+//!   writes to `/System`, `/bin`, `/sbin`, `/usr/{bin,sbin,lib,libexec}`,
+//!   `/private/etc`, `/Library`.
 //! - **Linux**: Landlock LSM via `pre_exec` hook (kernel 5.13+) — broad
 //!   read-only on `/` with full access to `$HOME`, `/tmp`, `/var/tmp`, `/opt`,
-//!   `/srv`, `/run`, `/media`, `/mnt`.
+//!   `/srv`, `/run`, `/media`, `/mnt`; restricted access to `{data_dir}/data/`
+//!   and `config.toml`.
 //! - **Other**: Falls back to a plain command with a warning.
 //!
-//! Also provides [`is_write_blocked`] for code-level enforcement in HTTP
-//! provider tool executors (protects memory.db on all platforms).
+//! Also provides [`is_write_blocked`] and [`is_read_blocked`] for code-level
+//! enforcement in HTTP provider tool executors (protects memory.db and
+//! config.toml on all platforms).
 
 use std::path::Path;
 use tokio::process::Command;
@@ -92,6 +95,36 @@ pub fn is_write_blocked(path: &Path, data_dir: &Path) -> bool {
     false
 }
 
+/// Check if a read from the given path should be blocked.
+///
+/// Returns `true` if the path targets a protected location:
+/// - OMEGA's core data directory (`{data_dir}/data/`) — protects memory.db
+/// - OMEGA's config file (`{data_dir}/config.toml`) — protects API keys
+///
+/// Used by the HTTP provider `ToolExecutor` for code-level enforcement.
+pub fn is_read_blocked(path: &Path, data_dir: &Path) -> bool {
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        // Relative paths can't be resolved without a cwd, treat as not blocked.
+        return false;
+    };
+
+    // Block reads to OMEGA's core data directory (memory.db, etc.).
+    let data_data = data_dir.join("data");
+    if abs.starts_with(&data_data) {
+        return true;
+    }
+
+    // Block reads to OMEGA's config file (API keys, secrets).
+    let config_file = data_dir.join("config.toml");
+    if abs == config_file {
+        return true;
+    }
+
+    false
+}
+
 /// Dispatch to the platform-specific protection implementation.
 #[cfg(target_os = "macos")]
 fn platform_command(program: &str, data_dir: &Path) -> Command {
@@ -153,18 +186,27 @@ mod tests {
     #[test]
     fn test_is_write_blocked_system_dirs() {
         let data_dir = PathBuf::from("/home/user/.omega");
-        assert!(is_write_blocked(Path::new("/System/Library/test"), &data_dir));
+        assert!(is_write_blocked(
+            Path::new("/System/Library/test"),
+            &data_dir
+        ));
         assert!(is_write_blocked(Path::new("/bin/sh"), &data_dir));
         assert!(is_write_blocked(Path::new("/usr/bin/env"), &data_dir));
         assert!(is_write_blocked(Path::new("/private/etc/hosts"), &data_dir));
-        assert!(is_write_blocked(Path::new("/Library/Preferences/test"), &data_dir));
+        assert!(is_write_blocked(
+            Path::new("/Library/Preferences/test"),
+            &data_dir
+        ));
     }
 
     #[test]
     fn test_is_write_blocked_allows_normal_paths() {
         let data_dir = PathBuf::from("/home/user/.omega");
         assert!(!is_write_blocked(Path::new("/tmp/test"), &data_dir));
-        assert!(!is_write_blocked(Path::new("/home/user/documents/test"), &data_dir));
+        assert!(!is_write_blocked(
+            Path::new("/home/user/documents/test"),
+            &data_dir
+        ));
         assert!(!is_write_blocked(
             Path::new("/usr/local/bin/something"),
             &data_dir
@@ -175,5 +217,55 @@ mod tests {
     fn test_is_write_blocked_relative_path() {
         let data_dir = PathBuf::from("/home/user/.omega");
         assert!(!is_write_blocked(Path::new("relative/path"), &data_dir));
+    }
+
+    #[test]
+    fn test_is_read_blocked_data_dir() {
+        let data_dir = PathBuf::from("/home/user/.omega");
+        assert!(is_read_blocked(
+            Path::new("/home/user/.omega/data/memory.db"),
+            &data_dir
+        ));
+        assert!(is_read_blocked(
+            Path::new("/home/user/.omega/data/"),
+            &data_dir
+        ));
+    }
+
+    #[test]
+    fn test_is_read_blocked_config() {
+        let data_dir = PathBuf::from("/home/user/.omega");
+        assert!(is_read_blocked(
+            Path::new("/home/user/.omega/config.toml"),
+            &data_dir
+        ));
+    }
+
+    #[test]
+    fn test_is_read_blocked_allows_workspace() {
+        let data_dir = PathBuf::from("/home/user/.omega");
+        assert!(!is_read_blocked(
+            Path::new("/home/user/.omega/workspace/test.txt"),
+            &data_dir
+        ));
+        assert!(!is_read_blocked(
+            Path::new("/home/user/.omega/skills/test/SKILL.md"),
+            &data_dir
+        ));
+    }
+
+    #[test]
+    fn test_is_read_blocked_allows_stores() {
+        let data_dir = PathBuf::from("/home/user/.omega");
+        assert!(!is_read_blocked(
+            Path::new("/home/user/.omega/stores/trading/store.db"),
+            &data_dir
+        ));
+    }
+
+    #[test]
+    fn test_is_read_blocked_relative_path() {
+        let data_dir = PathBuf::from("/home/user/.omega");
+        assert!(!is_read_blocked(Path::new("relative/path"), &data_dir));
     }
 }

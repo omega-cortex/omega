@@ -215,6 +215,13 @@ impl ToolExecutor {
         }
 
         let path = Path::new(path_str);
+        if omega_sandbox::is_read_blocked(path, &self.data_dir) {
+            return ToolResult {
+                content: format!("Read denied: {} is a protected path", path.display()),
+                is_error: true,
+            };
+        }
+
         debug!("tool/read: {}", path.display());
 
         match tokio::fs::read_to_string(path).await {
@@ -242,10 +249,7 @@ impl ToolExecutor {
         let path = Path::new(path_str);
         if omega_sandbox::is_write_blocked(path, &self.data_dir) {
             return ToolResult {
-                content: format!(
-                    "Write denied: {} is a protected path",
-                    path.display(),
-                ),
+                content: format!("Write denied: {} is a protected path", path.display(),),
                 is_error: true,
             };
         }
@@ -301,10 +305,7 @@ impl ToolExecutor {
         let path = Path::new(path_str);
         if omega_sandbox::is_write_blocked(path, &self.data_dir) {
             return ToolResult {
-                content: format!(
-                    "Write denied: {} is a protected path",
-                    path.display(),
-                ),
+                content: format!("Write denied: {} is a protected path", path.display(),),
                 is_error: true,
             };
         }
@@ -344,7 +345,6 @@ impl ToolExecutor {
             },
         }
     }
-
 }
 
 /// Truncate output to `max_chars`, appending a note if truncated.
@@ -548,6 +548,26 @@ mod tests {
         assert_eq!(content, "hello omega");
 
         let _ = tokio::fs::remove_file(path).await;
+    }
+
+    #[tokio::test]
+    async fn test_exec_read_denied_protected_path() {
+        let executor = ToolExecutor::new(PathBuf::from("/home/user/.omega/workspace"));
+        let result = executor
+            .exec_read(&serde_json::json!({"file_path": "/home/user/.omega/data/memory.db"}))
+            .await;
+        assert!(result.is_error);
+        assert!(result.content.contains("denied"));
+    }
+
+    #[tokio::test]
+    async fn test_exec_read_denied_config() {
+        let executor = ToolExecutor::new(PathBuf::from("/home/user/.omega/workspace"));
+        let result = executor
+            .exec_read(&serde_json::json!({"file_path": "/home/user/.omega/config.toml"}))
+            .await;
+        assert!(result.is_error);
+        assert!(result.content.contains("denied"));
     }
 
     #[tokio::test]

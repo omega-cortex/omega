@@ -2,7 +2,7 @@
 
 ## What is this crate?
 
-`omega-sandbox` is the OS-level system protection layer of the Omega project. It prevents AI provider subprocesses from writing to dangerous system directories and OMEGA's core database. Protection is always active -- no configuration needed.
+`omega-sandbox` is the OS-level system protection layer of the Omega project. It prevents AI provider subprocesses from writing to dangerous system directories and from reading or writing OMEGA's core data (memory.db, config.toml). Protection is always active -- no configuration needed.
 
 ## Crate structure
 
@@ -10,9 +10,9 @@
 crates/omega-sandbox/
   Cargo.toml
   src/
-    lib.rs               # Public API: protected_command() + is_write_blocked()
-    seatbelt.rs          # macOS: Seatbelt blocklist (deny system dirs)
-    landlock_sandbox.rs  # Linux: Landlock broad allowlist (read-only on /)
+    lib.rs               # Public API: protected_command() + is_write_blocked() + is_read_blocked()
+    seatbelt.rs          # macOS: Seatbelt blocklist (deny writes to system dirs, deny reads to data/config)
+    landlock_sandbox.rs  # Linux: Landlock allowlist + Refer-only restrictions on data/config
 ```
 
 ---
@@ -21,25 +21,35 @@ crates/omega-sandbox/
 
 The sandbox uses a **blocklist** approach: everything is allowed by default, then specific dangerous paths are denied. No modes, no configuration, no opt-in.
 
-### OS-Level Protection (CLI provider)
+Protection works in three layers:
 
-Platform-native mechanisms block the AI subprocess from writing to system directories:
+### Layer 1: Code-Level Protection (all platforms, primary)
+
+Two functions provide enforcement for HTTP-based providers (OpenAI, Anthropic, Ollama, OpenRouter, Gemini):
+- `is_write_blocked()` — called before write/edit operations
+- `is_read_blocked()` — called before read operations
+
+This works on all platforms, including those without OS-level sandbox support.
+
+### Layer 2: OS-Level Protection (CLI provider)
+
+Platform-native mechanisms block the AI subprocess at the OS level:
 
 | Platform | Mechanism | Approach |
 |----------|-----------|----------|
-| **macOS** | Apple Seatbelt | `sandbox-exec` with a deny profile for system dirs |
-| **Linux** | Landlock LSM | Read-only on `/`, full access to `$HOME` + `/tmp` |
+| **macOS** | Apple Seatbelt | `sandbox-exec` with deny profile for writes to system dirs + reads/writes to data/config |
+| **Linux** | Landlock LSM | Read-only on `/`, full access to `$HOME` + `/tmp`, Refer-only on data/config |
 | **Other** | None | Logs warning, uses code-level enforcement only |
 
-### Code-Level Protection (HTTP providers)
+### Layer 3: Prompt-Level Protection (all platforms)
 
-The `is_write_blocked()` function provides write enforcement for HTTP-based providers (OpenAI, Anthropic, Ollama, OpenRouter, Gemini). Their `ToolExecutor` calls this before executing any write/edit/bash operation. This works on all platforms, including those without OS-level sandbox support.
+`WORKSPACE_CLAUDE.md` informs the subprocess that access to `memory.db` and `config.toml` is sandbox-enforced, discouraging attempts before they hit the enforcement layers.
 
 ---
 
 ## What's Blocked
 
-The sandbox blocks writes to these locations:
+### Blocked from writes
 
 | Path | What it protects |
 |------|-----------------|
@@ -51,9 +61,18 @@ The sandbox blocks writes to these locations:
 | `/Library` | macOS system libraries |
 | `/etc`, `/boot`, `/proc`, `/sys`, `/dev` | Linux system paths |
 
-### Why protect memory.db?
+### Blocked from reads
 
-OMEGA's database at `~/.omega/data/memory.db` contains the audit trail, conversation history, scheduled tasks, user facts, and learned lessons. If the AI could write to it directly, it could tamper with its own memory, delete audit records, or corrupt the database. Only the Omega binary itself (via `omega-memory`) should write to this file.
+| Path | What it protects |
+|------|-----------------|
+| `~/.omega/data/` | OMEGA's core database — prevents subprocess from querying memory.db |
+| `~/.omega/config.toml` | API keys and secrets — prevents credential exfiltration |
+
+### Why protect memory.db and config.toml?
+
+OMEGA's database at `~/.omega/data/memory.db` contains the audit trail, conversation history, scheduled tasks, user facts, and learned lessons. If the AI could read it, it would confabulate architectural details from raw data instead of relying on curated gateway-injected context. If it could write to it, it could tamper with its own memory. Only the Omega binary itself (via `omega-memory`) should access this file.
+
+`config.toml` contains API keys and secrets. The subprocess has no legitimate need to read it — all relevant configuration is injected by the gateway.
 
 ### The `stores/` directory
 
@@ -87,19 +106,21 @@ Full network access is available. Package installs (`npm install`, `pip install`
 The crate generates a Seatbelt profile and invokes `sandbox-exec -p <profile> -- claude ...`. The profile:
 
 1. Allows all operations by default (`(allow default)`)
-2. Denies writes to the blocklisted directories (`(deny file-write* ...)`)
+2. Denies writes to system dirs + data dir (`(deny file-write* ...)`)
+3. Denies reads to data dir + config.toml (`(deny file-read* ...)`)
 
 If `/usr/bin/sandbox-exec` does not exist (unlikely on macOS), falls back to code-level enforcement with a warning.
 
 ### Linux -- Landlock
 
-Landlock cannot deny subdirectories of an allowed parent. So the crate uses a broad allowlist that achieves the same effect:
+The crate uses a broad allowlist plus restrictive overrides:
 
 - Read + execute on `/` (system dirs become read-only)
 - Full access to `$HOME`, `/tmp`
 - Optional full access to `/var/tmp`, `/opt`, `/srv`, `/run`, `/media`, `/mnt`
+- Refer-only access to `~/.omega/data/` and `~/.omega/config.toml` — via Landlock intersection semantics (`full_access ∩ Refer = Refer`), this blocks both reads and writes
 
-Note: memory.db protection on Linux uses `is_write_blocked()` (code-level) since Landlock cannot deny `~/.omega/data/` while allowing `~/.omega/workspace/`.
+Code-level enforcement via `is_read_blocked()` and `is_write_blocked()` provides additional protection.
 
 If the kernel does not support Landlock (pre-5.13), logs a warning and continues with code-level enforcement.
 
@@ -134,7 +155,13 @@ Gateway: store in memory -> audit log -> send response
 
 For HTTP providers:
 ```
-Tool executor receives write/edit/bash request
+Tool executor receives read request
+    |
+    v
+omega_sandbox::is_read_blocked(path, data_dir) -> true? reject
+    |
+    v
+Tool executor receives write/edit request
     |
     v
 omega_sandbox::is_write_blocked(path, data_dir) -> true? reject

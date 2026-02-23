@@ -1,6 +1,7 @@
 //! macOS Seatbelt (sandbox-exec) enforcement — blocklist approach.
 //!
 //! Denies writes to dangerous system directories and OMEGA's core database.
+//! Denies reads to OMEGA's core data directory and config file.
 //! Everything else is allowed by default.
 
 use std::path::Path;
@@ -10,14 +11,17 @@ use tracing::warn;
 /// Path to the sandbox-exec binary (built into macOS).
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 
-/// Generate a Seatbelt profile that blocks writes to dangerous locations.
+/// Generate a Seatbelt profile that blocks writes and reads to dangerous locations.
 ///
 /// Blocklist approach: allow everything, deny specific dangerous paths.
-/// `data_dir` is the Omega data directory (`~/.omega/`). Writes to
-/// `{data_dir}/data/` are denied (protects memory.db).
+/// `data_dir` is the Omega data directory (`~/.omega/`).
+/// - Writes to system dirs and `{data_dir}/data/` are denied.
+/// - Reads to `{data_dir}/data/` and `{data_dir}/config.toml` are denied.
 fn build_profile(data_dir: &Path) -> String {
     let data_data = data_dir.join("data");
     let data_data_str = data_data.display();
+    let config_file = data_dir.join("config.toml");
+    let config_str = config_file.display();
 
     format!(
         r#"(version 1)
@@ -33,14 +37,19 @@ fn build_profile(data_dir: &Path) -> String {
   (subpath "/private/etc")
   (subpath "/Library")
   (subpath "{data_data_str}")
+)
+(deny file-read*
+  (subpath "{data_data_str}")
+  (literal "{config_str}")
 )"#
     )
 }
 
-/// Build a [`Command`] wrapped with `sandbox-exec` write restrictions.
+/// Build a [`Command`] wrapped with `sandbox-exec` write and read restrictions.
 ///
-/// Blocklist: denies writes to system directories + `{data_dir}/data/`.
-/// Everything else (home dir, /tmp, /usr/local, etc.) is writable.
+/// Blocklist: denies writes to system directories + `{data_dir}/data/`;
+/// denies reads to `{data_dir}/data/` and `{data_dir}/config.toml`.
+/// Everything else (home dir, /tmp, /usr/local, etc.) is accessible.
 ///
 /// If `/usr/bin/sandbox-exec` does not exist, logs a warning and returns
 /// a plain command without OS-level enforcement.
@@ -105,6 +114,33 @@ mod tests {
         assert!(
             profile.contains("(allow default)"),
             "should allow everything by default"
+        );
+    }
+
+    #[test]
+    fn test_profile_blocks_data_dir_reads() {
+        let data_dir = PathBuf::from("/home/user/.omega");
+        let profile = build_profile(&data_dir);
+        assert!(
+            profile.contains("(deny file-read*"),
+            "should have file-read* deny"
+        );
+        // The data dir should appear in the read-deny block.
+        let read_deny_pos = profile.find("(deny file-read*").unwrap();
+        let after_read = &profile[read_deny_pos..];
+        assert!(
+            after_read.contains("/home/user/.omega/data"),
+            "should block reads to data dir"
+        );
+    }
+
+    #[test]
+    fn test_profile_blocks_config_reads() {
+        let data_dir = PathBuf::from("/home/user/.omega");
+        let profile = build_profile(&data_dir);
+        assert!(
+            profile.contains(r#"(literal "/home/user/.omega/config.toml")"#),
+            "should block reads to config.toml"
         );
     }
 
