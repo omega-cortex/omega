@@ -73,16 +73,32 @@ doli-node run --data-dir /path
 ## Wallet
 
 ```bash
-doli new --name producer-wallet   # create wallet
+doli new --name producer-wallet   # create wallet (saved to ~/.doli/wallet.json)
 doli info                         # show address + pubkey
 doli balance                      # confirmed / unconfirmed / immature
-doli send doli1recipient... 100   # send coins
+doli balance --address doli1...   # check specific address
+doli send doli1recipient... 20    # send coins (fee auto-calculated)
 doli history                      # last 10 transactions
 doli export /path/to/backup.json  # backup wallet
 doli import /path/to/backup.json  # restore wallet
 ```
 
-Custom RPC: `doli -r http://127.0.0.1:28545 balance` (devnet).
+The private key comes from the wallet file (`~/.doli/wallet.json` by default). The destination `doli1...` is the recipient's public address. Fee is auto-calculated based on transaction size — no `--fee` needed.
+
+### Multi-node operations
+
+Use `-w` to select which producer key signs, and `-r` to target a specific node's RPC. Only needed when running multiple nodes on the same host:
+
+```bash
+# Check balance of a specific producer
+doli -w ~/.doli/mainnet/keys/producer_1.json balance --address doli1<address>
+
+# Send from a specific producer wallet via N2
+doli -w ~/.doli/mainnet/keys/producer_2.json -r http://127.0.0.1:8546 \
+  send doli1<recipient> 50
+```
+
+RPC ports when multiple nodes run on the same host: N1=8545, N2=8546, N3=8547, etc. Single-node setups use the default (8545) — no `-r` needed.
 
 ## Producer
 
