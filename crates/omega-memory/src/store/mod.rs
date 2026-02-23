@@ -23,7 +23,7 @@ use std::str::FromStr;
 use tracing::info;
 
 /// How long (in minutes) before a conversation is considered idle.
-const CONVERSATION_TIMEOUT_MINUTES: i64 = 30;
+const CONVERSATION_TIMEOUT_MINUTES: i64 = 120;
 
 /// Persistent memory store backed by SQLite.
 #[derive(Clone)]
