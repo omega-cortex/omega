@@ -155,7 +155,7 @@ omega-quant cancel 12345                   # Cancel an order
 
 **Math pipeline**: Raw price -> Kalman filter (smooth + trend) -> HMM regime detection (Bull/Bear/Lateral) -> Merton optimal allocation -> Kelly fractional sizing -> Execution strategy (Immediate/TWAP).
 
-**Safety**: Circuit breaker (2% deviation abort), daily limits (trades + USD), cooldown between trades, bracket orders (SL/TP), paper trading by default (port 4002).
+**Safety**: Circuit breaker (2% deviation abort), daily limits (trades + USD), cooldown between trades, bracket orders (SL/TP), paper trading by default (TWS port 7497).
 
 ## System Service
 

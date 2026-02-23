@@ -30,8 +30,8 @@ struct Cli {
 enum Commands {
     /// Check IB Gateway connectivity.
     Check {
-        /// TWS/Gateway port (paper: 4002, live: 4001).
-        #[arg(long, default_value_t = 4002)]
+        /// TWS port (paper: 7497, live: 7496). IB Gateway: paper 4002, live 4001.
+        #[arg(long, default_value_t = 7497)]
         port: u16,
         /// TWS/Gateway host.
         #[arg(long, default_value = "127.0.0.1")]
@@ -58,7 +58,7 @@ enum Commands {
         #[arg(long)]
         min_volume: Option<i32>,
         /// TWS/Gateway port.
-        #[arg(long, default_value_t = 4002)]
+        #[arg(long, default_value_t = 7497)]
         port: u16,
         /// TWS/Gateway host.
         #[arg(long, default_value = "127.0.0.1")]
@@ -75,7 +75,7 @@ enum Commands {
         #[arg(long, default_value_t = 10_000.0)]
         portfolio: f64,
         /// TWS/Gateway port.
-        #[arg(long, default_value_t = 4002)]
+        #[arg(long, default_value_t = 7497)]
         port: u16,
         /// TWS/Gateway host.
         #[arg(long, default_value = "127.0.0.1")]
@@ -111,7 +111,7 @@ enum Commands {
         #[arg(long, default_value_t = 3)]
         max_positions: usize,
         /// TWS/Gateway port.
-        #[arg(long, default_value_t = 4002)]
+        #[arg(long, default_value_t = 7497)]
         port: u16,
         /// TWS/Gateway host.
         #[arg(long, default_value = "127.0.0.1")]
@@ -120,7 +120,7 @@ enum Commands {
     /// List open positions from IBKR.
     Positions {
         /// TWS/Gateway port.
-        #[arg(long, default_value_t = 4002)]
+        #[arg(long, default_value_t = 7497)]
         port: u16,
         /// TWS/Gateway host.
         #[arg(long, default_value = "127.0.0.1")]
@@ -131,7 +131,7 @@ enum Commands {
         /// IBKR account ID (e.g. DU1234567).
         account: String,
         /// TWS/Gateway port.
-        #[arg(long, default_value_t = 4002)]
+        #[arg(long, default_value_t = 7497)]
         port: u16,
         /// TWS/Gateway host.
         #[arg(long, default_value = "127.0.0.1")]
@@ -148,7 +148,7 @@ enum Commands {
         #[arg(long)]
         quantity: Option<f64>,
         /// TWS/Gateway port.
-        #[arg(long, default_value_t = 4002)]
+        #[arg(long, default_value_t = 7497)]
         port: u16,
         /// TWS/Gateway host.
         #[arg(long, default_value = "127.0.0.1")]
@@ -157,7 +157,7 @@ enum Commands {
     /// List all open/pending orders.
     Orders {
         /// TWS/Gateway port.
-        #[arg(long, default_value_t = 4002)]
+        #[arg(long, default_value_t = 7497)]
         port: u16,
         /// TWS/Gateway host.
         #[arg(long, default_value = "127.0.0.1")]
@@ -169,7 +169,7 @@ enum Commands {
         #[arg(long)]
         order_id: Option<i32>,
         /// TWS/Gateway port.
-        #[arg(long, default_value_t = 4002)]
+        #[arg(long, default_value_t = 7497)]
         port: u16,
         /// TWS/Gateway host.
         #[arg(long, default_value = "127.0.0.1")]

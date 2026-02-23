@@ -8,7 +8,7 @@ The omega-quant crate provides real-time quantitative trading analysis, multi-as
 
 The AI learns about omega-quant from the `ibkr-quant` skill (`skills/ibkr-quant/SKILL.md`). When a user asks about trading, stocks, forex, crypto, or market analysis, the AI invokes the CLI tool via bash:
 
-1. **Check connectivity**: `omega-quant check --port 4002`
+1. **Check connectivity**: `omega-quant check`
 2. **Scan market**: `omega-quant scan --scan-code MOST_ACTIVE --count 10`
 3. **Analyze signals**: `omega-quant analyze AAPL --asset-class stock --portfolio 50000 --bars 10`
 4. **Place orders**: `omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0`
@@ -23,12 +23,13 @@ The AI learns about omega-quant from the `ibkr-quant` skill (`skills/ibkr-quant/
 ### Check IB Gateway connectivity
 
 ```bash
-omega-quant check --port 4002
-# → {"connected": true, "host": "127.0.0.1", "port": 4002}
+omega-quant check --port 7497
+# → {"connected": true, "host": "127.0.0.1", "port": 7497}
 ```
 
-- Port 4002 = paper trading (default, safe)
-- Port 4001 = live trading (real money)
+- Port 7497 = TWS paper trading (default, safe)
+- Port 7496 = TWS live trading (real money)
+- Port 4002/4001 = IB Gateway paper/live (use `--port` to override)
 
 ### Scan — find instruments by volume/activity
 
@@ -74,10 +75,10 @@ Each signal contains:
 
 ```bash
 # Simple market order
-omega-quant order AAPL buy 100 --asset-class stock --port 4002
+omega-quant order AAPL buy 100 --asset-class stock --port 7497
 
 # Bracket order with stop-loss and take-profit
-omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --port 4002
+omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --port 7497
 
 # Bracket with safety checks
 omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --account DU1234567 --portfolio 50000 --max-positions 3
@@ -94,14 +95,14 @@ Bracket orders create 3 linked orders: MKT entry → LMT take-profit → STP sto
 ### Positions — list open positions
 
 ```bash
-omega-quant positions --port 4002
+omega-quant positions --port 7497
 # → [{"account":"DU1234567","symbol":"AAPL","security_type":"STK","quantity":100.0,"avg_cost":185.50}]
 ```
 
 ### P&L — daily profit/loss
 
 ```bash
-omega-quant pnl DU1234567 --port 4002
+omega-quant pnl DU1234567 --port 7497
 # → {"daily_pnl":-250.50,"unrealized_pnl":-100.0,"realized_pnl":-150.50}
 ```
 
@@ -109,16 +110,16 @@ omega-quant pnl DU1234567 --port 4002
 
 ```bash
 # Close entire position (auto-detects side and quantity)
-omega-quant close AAPL --asset-class stock --port 4002
+omega-quant close AAPL --asset-class stock --port 7497
 
 # Partial close
-omega-quant close AAPL --asset-class stock --quantity 50 --port 4002
+omega-quant close AAPL --asset-class stock --quantity 50 --port 7497
 ```
 
 ### Orders — list open/pending orders
 
 ```bash
-omega-quant orders --port 4002
+omega-quant orders --port 7497
 # → [{"order_id":42,"symbol":"AAPL","action":"BUY","quantity":100.0,"order_type":"MKT","status":"Submitted","filled":0.0,"remaining":100.0,"parent_id":0}]
 ```
 
@@ -128,10 +129,10 @@ Always check open orders before placing new ones to avoid duplicates.
 
 ```bash
 # Cancel a specific order
-omega-quant cancel --order-id 42 --port 4002
+omega-quant cancel --order-id 42 --port 7497
 
 # Cancel ALL open orders
-omega-quant cancel --port 4002
+omega-quant cancel --port 7497
 ```
 
 ## Signal Interpretation
@@ -154,16 +155,16 @@ omega-quant cancel --port 4002
 ## Prerequisites
 
 IB Gateway or TWS must be running locally:
-- Paper trading: port 4002 (default)
-- Live trading: port 4001
-- Docker: `docker run -d -p 4002:4002 ghcr.io/gnzsnz/ib-gateway:latest`
+- TWS paper: port 7497 (default), TWS live: port 7496
+- IB Gateway paper: port 4002, IB Gateway live: port 4001
+- Docker: `docker run -d -p 7497:7497 ghcr.io/gnzsnz/ib-gateway:latest`
 - Auth is handled by the IB Gateway app — no API keys in code
 
 ## Safety Guardrails
 
 | Guardrail | Default | Purpose |
 |-----------|---------|---------|
-| Mode | paper | Paper trading by default (port 4002) |
+| Mode | paper | Paper trading by default (TWS port 7497) |
 | Daily trades | 10 | Cap on number of trades per day |
 | Daily USD | $50,000 | Cap on total USD traded per day |
 | Cooldown | 5 min | Minimum wait between trades |

@@ -10,18 +10,18 @@ use tracing::{error, info, warn};
 pub struct IbkrConfig {
     /// TWS/Gateway host (default: "127.0.0.1").
     pub host: String,
-    /// TWS/Gateway port (paper: 4002, live: 4001).
+    /// TWS port (paper: 7497, live: 7496). IB Gateway: paper 4002, live 4001.
     pub port: u16,
     /// Unique client ID per connection.
     pub client_id: i32,
 }
 
 impl IbkrConfig {
-    /// Paper trading configuration (port 4002).
+    /// Paper trading configuration (TWS port 7497).
     pub fn paper() -> Self {
         Self {
             host: "127.0.0.1".into(),
-            port: 4002,
+            port: 7497,
             client_id: 1,
         }
     }
@@ -349,9 +349,9 @@ mod tests {
     fn test_paper_config() {
         let cfg = IbkrConfig::paper();
         assert_eq!(cfg.host, "127.0.0.1");
-        assert_eq!(cfg.port, 4002);
+        assert_eq!(cfg.port, 7497);
         assert_eq!(cfg.client_id, 1);
-        assert_eq!(cfg.connection_url(), "127.0.0.1:4002");
+        assert_eq!(cfg.connection_url(), "127.0.0.1:7497");
     }
 
     #[test]

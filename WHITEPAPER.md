@@ -219,7 +219,7 @@ The design philosophy explicitly rejects the "vibes trading" approach prevalent 
 Instead, Omega's trading integration follows three principles:
 
 - **Human-in-the-loop** — Every trade requires explicit user confirmation via the messaging interface. The LLM translates intent into structured orders; the user approves.
-- **Paper trading by default** — New installations connect to IB Gateway's paper trading port (4002) with simulated funds. Switching to live trading requires an explicit, confirmed action.
+- **Paper trading by default** — New installations connect to TWS paper trading port (7497) with simulated funds. Switching to live trading requires an explicit, confirmed action.
 - **Hardcoded risk limits** — Maximum position size (2% of equity), daily loss limit (3%), and circuit breaker (5% drawdown) are enforced at the CLI level, not the LLM level. The AI cannot override these limits.
 
 ---

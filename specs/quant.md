@@ -55,8 +55,8 @@ crates/omega-quant/src/executor.rs     ← order execution, bracket orders, posi
 ### `omega-quant check`
 TCP connectivity check to IB Gateway.
 ```
-omega-quant check --port 4002 --host 127.0.0.1
-→ {"connected": true, "host": "127.0.0.1", "port": 4002}
+omega-quant check --port 7497 --host 127.0.0.1
+→ {"connected": true, "host": "127.0.0.1", "port": 7497}
 ```
 
 ### `omega-quant scan`
@@ -70,7 +70,7 @@ Scan codes: `MOST_ACTIVE`, `HOT_BY_VOLUME`, `TOP_PERC_GAIN`, `TOP_PERC_LOSE`, `H
 ### `omega-quant analyze`
 Stream trading signals as JSONL (one JSON object per price update).
 ```
-omega-quant analyze AAPL --asset-class stock --portfolio 50000 --port 4002 --bars 30
+omega-quant analyze AAPL --asset-class stock --portfolio 50000 --port 7497 --bars 30
 → {"timestamp":"...","symbol":"AAPL","raw_price":185.50,"regime":"Bull",...}
 ```
 Uses `QuantEngine.process_price()` for each price tick. Stops after `--bars` count. Has a 15-second timeout for first data — reports error if no data received (market closed or subscription missing). Supports all asset classes.
@@ -79,11 +79,11 @@ Uses `QuantEngine.process_price()` for each price tick. Stops after `--bars` cou
 Place a market order or bracket order (entry + SL + TP) via IBKR TWS API.
 ```
 # Market order
-omega-quant order AAPL buy 100 --asset-class stock --port 4002
+omega-quant order AAPL buy 100 --asset-class stock --port 7497
 → {"type":"market","status":"Completed","filled_qty":100.0,...}
 
 # Bracket order
-omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --port 4002
+omega-quant order AAPL buy 100 --asset-class stock --stop-loss 1.5 --take-profit 3.0 --port 7497
 → {"type":"bracket","status":"Completed","entry_price":185.50,"stop_loss_price":182.72,"take_profit_price":191.07,...}
 ```
 Safety flags: `--max-positions N` (default 3), `--account` + `--portfolio` (P&L cutoff at -5%).
@@ -93,7 +93,7 @@ Bracket orders create 3 linked IBKR orders: parent MKT (transmit=false) → TP L
 ### `omega-quant positions`
 List all open positions from IBKR.
 ```
-omega-quant positions --port 4002
+omega-quant positions --port 7497
 → [{"account":"DU1234567","symbol":"AAPL","security_type":"STK","quantity":100.0,"avg_cost":185.50},...]
 ```
 Filters out zero-quantity positions.
@@ -101,18 +101,18 @@ Filters out zero-quantity positions.
 ### `omega-quant pnl`
 Get daily P&L for an account.
 ```
-omega-quant pnl DU1234567 --port 4002
+omega-quant pnl DU1234567 --port 7497
 → {"daily_pnl":-250.50,"unrealized_pnl":-100.0,"realized_pnl":-150.50}
 ```
 
 ### `omega-quant close`
 Close an open position. Auto-detects side (long→sell, short→buy) and quantity from current position.
 ```
-omega-quant close AAPL --asset-class stock --port 4002
+omega-quant close AAPL --asset-class stock --port 7497
 → {"status":"Completed","side":"SELL","closed_qty":100.0,"filled_usd":18552.0,...}
 
 # Partial close
-omega-quant close AAPL --asset-class stock --quantity 50 --port 4002
+omega-quant close AAPL --asset-class stock --quantity 50 --port 7497
 ```
 
 ## Pipeline
@@ -143,7 +143,7 @@ Lateral regime uses mean-reversion parameters (win_rate=0.52, w/l=1.2) giving a 
 
 ## Safety Invariants
 
-1. Paper trading by default (port 4002)
+1. Paper trading by default (TWS port 7497)
 2. Kelly fraction <= 1.0 (clamped in `KellyCriterion::new()`)
 3. Max allocation <= 50% (clamped in `KellyCriterion::new()`)
 4. Daily trade limit checked in `Executor::execute()`
@@ -168,8 +168,8 @@ The `ibkr-quant` skill (`skills/ibkr-quant/SKILL.md`) teaches the AI:
 ## Prerequisites
 
 IB Gateway or TWS must be running locally:
-- Paper trading: port 4002
-- Live trading: port 4001
+- TWS paper: port 7497 (default), TWS live: port 7496
+- IB Gateway paper: port 4002, IB Gateway live: port 4001
 - Auth handled by IB Gateway app (no API keys in code)
 
 ## Dependencies
