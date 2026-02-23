@@ -236,7 +236,12 @@ impl Gateway {
 
         let context = match self
             .memory
-            .build_context(&clean_incoming, &system_prompt, &context_needs)
+            .build_context(
+                &clean_incoming,
+                &system_prompt,
+                &context_needs,
+                active_project.as_deref(),
+            )
             .await
         {
             Ok(ctx) => ctx,
@@ -317,8 +322,14 @@ impl Gateway {
                 self.model_complex
             );
             context.model = Some(self.model_complex.clone());
-            self.execute_steps(&incoming, &clean_incoming.text, &context, &steps)
-                .await;
+            self.execute_steps(
+                &incoming,
+                &clean_incoming.text,
+                &context,
+                &steps,
+                active_project.as_deref(),
+            )
+            .await;
 
             if let Some(h) = typing_handle {
                 h.abort();
@@ -340,6 +351,7 @@ impl Gateway {
             full_system_prompt,
             full_history,
             typing_handle,
+            active_project.as_deref(),
         )
         .await;
 

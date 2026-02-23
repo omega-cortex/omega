@@ -332,6 +332,28 @@ A polling loop with a 60-second interval is simpler and more resilient than sche
 
 If the scheduler delivers a task but fails to mark it as complete (e.g., database error), the task may be re-delivered on the next poll. This is intentional: a duplicate reminder is better than a missed one. For one-shot tasks, the `delivered_at` timestamp provides an audit trail.
 
+## Module Structure
+
+The scheduler is split across two files for clean separation of concerns:
+
+| File | Responsibility |
+|------|---------------|
+| `src/gateway/scheduler.rs` | Poll loop, reminder delivery, recurring task advancement |
+| `src/gateway/scheduler_action.rs` | Action task execution: provider invocation, context enrichment, outcome handling, retry logic |
+
+The scheduler loop in `scheduler.rs` calls `execute_action_task()` from `scheduler_action.rs` when it encounters a due action task. This extraction keeps the poll loop simple and concentrates the action-specific complexity (provider calls, marker processing, retry handling) in its own module.
+
+## Project-Aware Action Tasks
+
+Action tasks are project-scoped. When a user has an `active_project` set, any `SCHEDULE_ACTION:` marker emitted by the AI inherits that project scope. When the action task later fires:
+
+1. **Project detection** -- The scheduler reads the task's `project` field from the database
+2. **ROLE.md injection** -- If the project is non-empty, the scheduler loads `~/.omega/projects/<name>/ROLE.md` and prepends it to the action prompt as project context
+3. **Scoped enrichment** -- Lessons and outcomes are loaded with the project filter: project-specific entries first, general entries fill the rest
+4. **Scoped markers** -- Any `REWARD:` or `LESSON:` markers emitted during action execution are tagged with the task's project
+
+This means an action task scheduled in the context of `omega-trader` will execute with the trading project's role instructions and learn within that project's scope, even if the user has since switched to a different project.
+
 ## Action Task Verification and Retry
 
 ### The Problem

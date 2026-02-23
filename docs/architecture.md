@@ -352,6 +352,30 @@ Deploys a workspace `CLAUDE.md` template on startup, appends dynamic content (sk
 
 ---
 
+## Project-Scoped Learning
+
+OMEGA's reward-based learning system is project-aware. Every outcome (`REWARD:` marker), lesson (`LESSON:` marker), and scheduled task carries a `project` field that isolates learning per project context.
+
+### How `active_project` Flows Through the Pipeline
+
+1. **Keyword detection** resolves the user's `active_project` fact from the database
+2. **Context building** passes `active_project` to `build_context()`, which loads project-scoped outcomes and lessons
+3. **System prompt** includes a `[Project: name]` badge when a project is active
+4. **Marker processing** passes `active_project` to `process_markers()`, which tags all emitted `REWARD:`, `LESSON:`, `SCHEDULE:`, and `SCHEDULE_ACTION:` markers with the project
+5. **Heartbeat loop** runs per-project heartbeats for active projects that have their own `HEARTBEAT.md`
+6. **Action tasks** inherit the project scope and execute with the project's `ROLE.md` context
+
+### Isolation Model
+
+| Scope | Outcomes | Lessons | Tasks |
+|-------|----------|---------|-------|
+| General (`project = ""`) | Visible in all contexts | Visible in all contexts | Execute without ROLE.md |
+| Project-specific (`project = "omega-trader"`) | Only visible when that project is active | Visible when that project is active, plus general | Execute with project's ROLE.md |
+
+Key rule: **project lessons don't leak into general context, but general lessons always flow into project context**. When a project is active, `build_system_prompt()` shows project-specific lessons first (labeled `[project-name]`), then fills the remaining budget with general lessons. This ensures project-specific behavioral rules take priority while general knowledge remains available.
+
+---
+
 ## Efficiency Summary
 
 | Optimization | Savings |

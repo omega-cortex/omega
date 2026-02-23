@@ -100,6 +100,22 @@ impl Store {
         Ok(rows)
     }
 
+    /// Get all `(sender_id, value)` pairs for a given fact key across all users.
+    ///
+    /// Used to find all users with a specific fact (e.g., `active_project`).
+    pub async fn get_all_facts_by_key(
+        &self,
+        key: &str,
+    ) -> Result<Vec<(String, String)>, OmegaError> {
+        let rows: Vec<(String, String)> =
+            sqlx::query_as("SELECT sender_id, value FROM facts WHERE key = ? ORDER BY sender_id")
+                .bind(key)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| OmegaError::Memory(format!("get facts by key failed: {e}")))?;
+        Ok(rows)
+    }
+
     /// Check if a sender has never been welcomed (no `welcomed` fact).
     pub async fn is_new_user(&self, sender_id: &str) -> Result<bool, OmegaError> {
         let row: Option<(String,)> =

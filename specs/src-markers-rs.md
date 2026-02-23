@@ -22,7 +22,7 @@ Each marker type has extract/parse/strip/has functions:
 - **PURGE_FACTS**: `has_purge_marker`, `strip_purge_marker`
 - **PROJECT_ACTIVATE/DEACTIVATE**: `extract_project_activate`, `has_project_deactivate`, `strip_project_markers`
 - **WHATSAPP_QR**: `has_whatsapp_qr_marker`, `strip_whatsapp_qr_marker`
-- **HEARTBEAT_ADD/REMOVE/INTERVAL**: `extract_heartbeat_markers`, `strip_heartbeat_markers`, `apply_heartbeat_changes`
+- **HEARTBEAT_ADD/REMOVE/INTERVAL**: `extract_heartbeat_markers`, `strip_heartbeat_markers`, `apply_heartbeat_changes(actions, project)`, `read_heartbeat_file()`, `read_project_heartbeat_file(project_name)`
 - **SKILL_IMPROVE**: `extract_skill_improve`, `parse_skill_improve_line`, `strip_skill_improve`, `apply_skill_improve`
 - **BUG_REPORT**: `extract_bug_report`, `strip_bug_report`, `append_bug_report`
 - **ACTION_OUTCOME**: `extract_action_outcome`, `strip_action_outcome`

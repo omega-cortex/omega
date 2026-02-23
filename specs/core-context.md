@@ -117,8 +117,8 @@ pub struct ContextNeeds {
 **No derived traits.** This struct is a gateway-internal control signal, not serialized or sent to providers.
 
 **Usage sites:**
-- `src/gateway/pipeline.rs` — keyword detection builds a `ContextNeeds` with selective flags, passed to `store.build_context()`.
-- `crates/omega-memory/src/store/context.rs` — `build_context()` accepts `&ContextNeeds` and conditionally skips queries and prompt injection based on the flags.
+- `src/gateway/pipeline.rs` — keyword detection builds a `ContextNeeds` with selective flags, resolves `active_project` from user facts, and passes both to `store.build_context()`.
+- `crates/omega-memory/src/store/context.rs` — `build_context()` accepts `&ContextNeeds` and `active_project: Option<&str>`, conditionally skips queries and scopes outcomes/lessons based on the flags and active project.
 
 ## Methods
 
@@ -253,7 +253,7 @@ fn default_system_prompt() -> String
 "You are OMEGA Ω, a personal AI assistant running on the user's own server. You are helpful, concise, and action-oriented."
 ```
 
-**Note:** This default prompt is only used for one-shot contexts created with `Context::new()`. The gateway pipeline uses `memory.build_context()`, which constructs an enriched system prompt containing user facts and conversation summaries via the `build_system_prompt()` function in `omega-memory`.
+**Note:** This default prompt is only used for one-shot contexts created with `Context::new()`. The gateway pipeline uses `memory.build_context()`, which constructs an enriched system prompt containing user facts, conversation summaries, project-scoped outcomes and lessons via the `build_system_prompt()` function in `omega-memory`. Tasks show a project badge `(project_name)` when project-scoped. Lessons show `[domain] (project_name) rule` for project-scoped entries and `[domain] rule` for general entries.
 
 ## Dependencies
 
@@ -286,18 +286,20 @@ Context::new(prompt)
 Used by the gateway when processing real user messages. Produces a full context with conversation history, user facts, recent summaries, outcomes, and lessons baked into the system prompt.
 
 ```
-store.build_context(&incoming)
+store.build_context(&incoming, &system_prompt, &needs, active_project)
   --> get_or_create_conversation(channel, sender_id)
   --> SELECT role, content FROM messages WHERE conversation_id = ? (newest N, reversed to chronological)
   --> get_facts(sender_id)
   --> get_recent_summaries(channel, sender_id, 3)
-  --> get_recent_outcomes(sender_id, 15)          [always, reward-based learning]
-  --> get_lessons(sender_id)                       [always, reward-based learning]
+  --> get_recent_outcomes(sender_id, 15, active_project)  [project-scoped, reward-based learning]
+  --> get_lessons(sender_id, active_project)               [project-layered, reward-based learning]
   --> build_system_prompt(facts, summaries, text, outcomes, lessons)
   --> Context { system_prompt, history, current_message }
 ```
 
-**Call site:** `src/gateway.rs:345`.
+**Call site:** `src/gateway/pipeline.rs`.
+
+**Project-scoped learning:** When `active_project` is `Some`, outcomes are filtered to that project only, and lessons are layered — project-specific lessons appear first, then general lessons fill the remaining capacity. When `active_project` is `None`, all outcomes are returned and only general lessons (project='') are loaded.
 
 ## How Context Is Consumed
 

@@ -88,6 +88,7 @@ repeat       TEXT (nullable)    -- Repeat type: NULL/once, daily, weekly, monthl
 status       TEXT               -- 'pending', 'delivered', or 'cancelled'
 created_at   TEXT               -- When the task was created
 delivered_at TEXT (nullable)    -- When the task was last delivered
+project      TEXT               -- Project scope: '' = general, 'name' = project-specific
 ```
 Tasks are indexed on `(status, due_at)` for efficient polling and on `(sender_id, status)` for the `/tasks` command.
 
@@ -100,8 +101,9 @@ domain    TEXT               -- Domain/topic (e.g., "training", "trading", "heal
 score     INTEGER            -- +1 helpful, 0 neutral, -1 redundant/annoying
 lesson    TEXT               -- What happened (e.g., "User completed calisthenics by 15:00")
 source    TEXT               -- Where this came from: 'conversation' or 'heartbeat'
+project   TEXT               -- Project scope: '' = general, 'name' = project-specific
 ```
-Outcomes are indexed on `(sender_id, timestamp)` for per-user queries and on `(timestamp)` for cross-user heartbeat queries. They serve as 24-48h working memory -- recent enough to inform decisions, old enough to be distilled into permanent lessons.
+Outcomes are indexed on `(sender_id, timestamp)` for per-user queries, `(timestamp)` for cross-user heartbeat queries, and `(sender_id, project, timestamp)` for project-scoped queries. They serve as 24-48h working memory -- recent enough to inform decisions, old enough to be distilled into permanent lessons.
 
 **lessons** -- Distilled behavioral rules, the permanent long-term memory of the reward system.
 ```
@@ -109,11 +111,12 @@ id          TEXT PRIMARY KEY   -- UUID v4
 sender_id   TEXT               -- User this lesson applies to
 domain      TEXT               -- Domain/topic (e.g., "training", "trading")
 rule        TEXT               -- The learned rule (e.g., "User trains Saturday mornings, no need to nag after 12:00")
+project     TEXT               -- Project scope: '' = general, 'name' = project-specific
 occurrences INTEGER            -- How many times this pattern has been observed (incremented on upsert)
 created_at  TEXT               -- When the lesson was first created
 updated_at  TEXT               -- When the lesson was last updated
 ```
-Lessons are unique per `(sender_id, domain)`. Storing a lesson with the same domain overwrites the rule and increments the `occurrences` counter, tracking how strongly a pattern has been reinforced. Indexed on `(sender_id)` for per-user queries.
+Lessons are unique per `(sender_id, domain, project)`. Storing a lesson with the same domain and project overwrites the rule and increments the `occurrences` counter, tracking how strongly a pattern has been reinforced. Indexed on `(sender_id)` and `(sender_id, project)` for per-user and project-scoped queries.
 
 **_migrations** -- Tracks which database migrations have been applied.
 
@@ -367,9 +370,10 @@ The five scheduler-related methods on the store:
 
 ### Heartbeat Context Methods
 
-Two additional methods support the heartbeat loop's context-aware check-ins:
+Three additional methods support the heartbeat loop's context-aware check-ins:
 
 - **`get_all_facts()`** -- Returns all facts across all users (excluding internal `welcomed` markers), ordered by key. Used by the heartbeat to give the AI awareness of who it's monitoring for.
+- **`get_all_facts_by_key(key)`** -- Returns all facts with a specific key across all users (e.g., `get_all_facts_by_key("active_project")` to find all users with an active project). Used by the heartbeat to discover which projects need per-project heartbeat execution.
 - **`get_all_recent_summaries(limit)`** -- Returns recent closed conversation summaries across all users, ordered newest-first. Used by the heartbeat with `limit = 3` to give the AI context about recent user activity.
 
 ## Reward-Based Learning
@@ -382,11 +386,11 @@ Outcomes are short-term records of what happened in each interaction. OMEGA eval
 
 ```rust
 // Store an outcome (called by process_markers)
-store.store_outcome("user123", "training", 1, "User completed workout on time", "conversation").await?;
+store.store_outcome("user123", "training", 1, "User completed workout on time", "conversation", "omega-trader").await?;
 
-// Get recent outcomes for a specific user (context injection)
-let outcomes = store.get_recent_outcomes("user123", 15).await?;
-// Returns Vec<(score, domain, lesson, timestamp)>
+// Get recent outcomes for a specific user, project-scoped (context injection)
+let outcomes = store.get_recent_outcomes("user123", 15, "omega-trader").await?;
+// Returns project-specific outcomes first, general outcomes fill the rest
 
 // Get recent outcomes across all users (heartbeat enrichment)
 let outcomes = store.get_all_recent_outcomes(24, 20).await?;
@@ -401,11 +405,11 @@ When OMEGA detects a recurring pattern across outcomes, it distills it into a pe
 
 ```rust
 // Store/update a lesson (called by process_markers)
-store.store_lesson("user123", "training", "User trains Saturday mornings, no need to nag after 12:00").await?;
+store.store_lesson("user123", "training", "User trains Saturday mornings, no need to nag after 12:00", "omega-trader").await?;
 
-// Get all lessons for a specific user (context injection)
-let lessons = store.get_lessons("user123").await?;
-// Returns Vec<(domain, rule)>
+// Get all lessons for a specific user, project-scoped (context injection)
+let lessons = store.get_lessons("user123", "omega-trader").await?;
+// Returns project-specific lessons first, then general lessons
 
 // Get all lessons across all users (heartbeat enrichment)
 let lessons = store.get_all_lessons().await?;
@@ -413,10 +417,10 @@ let lessons = store.get_all_lessons().await?;
 
 ### Context Injection
 
-Both outcomes and lessons are injected into every AI provider context:
+Both outcomes and lessons are injected into every AI provider context, with project-aware layering:
 
-- **Regular conversations**: Last 15 outcomes (with relative timestamps like "3h ago", "1d ago") and all lessons for the current user are appended to the system prompt via `build_system_prompt()`.
-- **Heartbeat enrichment**: All lessons across all users and outcomes from the last 24 hours are included in the heartbeat context via `build_enrichment()`.
+- **Regular conversations**: Last 15 outcomes and all lessons for the current user, scoped to the active project. Project-specific entries appear first, general entries fill the rest. Appended to the system prompt via `build_system_prompt()`.
+- **Heartbeat enrichment**: All lessons across all users and outcomes from the last 24 hours are included in the heartbeat context via `build_enrichment()`. Per-project heartbeats use project-scoped queries.
 
 This gives OMEGA continuous awareness of what worked, what did not, and what behavioral rules it has learned -- informing every future interaction.
 
@@ -471,6 +475,7 @@ The store uses a simple, custom migration system. SQL migration files are embedd
 8. **008_user_aliases** -- Creates `user_aliases` table for cross-channel identity resolution.
 9. **009_task_retry** -- Adds `retry_count` and `last_error` columns for action task failure handling.
 10. **010_outcomes** -- Creates `outcomes` and `lessons` tables for reward-based learning.
+11. **011_project_learning** -- Adds `project` column to `outcomes`, `lessons`, and `scheduled_tasks` for project-scoped learning isolation.
 
 ### Handling Pre-Existing Databases
 

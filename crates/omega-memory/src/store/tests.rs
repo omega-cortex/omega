@@ -42,6 +42,7 @@ async fn test_create_and_get_tasks() {
             "2026-12-31T15:00:00",
             None,
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -68,6 +69,7 @@ async fn test_get_due_tasks() {
             "2020-01-01T00:00:00",
             None,
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -81,6 +83,7 @@ async fn test_get_due_tasks() {
             "2099-12-31T23:59:59",
             None,
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -103,6 +106,7 @@ async fn test_complete_one_shot() {
             "2020-01-01T00:00:00",
             None,
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -130,6 +134,7 @@ async fn test_complete_recurring() {
             "2020-01-01T09:00:00",
             Some("daily"),
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -154,6 +159,7 @@ async fn test_cancel_task() {
             "2099-12-31T00:00:00",
             None,
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -178,6 +184,7 @@ async fn test_cancel_task_wrong_sender() {
             "2099-12-31T00:00:00",
             None,
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -203,6 +210,7 @@ async fn test_update_task_description() {
             "2099-12-31T00:00:00",
             None,
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -230,6 +238,7 @@ async fn test_update_task_repeat() {
             "2099-12-31T00:00:00",
             Some("once"),
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -257,6 +266,7 @@ async fn test_update_task_wrong_sender() {
             "2099-12-31T00:00:00",
             None,
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -284,6 +294,7 @@ async fn test_update_task_no_fields() {
             "2099-12-31T00:00:00",
             None,
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -308,6 +319,7 @@ async fn test_create_task_with_action_type() {
             "2026-12-31T14:00:00",
             Some("daily"),
             "action",
+            "",
         )
         .await
         .unwrap();
@@ -331,6 +343,7 @@ async fn test_get_due_tasks_returns_task_type() {
             "2020-01-01T00:00:00",
             None,
             "reminder",
+            "",
         )
         .await
         .unwrap();
@@ -343,6 +356,7 @@ async fn test_get_due_tasks_returns_task_type() {
             "2020-01-01T00:00:00",
             None,
             "action",
+            "",
         )
         .await
         .unwrap();
@@ -367,6 +381,7 @@ async fn test_create_task_dedup() {
             "2026-02-20T14:30:00",
             None,
             "action",
+            "",
         )
         .await
         .unwrap();
@@ -381,6 +396,7 @@ async fn test_create_task_dedup() {
             "2026-02-20T14:30:00",
             None,
             "action",
+            "",
         )
         .await
         .unwrap();
@@ -609,6 +625,7 @@ fn test_build_system_prompt_shows_action_badge() {
         "2026-02-18T14:00:00".to_string(),
         Some("daily".to_string()),
         "action".to_string(),
+        String::new(),
     )];
     let prompt = build_system_prompt("Rules", &facts, &[], &[], &tasks, &[], &[], "English", None);
     assert!(
@@ -764,7 +781,7 @@ async fn test_build_context_advances_onboarding_stage() {
     };
     let needs = ContextNeeds::default();
     let ctx = store
-        .build_context(&msg, "Base rules", &needs)
+        .build_context(&msg, "Base rules", &needs, None)
         .await
         .unwrap();
     assert!(
@@ -778,7 +795,7 @@ async fn test_build_context_advances_onboarding_stage() {
 
     // Second message: should advance to stage 1 and show /help hint.
     let ctx2 = store
-        .build_context(&msg, "Base rules", &needs)
+        .build_context(&msg, "Base rules", &needs, None)
         .await
         .unwrap();
     assert!(
@@ -788,7 +805,7 @@ async fn test_build_context_advances_onboarding_stage() {
 
     // Third message: stage already at 1, no new transition → no hint.
     let ctx3 = store
-        .build_context(&msg, "Base rules", &needs)
+        .build_context(&msg, "Base rules", &needs, None)
         .await
         .unwrap();
     assert!(
@@ -947,6 +964,7 @@ async fn test_create_task_fuzzy_dedup() {
             "2026-02-22 07:00:00",
             Some("daily"),
             "action",
+            "",
         )
         .await
         .unwrap();
@@ -961,6 +979,7 @@ async fn test_create_task_fuzzy_dedup() {
             "2026-02-22T07:00:00Z",
             Some("daily"),
             "action",
+            "",
         )
         .await
         .unwrap();
@@ -976,6 +995,7 @@ async fn test_create_task_fuzzy_dedup() {
             "2026-02-22 07:05:00",
             Some("daily"),
             "action",
+            "",
         )
         .await
         .unwrap();
@@ -991,6 +1011,7 @@ async fn test_create_task_fuzzy_dedup() {
             "2026-02-22 07:00:00",
             Some("daily"),
             "action",
+            "",
         )
         .await
         .unwrap();
@@ -1009,6 +1030,7 @@ async fn test_fail_task_retries() {
             "2020-01-01T00:00:00",
             None,
             "action",
+            "",
         )
         .await
         .unwrap();
@@ -1046,6 +1068,7 @@ async fn test_fail_task_stores_error() {
             "2020-01-01T00:00:00",
             None,
             "action",
+            "",
         )
         .await
         .unwrap();
@@ -1063,4 +1086,242 @@ async fn test_fail_task_stores_error() {
     let (last_error, retry_count) = row.unwrap();
     assert_eq!(last_error, "connection refused");
     assert_eq!(retry_count, 1);
+}
+
+// --- Project-scoped learning tests ---
+
+#[tokio::test]
+async fn test_outcomes_project_isolation() {
+    let store = test_store().await;
+
+    // Store general outcome.
+    store
+        .store_outcome(
+            "user1",
+            "communication",
+            1,
+            "Be concise",
+            "conversation",
+            "",
+        )
+        .await
+        .unwrap();
+    // Store project-scoped outcome.
+    store
+        .store_outcome(
+            "user1",
+            "trading",
+            1,
+            "Check volume",
+            "conversation",
+            "omega-trader",
+        )
+        .await
+        .unwrap();
+
+    // No project filter → returns all.
+    let all = store.get_recent_outcomes("user1", 10, None).await.unwrap();
+    assert_eq!(all.len(), 2);
+
+    // Project filter → returns only that project.
+    let trading = store
+        .get_recent_outcomes("user1", 10, Some("omega-trader"))
+        .await
+        .unwrap();
+    assert_eq!(trading.len(), 1);
+    assert_eq!(trading[0].1, "trading");
+
+    // General filter → returns only general.
+    let general = store
+        .get_recent_outcomes("user1", 10, Some(""))
+        .await
+        .unwrap();
+    assert_eq!(general.len(), 1);
+    assert_eq!(general[0].1, "communication");
+}
+
+#[tokio::test]
+async fn test_lessons_project_layering() {
+    let store = test_store().await;
+
+    // Store general lesson.
+    store
+        .store_lesson("user1", "communication", "Be concise", "")
+        .await
+        .unwrap();
+    // Store project-scoped lesson.
+    store
+        .store_lesson("user1", "risk", "Never risk more than 2%", "omega-trader")
+        .await
+        .unwrap();
+
+    // No project → general only.
+    let general = store.get_lessons("user1", None).await.unwrap();
+    assert_eq!(general.len(), 1);
+    assert_eq!(general[0].0, "communication");
+    assert_eq!(general[0].2, ""); // general
+
+    // With project → project-specific FIRST, then general.
+    let layered = store
+        .get_lessons("user1", Some("omega-trader"))
+        .await
+        .unwrap();
+    assert_eq!(layered.len(), 2);
+    assert_eq!(
+        layered[0].2, "omega-trader",
+        "project lesson should come first"
+    );
+    assert_eq!(layered[1].2, "", "general lesson should come second");
+}
+
+#[tokio::test]
+async fn test_lessons_project_upsert_unique() {
+    let store = test_store().await;
+
+    // Same domain, different projects → separate lessons.
+    store
+        .store_lesson("user1", "risk", "General risk rule", "")
+        .await
+        .unwrap();
+    store
+        .store_lesson("user1", "risk", "Trading risk rule", "omega-trader")
+        .await
+        .unwrap();
+
+    let all_lessons = store
+        .get_lessons("user1", Some("omega-trader"))
+        .await
+        .unwrap();
+    assert_eq!(
+        all_lessons.len(),
+        2,
+        "same domain, different projects = separate"
+    );
+
+    // Upsert within same project → replaces rule.
+    store
+        .store_lesson("user1", "risk", "Updated trading risk", "omega-trader")
+        .await
+        .unwrap();
+    let updated = store
+        .get_lessons("user1", Some("omega-trader"))
+        .await
+        .unwrap();
+    assert_eq!(updated.len(), 2, "upsert should not create new row");
+    let trading_lesson = updated.iter().find(|l| l.2 == "omega-trader").unwrap();
+    assert_eq!(trading_lesson.1, "Updated trading risk");
+}
+
+#[tokio::test]
+async fn test_tasks_project_tag() {
+    let store = test_store().await;
+
+    // Create a general task.
+    store
+        .create_task(
+            "telegram",
+            "user1",
+            "chat1",
+            "General reminder",
+            "2099-12-31T00:00:00",
+            None,
+            "reminder",
+            "",
+        )
+        .await
+        .unwrap();
+
+    // Create a project-scoped task.
+    store
+        .create_task(
+            "telegram",
+            "user1",
+            "chat1",
+            "Check BTC",
+            "2020-01-01T00:00:00",
+            None,
+            "action",
+            "omega-trader",
+        )
+        .await
+        .unwrap();
+
+    // get_tasks_for_sender returns project field.
+    let tasks = store.get_tasks_for_sender("user1").await.unwrap();
+    assert_eq!(tasks.len(), 2);
+    let general = tasks.iter().find(|t| t.1 == "General reminder").unwrap();
+    assert_eq!(general.5, "");
+    let project = tasks.iter().find(|t| t.1 == "Check BTC").unwrap();
+    assert_eq!(project.5, "omega-trader");
+
+    // get_due_tasks returns project field.
+    let due = store.get_due_tasks().await.unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0].4, "Check BTC");
+    assert_eq!(due[0].7, "omega-trader");
+}
+
+#[tokio::test]
+async fn test_get_all_lessons_project_filter() {
+    let store = test_store().await;
+
+    store
+        .store_lesson("user1", "comms", "Be clear", "")
+        .await
+        .unwrap();
+    store
+        .store_lesson("user2", "trading", "Check volume", "omega-trader")
+        .await
+        .unwrap();
+
+    // No filter → all lessons.
+    let all = store.get_all_lessons(None).await.unwrap();
+    assert_eq!(all.len(), 2);
+
+    // Project filter → project + general.
+    let filtered = store.get_all_lessons(Some("omega-trader")).await.unwrap();
+    assert_eq!(filtered.len(), 2); // 1 project + 1 general
+    assert_eq!(filtered[0].2, "omega-trader", "project first");
+    assert_eq!(filtered[1].2, "", "general second");
+}
+
+#[tokio::test]
+async fn test_get_all_facts_by_key() {
+    let store = test_store().await;
+
+    store
+        .store_fact("user1", "active_project", "omega-trader")
+        .await
+        .unwrap();
+    store
+        .store_fact("user2", "active_project", "omega-trader")
+        .await
+        .unwrap();
+    store.store_fact("user3", "name", "Charlie").await.unwrap();
+
+    let active = store.get_all_facts_by_key("active_project").await.unwrap();
+    assert_eq!(active.len(), 2);
+    assert!(active.iter().all(|(_, v)| v == "omega-trader"));
+}
+
+#[tokio::test]
+async fn test_migration_existing_data_gets_empty_project() {
+    let store = test_store().await;
+
+    // Data created via migration gets project = '' by default.
+    store
+        .store_outcome("user1", "test", 1, "lesson", "conversation", "")
+        .await
+        .unwrap();
+    store
+        .store_lesson("user1", "test", "rule", "")
+        .await
+        .unwrap();
+
+    let outcomes = store.get_recent_outcomes("user1", 10, None).await.unwrap();
+    assert_eq!(outcomes.len(), 1);
+
+    let lessons = store.get_lessons("user1", None).await.unwrap();
+    assert_eq!(lessons.len(), 1);
+    assert_eq!(lessons[0].2, "", "default project should be empty string");
 }

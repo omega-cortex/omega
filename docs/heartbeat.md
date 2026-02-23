@@ -185,6 +185,49 @@ reply_target = ""
 
 **Important:** The heartbeat is disabled by default because it requires `channel` and `reply_target` to be set. Enabling it without configuring a delivery target will cause alerts to be dropped (with a warning in the log).
 
+## Module Structure
+
+The heartbeat is split across two files:
+
+| File | Responsibility |
+|------|---------------|
+| `src/gateway/heartbeat.rs` | Main heartbeat loop, clock alignment, global + per-project execution |
+| `src/gateway/heartbeat_helpers.rs` | Shared helpers: enrichment building, classification, group execution, marker processing |
+
+The extraction of helpers keeps the main loop readable while concentrating reusable logic (enrichment assembly, Sonnet classification, parallel group execution) in a focused module.
+
+## Per-Project Heartbeats
+
+After running the global heartbeat (`~/.omega/prompts/HEARTBEAT.md`), the heartbeat loop iterates all active projects that have their own heartbeat checklist:
+
+```
+~/.omega/projects/<project-name>/HEARTBEAT.md
+```
+
+### How It Works
+
+1. **Scan active projects** -- The heartbeat queries all users' `active_project` facts via `get_all_facts_by_key("active_project")` to find projects with engaged users
+2. **Check for HEARTBEAT.md** -- For each active project, check if `~/.omega/projects/<name>/HEARTBEAT.md` exists and has content
+3. **Load ROLE.md** -- The project's `ROLE.md` is prepended to the system prompt, giving the AI project-specific role context
+4. **Scoped enrichment** -- Lessons and outcomes are loaded with the project filter: project-specific entries first, general entries fill the rest
+5. **Execute** -- The same classify-then-route pattern applies: Sonnet groups items by domain, Opus executes groups in parallel
+6. **Scoped markers** -- Any `REWARD:` or `LESSON:` markers emitted during project heartbeat execution are tagged with the project name
+
+### Example
+
+If user has `active_project = "omega-trader"` and `~/.omega/projects/omega-trader/HEARTBEAT.md` contains:
+
+```markdown
+- Check BTC price movement in the last 4 hours
+- Review open positions for stop-loss proximity
+```
+
+The heartbeat will:
+1. Run the global `~/.omega/prompts/HEARTBEAT.md` first (if it exists)
+2. Then run the `omega-trader` heartbeat with the trading project's `ROLE.md` context and project-scoped lessons/outcomes
+
+Project heartbeats follow the same HEARTBEAT_OK suppression, active hours, and audit logging rules as the global heartbeat.
+
 ## Use Cases
 
 ### System Monitoring

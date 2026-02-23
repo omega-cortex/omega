@@ -5,11 +5,13 @@
 
 mod auth;
 mod heartbeat;
+mod heartbeat_helpers;
 mod keywords;
 mod pipeline;
 mod process_markers;
 mod routing;
 mod scheduler;
+mod scheduler_action;
 mod summarizer;
 
 use crate::markers::*;
@@ -172,6 +174,7 @@ impl Gateway {
             let sched_hb_interval = self.heartbeat_interval.clone();
             let sched_audit = AuditLogger::new(self.memory.pool().clone());
             let sched_provider_name = self.provider.name().to_string();
+            let sched_data_dir = self.data_dir.clone();
             Some(tokio::spawn(async move {
                 Self::scheduler_loop(
                     sched_store,
@@ -184,6 +187,7 @@ impl Gateway {
                     sched_hb_interval,
                     sched_audit,
                     sched_provider_name,
+                    sched_data_dir,
                 )
                 .await;
             }))
@@ -204,6 +208,7 @@ impl Gateway {
             let hb_skills = self.skills.clone();
             let hb_audit = AuditLogger::new(self.memory.pool().clone());
             let hb_provider_name = self.provider.name().to_string();
+            let hb_data_dir = self.data_dir.clone();
             Some(tokio::spawn(async move {
                 Self::heartbeat_loop(
                     hb_provider,
@@ -217,6 +222,7 @@ impl Gateway {
                     hb_skills,
                     hb_audit,
                     hb_provider_name,
+                    hb_data_dir,
                 )
                 .await;
             }))

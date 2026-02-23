@@ -43,7 +43,7 @@ pub struct Store {
 
 ## Database Schema
 
-The store manages eight tables and one virtual table created across ten migrations. A tracking table (`_migrations`) tracks migration state.
+The store manages eight tables and one virtual table created across eleven migrations. A tracking table (`_migrations`) tracks migration state.
 
 ### Table: `_migrations`
 
@@ -187,7 +187,7 @@ Created by `002_audit_log.sql`. Not accessed by `Store` directly (managed by `Au
 
 ### Table: `scheduled_tasks`
 
-Created by `005_scheduled_tasks.sql`.
+Created by `005_scheduled_tasks.sql`, extended by `007_task_type.sql` and `011_project_learning.sql`.
 
 ```sql
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
@@ -202,7 +202,9 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     delivered_at TEXT,
     -- Added by 007_task_type:
-    task_type    TEXT NOT NULL DEFAULT 'reminder'
+    task_type    TEXT NOT NULL DEFAULT 'reminder',
+    -- Added by 011_project_learning:
+    project      TEXT NOT NULL DEFAULT ''
 );
 ```
 
@@ -219,6 +221,7 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
 | `created_at` | `TEXT` | `NOT NULL`, default `datetime('now')` | When the task was created. |
 | `delivered_at` | `TEXT` | nullable | When the task was delivered (set on completion for one-shot tasks). |
 | `task_type` | `TEXT` | `NOT NULL`, default `'reminder'` | Task type: `'reminder'` (simple message delivery) or `'action'` (provider-backed autonomous execution). |
+| `project` | `TEXT` | `NOT NULL`, default `''` | Project scope: empty string = general, non-empty = project-scoped. Added by migration 011. |
 
 **Indexes:**
 - `idx_scheduled_tasks_due` on `(status, due_at)` -- for efficient due-task queries.
@@ -273,7 +276,7 @@ CREATE TABLE IF NOT EXISTS user_aliases (
 
 ### Table: `outcomes`
 
-Created by `010_outcomes.sql`. Raw reward outcomes — short-term working memory (24-48h window).
+Created by `010_outcomes.sql`, extended by `011_project_learning.sql`. Raw reward outcomes — short-term working memory (24-48h window).
 
 ```sql
 CREATE TABLE IF NOT EXISTS outcomes (
@@ -283,7 +286,9 @@ CREATE TABLE IF NOT EXISTS outcomes (
     domain    TEXT NOT NULL,
     score     INTEGER NOT NULL CHECK (score IN (-1, 0, 1)),
     lesson    TEXT NOT NULL,
-    source    TEXT NOT NULL DEFAULT 'conversation'
+    source    TEXT NOT NULL DEFAULT 'conversation',
+    -- Added by 011_project_learning:
+    project   TEXT NOT NULL DEFAULT ''
 );
 ```
 
@@ -296,14 +301,16 @@ CREATE TABLE IF NOT EXISTS outcomes (
 | `score` | `INTEGER` | `NOT NULL`, CHECK `IN (-1, 0, 1)` | Reward signal: `+1` (helpful), `0` (neutral), `-1` (redundant/annoying). |
 | `lesson` | `TEXT` | `NOT NULL` | What was learned from this interaction. |
 | `source` | `TEXT` | `NOT NULL`, default `'conversation'` | Origin: `'conversation'` (regular messages) or `'heartbeat'` (periodic check-ins). |
+| `project` | `TEXT` | `NOT NULL`, default `''` | Project scope: empty string = general, non-empty = project-scoped. Added by migration 011. |
 
 **Indexes:**
 - `idx_outcomes_sender_time` on `(sender_id, timestamp)` -- for per-sender recent outcome queries.
 - `idx_outcomes_time` on `(timestamp)` -- for cross-user time-based queries (heartbeat enrichment).
+- `idx_outcomes_project` on `(sender_id, project, timestamp)` -- for project-scoped outcome queries. Added by migration 011.
 
 ### Table: `lessons`
 
-Created by `010_outcomes.sql`. Distilled behavioral rules — permanent long-term memory.
+Created by `010_outcomes.sql`, **recreated** by `011_project_learning.sql` (adds `project` column and updated UNIQUE constraint). Distilled behavioral rules — permanent long-term memory.
 
 ```sql
 CREATE TABLE IF NOT EXISTS lessons (
@@ -311,10 +318,11 @@ CREATE TABLE IF NOT EXISTS lessons (
     sender_id   TEXT NOT NULL,
     domain      TEXT NOT NULL,
     rule        TEXT NOT NULL,
+    project     TEXT NOT NULL DEFAULT '',
     occurrences INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(sender_id, domain)
+    UNIQUE(sender_id, domain, project)
 );
 ```
 
@@ -324,14 +332,16 @@ CREATE TABLE IF NOT EXISTS lessons (
 | `sender_id` | `TEXT` | `NOT NULL` | The user this lesson belongs to. |
 | `domain` | `TEXT` | `NOT NULL` | Domain/category (e.g., `"training"`, `"scheduling"`). |
 | `rule` | `TEXT` | `NOT NULL` | The distilled behavioral rule (e.g., `"User trains Saturday mornings, no need to nag after 12:00"`). |
+| `project` | `TEXT` | `NOT NULL`, default `''` | Project scope: empty string = general, non-empty = project-scoped. Added by migration 011. |
 | `occurrences` | `INTEGER` | `NOT NULL`, default `1` | Number of times this domain's lesson has been updated (confidence signal). |
 | `created_at` | `TEXT` | `NOT NULL`, default `datetime('now')` | When the lesson was first created. |
 | `updated_at` | `TEXT` | `NOT NULL`, default `datetime('now')` | When the lesson was last updated. |
 
-**Unique constraint:** `(sender_id, domain)` -- each user has at most one lesson per domain. Upserts replace the rule and increment occurrences.
+**Unique constraint:** `(sender_id, domain, project)` -- each user has at most one lesson per domain per project. Upserts replace the rule and increment occurrences. Changed from `(sender_id, domain)` in migration 011.
 
-**Index:**
+**Indexes:**
 - `idx_lessons_sender` on `(sender_id)` -- for per-sender lesson queries.
+- `idx_lessons_project` on `(sender_id, project)` -- for project-scoped lesson queries. Added by migration 011.
 
 ## Migrations
 
@@ -357,6 +367,7 @@ Migrations are tracked via the `_migrations` table. The system handles three sce
 | `008_user_aliases` | `migrations/008_user_aliases.sql` | Creates `user_aliases` table for cross-channel user identity resolution. |
 | `009_task_retry` | `migrations/009_task_retry.sql` | Adds `retry_count` and `last_error` columns to `scheduled_tasks` for action task failure handling. |
 | `010_outcomes` | `migrations/010_outcomes.sql` | Creates `outcomes` and `lessons` tables for reward-based learning (working memory + long-term behavioral rules). |
+| `011_project_learning` | `migrations/011_project_learning.sql` | Adds `project` column to `outcomes` and `scheduled_tasks`, recreates `lessons` with `project` in UNIQUE constraint, adds project-scoped indexes. |
 
 ### Bootstrap Detection Logic
 
@@ -569,6 +580,27 @@ SELECT key, value FROM facts WHERE key != 'welcomed' ORDER BY key
 **Note:** Excludes the `welcomed` fact (an internal marker) from results.
 
 **Called by:** `gateway.rs::heartbeat_loop()` to inject user facts into the heartbeat provider prompt.
+
+---
+
+#### `async fn get_all_facts_by_key(&self, key: &str) -> Result<Vec<(String, String)>, OmegaError>`
+
+**Purpose:** Get all `(sender_id, value)` pairs for a given fact key across all users. Used to find all users with a specific fact (e.g., `active_project`).
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `key` | `&str` | The fact key to look up across all users. |
+
+**Returns:** `Result<Vec<(String, String)>, OmegaError>` where each tuple is `(sender_id, value)`, ordered by sender_id.
+
+**SQL:**
+```sql
+SELECT sender_id, value FROM facts WHERE key = ? ORDER BY sender_id
+```
+
+**Called by:** `gateway/heartbeat.rs` to find all users with `active_project` facts for per-project heartbeat loops.
 
 ---
 
@@ -829,7 +861,7 @@ LIMIT ?
 
 ---
 
-#### `async fn build_context(&self, incoming: &IncomingMessage, base_system_prompt: &str, needs: &ContextNeeds) -> Result<Context, OmegaError>`
+#### `async fn build_context(&self, incoming: &IncomingMessage, base_system_prompt: &str, needs: &ContextNeeds, active_project: Option<&str>) -> Result<Context, OmegaError>`
 
 **Purpose:** Build a complete conversation context for the AI provider from the current conversation state, user facts, recent summaries, and conditionally loaded recall and pending tasks.
 
@@ -840,6 +872,7 @@ LIMIT ?
 | `incoming` | `&IncomingMessage` | The incoming message (provides `channel`, `sender_id`, `text`). |
 | `base_system_prompt` | `&str` | The base system prompt (identity + soul + rules), composed by the gateway from `Prompts.identity`, `Prompts.soul`, and `Prompts.system`. |
 | `needs` | `&ContextNeeds` | Controls which optional context blocks are loaded and injected. `recall`, `pending_tasks`, `summaries`, and `outcomes` gate DB queries. `profile` gates fact injection into the prompt (facts are always loaded for onboarding/language). Lessons are always loaded. |
+| `active_project` | `Option<&str>` | The user's currently active project, used to scope outcomes and layer lessons (project-specific first, then general). |
 
 **Returns:** `Result<Context, OmegaError>`.
 
@@ -850,8 +883,8 @@ LIMIT ?
 4. If `needs.summaries` is true, fetch the 3 most recent closed conversation summaries (errors suppressed, default to empty). Otherwise, empty vec.
 5. If `needs.recall` is true, search past messages via FTS5 for cross-conversation recall (errors suppressed, default to empty). Otherwise, empty vec.
 6. If `needs.pending_tasks` is true, fetch pending tasks for the sender (errors suppressed, default to empty). Otherwise, empty vec.
-7. If `needs.outcomes` is true, fetch recent outcomes for the sender (limit 15, errors suppressed, default to empty). Otherwise, empty vec.
-8. Fetch all lessons for the sender (always loaded, errors suppressed, default to empty).
+7. If `needs.outcomes` is true, fetch recent outcomes for the sender (limit 15, scoped to `active_project`, errors suppressed, default to empty). Otherwise, empty vec.
+8. Fetch lessons for the sender (always loaded, layered by `active_project` — project-specific first then general, errors suppressed, default to empty).
 8a. Pass facts to `build_system_prompt()` only when `needs.profile` is true; otherwise pass empty slice.
 9. Resolve language preference:
    - If a `preferred_language` fact exists in the fetched facts, use it.
@@ -961,7 +994,7 @@ INSERT INTO messages (id, conversation_id, role, content, metadata_json) VALUES 
 
 ---
 
-#### `async fn create_task(&self, channel: &str, sender_id: &str, reply_target: &str, description: &str, due_at: &str, repeat: Option<&str>, task_type: &str) -> Result<String, OmegaError>`
+#### `async fn create_task(&self, channel: &str, sender_id: &str, reply_target: &str, description: &str, due_at: &str, repeat: Option<&str>, task_type: &str, project: &str) -> Result<String, OmegaError>`
 
 **Purpose:** Create a new scheduled task with two-level deduplication.
 
@@ -976,6 +1009,7 @@ INSERT INTO messages (id, conversation_id, role, content, metadata_json) VALUES 
 | `due_at` | `&str` | ISO 8601 datetime when the task is due (normalized before storage). |
 | `repeat` | `Option<&str>` | Recurrence pattern (`None` for one-shot, `Some("daily")`, etc.). |
 | `task_type` | `&str` | Task type: `"reminder"` (simple delivery) or `"action"` (provider-backed execution). |
+| `project` | `&str` | Project scope: empty string for general, project name for project-scoped. |
 
 **Returns:** `Result<String, OmegaError>` -- the UUID of the created (or reused) task.
 
@@ -987,25 +1021,25 @@ INSERT INTO messages (id, conversation_id, role, content, metadata_json) VALUES 
 
 **SQL:**
 ```sql
-INSERT INTO scheduled_tasks (id, channel, sender_id, reply_target, description, due_at, repeat, task_type)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO scheduled_tasks (id, channel, sender_id, reply_target, description, due_at, repeat, task_type, project)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ```
 
-**Called by:** `gateway.rs::handle_message()` Stage 5b (SCHEDULE and SCHEDULE_ACTION marker extraction), `gateway.rs::scheduler_loop()` for nested tasks from action responses.
+**Called by:** `gateway/process_markers.rs` (SCHEDULE and SCHEDULE_ACTION marker extraction), `gateway/scheduler_action.rs` for nested tasks from action responses.
 
 ---
 
-#### `async fn get_due_tasks(&self) -> Result<Vec<(String, String, String, String, String, Option<String>, String)>, OmegaError>`
+#### `async fn get_due_tasks(&self) -> Result<Vec<(String, String, String, String, String, Option<String>, String, String)>, OmegaError>`
 
 **Purpose:** Get tasks that are due for delivery (status is pending and due_at is in the past or now).
 
 **Parameters:** None.
 
-**Returns:** `Result<Vec<(String, String, String, String, String, Option<String>, String)>, OmegaError>` where each tuple is `(id, channel, sender_id, reply_target, description, repeat, task_type)`.
+**Returns:** `Result<Vec<(String, String, String, String, String, Option<String>, String, String)>, OmegaError>` where each tuple is `(id, channel, sender_id, reply_target, description, repeat, task_type, project)`.
 
 **SQL:**
 ```sql
-SELECT id, channel, sender_id, reply_target, description, repeat, task_type
+SELECT id, channel, sender_id, reply_target, description, repeat, task_type, project
 FROM scheduled_tasks
 WHERE status = 'pending' AND datetime(due_at) <= datetime('now')
 ```
@@ -1092,7 +1126,7 @@ WHERE id = ? AND CAST(strftime('%w', due_at) AS INTEGER) = 0
 
 ---
 
-#### `async fn get_tasks_for_sender(&self, sender_id: &str) -> Result<Vec<(String, String, String, Option<String>, String)>, OmegaError>`
+#### `async fn get_tasks_for_sender(&self, sender_id: &str) -> Result<Vec<(String, String, String, Option<String>, String, String)>, OmegaError>`
 
 **Purpose:** Get all pending tasks for a specific user (for the `/tasks` command).
 
@@ -1102,11 +1136,11 @@ WHERE id = ? AND CAST(strftime('%w', due_at) AS INTEGER) = 0
 |-----------|------|-------------|
 | `sender_id` | `&str` | The user whose tasks to retrieve. |
 
-**Returns:** `Result<Vec<(String, String, String, Option<String>, String)>, OmegaError>` where each tuple is `(id, description, due_at, repeat, task_type)`, ordered by `due_at` ascending.
+**Returns:** `Result<Vec<(String, String, String, Option<String>, String, String)>, OmegaError>` where each tuple is `(id, description, due_at, repeat, task_type, project)`, ordered by `due_at` ascending.
 
 **SQL:**
 ```sql
-SELECT id, description, due_at, repeat, task_type
+SELECT id, description, due_at, repeat, task_type, project
 FROM scheduled_tasks
 WHERE sender_id = ? AND status = 'pending'
 ORDER BY due_at ASC
@@ -1242,7 +1276,7 @@ SELECT sender_id FROM facts WHERE key = 'welcomed' AND sender_id != ? LIMIT 1
 
 ---
 
-#### `async fn store_outcome(&self, sender_id: &str, domain: &str, score: i32, lesson: &str, source: &str) -> Result<(), OmegaError>`
+#### `async fn store_outcome(&self, sender_id: &str, domain: &str, score: i32, lesson: &str, source: &str, project: &str) -> Result<(), OmegaError>`
 
 **Purpose:** Store a raw outcome from a REWARD marker.
 
@@ -1255,19 +1289,20 @@ SELECT sender_id FROM facts WHERE key = 'welcomed' AND sender_id != ? LIMIT 1
 | `score` | `i32` | Reward signal: `+1`, `0`, or `-1`. |
 | `lesson` | `&str` | What was learned from this interaction. |
 | `source` | `&str` | Origin: `"conversation"` or `"heartbeat"`. |
+| `project` | `&str` | Project scope: empty string for general, project name for project-scoped. |
 
 **Returns:** `Result<(), OmegaError>`.
 
 **SQL:**
 ```sql
-INSERT INTO outcomes (id, sender_id, domain, score, lesson, source) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO outcomes (id, sender_id, domain, score, lesson, source, project) VALUES (?, ?, ?, ?, ?, ?, ?)
 ```
 
 **Called by:** `gateway/process_markers.rs` (source=`"conversation"`), `gateway/heartbeat.rs` (source=`"heartbeat"`), `gateway/scheduler.rs` (source=`"action"`).
 
 ---
 
-#### `async fn get_recent_outcomes(&self, sender_id: &str, limit: i64) -> Result<Vec<(i32, String, String, String)>, OmegaError>`
+#### `async fn get_recent_outcomes(&self, sender_id: &str, limit: i64, project: Option<&str>) -> Result<Vec<(i32, String, String, String)>, OmegaError>`
 
 **Purpose:** Get recent outcomes for a sender (for regular conversation prompt injection).
 
@@ -1277,20 +1312,27 @@ INSERT INTO outcomes (id, sender_id, domain, score, lesson, source) VALUES (?, ?
 |-----------|------|-------------|
 | `sender_id` | `&str` | The user whose outcomes to retrieve. |
 | `limit` | `i64` | Maximum number of outcomes to return. |
+| `project` | `Option<&str>` | When `Some(p)`, filter to outcomes for that project only. When `None`, return all outcomes. |
 
 **Returns:** `Result<Vec<(i32, String, String, String)>, OmegaError>` where each tuple is `(score, domain, lesson, timestamp)`, ordered newest first.
 
-**SQL:**
+**SQL (project = None):**
 ```sql
 SELECT score, domain, lesson, timestamp FROM outcomes
 WHERE sender_id = ? ORDER BY timestamp DESC LIMIT ?
 ```
 
-**Called by:** `build_context()` with `limit = 15` to inject recent outcomes into the system prompt.
+**SQL (project = Some):**
+```sql
+SELECT score, domain, lesson, timestamp FROM outcomes
+WHERE sender_id = ? AND project = ? ORDER BY timestamp DESC LIMIT ?
+```
+
+**Called by:** `build_context()` with `limit = 15` and `active_project` to inject recent outcomes into the system prompt.
 
 ---
 
-#### `async fn get_all_recent_outcomes(&self, hours: i64, limit: i64) -> Result<Vec<(i32, String, String, String)>, OmegaError>`
+#### `async fn get_all_recent_outcomes(&self, hours: i64, limit: i64, project: Option<&str>) -> Result<Vec<(i32, String, String, String)>, OmegaError>`
 
 **Purpose:** Get recent outcomes across all users within a time window (for heartbeat enrichment).
 
@@ -1300,23 +1342,31 @@ WHERE sender_id = ? ORDER BY timestamp DESC LIMIT ?
 |-----------|------|-------------|
 | `hours` | `i64` | Look-back window in hours. |
 | `limit` | `i64` | Maximum number of outcomes to return. |
+| `project` | `Option<&str>` | When `Some(p)`, filter to outcomes for that project only. When `None`, return all outcomes. |
 
 **Returns:** `Result<Vec<(i32, String, String, String)>, OmegaError>` where each tuple is `(score, domain, lesson, timestamp)`, ordered newest first.
 
-**SQL:**
+**SQL (project = None):**
 ```sql
 SELECT score, domain, lesson, timestamp FROM outcomes
 WHERE datetime(timestamp) >= datetime('now', ? || ' hours')
 ORDER BY timestamp DESC LIMIT ?
 ```
 
-**Called by:** `gateway/heartbeat.rs::build_enrichment()` with `hours = 24, limit = 20`.
+**SQL (project = Some):**
+```sql
+SELECT score, domain, lesson, timestamp FROM outcomes
+WHERE datetime(timestamp) >= datetime('now', ? || ' hours') AND project = ?
+ORDER BY timestamp DESC LIMIT ?
+```
+
+**Called by:** `gateway/heartbeat.rs::build_enrichment()` with `hours = 24, limit = 20`, and project scope.
 
 ---
 
-#### `async fn store_lesson(&self, sender_id: &str, domain: &str, rule: &str) -> Result<(), OmegaError>`
+#### `async fn store_lesson(&self, sender_id: &str, domain: &str, rule: &str, project: &str) -> Result<(), OmegaError>`
 
-**Purpose:** Store or update a distilled lesson (upsert by sender_id + domain). If a lesson already exists for this domain, the rule is replaced and occurrences is incremented. Otherwise a new lesson is created.
+**Purpose:** Store or update a distilled lesson (upsert by sender_id + domain + project). If a lesson already exists for this domain and project, the rule is replaced and occurrences is incremented. Otherwise a new lesson is created.
 
 **Parameters:**
 
@@ -1325,13 +1375,14 @@ ORDER BY timestamp DESC LIMIT ?
 | `sender_id` | `&str` | The user this lesson belongs to. |
 | `domain` | `&str` | Domain/category. |
 | `rule` | `&str` | The distilled behavioral rule. |
+| `project` | `&str` | Project scope: empty string for general, project name for project-scoped. |
 
 **Returns:** `Result<(), OmegaError>`.
 
 **SQL:**
 ```sql
-INSERT INTO lessons (id, sender_id, domain, rule) VALUES (?, ?, ?, ?)
-ON CONFLICT(sender_id, domain) DO UPDATE SET
+INSERT INTO lessons (id, sender_id, domain, rule, project) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(sender_id, domain, project) DO UPDATE SET
   rule = excluded.rule,
   occurrences = occurrences + 1,
   updated_at = datetime('now')
@@ -1341,41 +1392,60 @@ ON CONFLICT(sender_id, domain) DO UPDATE SET
 
 ---
 
-#### `async fn get_lessons(&self, sender_id: &str) -> Result<Vec<(String, String)>, OmegaError>`
+#### `async fn get_lessons(&self, sender_id: &str, project: Option<&str>) -> Result<Vec<(String, String, String)>, OmegaError>`
 
-**Purpose:** Get all lessons for a sender.
+**Purpose:** Get lessons for a sender, with project-aware layering.
 
 **Parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `sender_id` | `&str` | The user whose lessons to retrieve. |
+| `project` | `Option<&str>` | When `Some(p)`, returns project-specific lessons first, then general (project=''). When `None`, returns only general lessons. |
 
-**Returns:** `Result<Vec<(String, String)>, OmegaError>` where each tuple is `(domain, rule)`, ordered by most-recently-updated first.
+**Returns:** `Result<Vec<(String, String, String)>, OmegaError>` where each tuple is `(domain, rule, project)`, ordered by project-specific first then most-recently-updated.
 
-**SQL:**
+**SQL (project = None):**
 ```sql
-SELECT domain, rule FROM lessons WHERE sender_id = ? ORDER BY updated_at DESC
+SELECT domain, rule, project FROM lessons WHERE sender_id = ? AND project = '' ORDER BY updated_at DESC
 ```
 
-**Called by:** `build_context()` to inject learned behavioral rules into the system prompt.
+**SQL (project = Some):**
+```sql
+SELECT domain, rule, project FROM lessons
+WHERE sender_id = ? AND (project = ? OR project = '')
+ORDER BY CASE WHEN project = ? THEN 0 ELSE 1 END, updated_at DESC
+```
+
+**Called by:** `build_context()` with `active_project` to inject learned behavioral rules into the system prompt.
 
 ---
 
-#### `async fn get_all_lessons(&self) -> Result<Vec<(String, String)>, OmegaError>`
+#### `async fn get_all_lessons(&self, project: Option<&str>) -> Result<Vec<(String, String, String)>, OmegaError>`
 
 **Purpose:** Get all lessons across all users (for heartbeat enrichment).
 
-**Parameters:** None.
+**Parameters:**
 
-**Returns:** `Result<Vec<(String, String)>, OmegaError>` where each tuple is `(domain, rule)`, ordered by most-recently-updated first.
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `project` | `Option<&str>` | When `Some(p)`, returns project-specific + general lessons. When `None`, returns all lessons. |
 
-**SQL:**
+**Returns:** `Result<Vec<(String, String, String)>, OmegaError>` where each tuple is `(domain, rule, project)`, ordered by most-recently-updated first.
+
+**SQL (project = None):**
 ```sql
-SELECT domain, rule FROM lessons ORDER BY updated_at DESC
+SELECT domain, rule, project FROM lessons ORDER BY updated_at DESC
 ```
 
-**Called by:** `gateway/heartbeat.rs::build_enrichment()` to inject learned rules into the heartbeat prompt.
+**SQL (project = Some):**
+```sql
+SELECT domain, rule, project FROM lessons
+WHERE project = ? OR project = ''
+ORDER BY CASE WHEN project = ? THEN 0 ELSE 1 END, updated_at DESC
+```
+
+**Called by:** `gateway/heartbeat.rs::build_enrichment()` with project scope to inject learned rules into the heartbeat prompt.
 
 ---
 
@@ -1430,6 +1500,7 @@ let migrations: &[(&str, &str)] = &[
     ("008_user_aliases", include_str!("../migrations/008_user_aliases.sql")),
     ("009_task_retry", include_str!("../migrations/009_task_retry.sql")),
     ("010_outcomes", include_str!("../migrations/010_outcomes.sql")),
+    ("011_project_learning", include_str!("../migrations/011_project_learning.sql")),
 ];
 ```
 
@@ -1556,7 +1627,7 @@ The `shellexpand()` utility is now a public function in `omega_core::config`, re
 
 ---
 
-### `fn build_system_prompt(base_rules: &str, facts: &[(String, String)], summaries: &[(String, String)], recall: &[(String, String, String)], pending_tasks: &[(String, String, String, Option<String>, String)], outcomes: &[(i32, String, String, String)], lessons: &[(String, String)], language: &str, onboarding_hint: Option<u8>) -> String`
+### `fn build_system_prompt(base_rules: &str, facts: &[(String, String)], summaries: &[(String, String)], recall: &[(String, String, String)], pending_tasks: &[(String, String, String, Option<String>, String, String)], outcomes: &[(i32, String, String, String)], lessons: &[(String, String, String)], language: &str, onboarding_hint: Option<u8>) -> String`
 
 **Purpose:** Build a dynamic system prompt enriched with user facts, conversation summaries, recalled past messages, reward-based learning data, and explicit language instruction.
 
@@ -1568,9 +1639,9 @@ The `shellexpand()` utility is now a public function in `omega_core::config`, re
 | `facts` | `&[(String, String)]` | User facts as `(key, value)` pairs. |
 | `summaries` | `&[(String, String)]` | Recent conversation summaries as `(summary, timestamp)` pairs. |
 | `recall` | `&[(String, String, String)]` | Recalled past messages as `(role, content, timestamp)` tuples. |
-| `pending_tasks` | `&[(String, String, String, Option<String>, String)]` | Pending scheduled tasks as `(id, description, due_at, repeat, task_type)`. |
+| `pending_tasks` | `&[(String, String, String, Option<String>, String, String)]` | Pending scheduled tasks as `(id, description, due_at, repeat, task_type, project)`. |
 | `outcomes` | `&[(i32, String, String, String)]` | Recent outcomes as `(score, domain, lesson, timestamp)` tuples. |
-| `lessons` | `&[(String, String)]` | Distilled behavioral rules as `(domain, rule)` pairs. |
+| `lessons` | `&[(String, String, String)]` | Distilled behavioral rules as `(domain, rule, project)` tuples. |
 | `language` | `&str` | The user's preferred language (e.g., `"English"`, `"Spanish"`). |
 | `onboarding_hint` | `Option<u8>` | If `Some(stage)`, inject the hint for that stage. If `None`, no onboarding hint. |
 
@@ -1621,8 +1692,8 @@ at the END of your response.
 - Progressive onboarding hint: injected only when a stage transition fires (`onboarding_hint` is `Some(stage)`). Each hint teaches ONE feature and fires exactly once. Stage 0 = intro, 1 = /help, 2 = /personality, 3 = /tasks, 4 = /projects, 5+ = done (no hint). See `onboarding_hint_text()` for details.
 - Summaries section: appended only if `summaries` is non-empty.
 - Recall section: appended only if `recall` is non-empty. Each message is truncated to 200 characters.
-- Pending tasks section: appended only if `pending_tasks` is non-empty. Each task shows `[id_short] description [action] (due: datetime, repeat)`.
-- Lessons section: appended only if `lessons` is non-empty. Each lesson shows `[domain] rule`. Header is "Learned behavioral rules:".
+- Pending tasks section: appended only if `pending_tasks` is non-empty. Each task shows `[id_short] description [action] (project_name) (due: datetime, repeat)`. The project badge is only shown for project-scoped tasks.
+- Lessons section: appended only if `lessons` is non-empty. Each lesson shows `[domain] rule` for general lessons or `[domain] (project_name) rule` for project-scoped lessons. Header is "Learned behavioral rules:".
 - Outcomes section: appended only if `outcomes` is non-empty. Each outcome shows `[+/-/~] domain: lesson (relative_time)` via `format_relative_time()`. Header is "Recent outcomes:".
 - Language directive: always appended (unconditional). Uses the `language` parameter.
 - LANG_SWITCH instruction: always appended (unconditional). Tells the provider to include a `LANG_SWITCH:` marker when the user explicitly asks to change language.

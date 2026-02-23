@@ -66,6 +66,7 @@ impl Gateway {
         original_task: &str,
         context: &Context,
         steps: &[String],
+        active_project: Option<&str>,
     ) {
         let total = steps.len();
         info!("pre-flight planning: decomposed into {total} steps");
@@ -119,7 +120,9 @@ impl Gateway {
             match step_result {
                 Some(mut step_resp) => {
                     // Process markers on each step result.
-                    let step_markers = self.process_markers(incoming, &mut step_resp.text).await;
+                    let step_markers = self
+                        .process_markers(incoming, &mut step_resp.text, active_project)
+                        .await;
 
                     completed_summary.push_str(&format!("- Step {step_num}: {step} (done)\n"));
 
@@ -175,6 +178,7 @@ impl Gateway {
         full_system_prompt: String,
         full_history: Vec<ContextEntry>,
         typing_handle: Option<tokio::task::JoinHandle<()>>,
+        active_project: Option<&str>,
     ) {
         // Snapshot workspace images before provider call.
         let workspace_path = PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
@@ -338,7 +342,9 @@ impl Gateway {
 
         // --- PROCESS MARKERS ---
         let mut response = response;
-        let marker_results = self.process_markers(incoming, &mut response.text).await;
+        let marker_results = self
+            .process_markers(incoming, &mut response.text, active_project)
+            .await;
 
         // --- STORE IN MEMORY ---
         if let Err(e) = self.memory.store_exchange(incoming, &response).await {

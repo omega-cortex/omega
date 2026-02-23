@@ -174,6 +174,28 @@ Gateway upserts lesson (occurrences++), strips marker
 All future interactions see this rule → OMEGA adapts behavior
 ```
 
+### Project-Scoped Learning
+
+Outcomes and lessons are project-aware via a `project` field on both tables. The active project is inferred automatically from the user's `active_project` fact -- no extra syntax is needed on the `REWARD:` or `LESSON:` markers.
+
+**How it works:**
+
+- When `active_project` is set (e.g., `"omega-trader"`), all `REWARD:` and `LESSON:` markers emitted during that conversation are tagged with `project = "omega-trader"`
+- When `active_project` is empty, markers are tagged with `project = ""` (general scope)
+- The project field is set by the gateway in `process_markers()`, not by the AI
+
+**Layered context injection:**
+
+When building context for a conversation with an active project, the system uses a layered approach:
+
+1. **Project-specific lessons first** -- Lessons tagged with the active project are shown first, labeled with `[project-name]`
+2. **General lessons fill the rest** -- Lessons with `project = ""` are appended after project-specific ones
+3. **Same for outcomes** -- Project-scoped outcomes appear first, general outcomes fill the remaining budget
+
+This ensures that project-specific behavioral rules (e.g., "always verify market hours before placing orders" for a trading project) take priority in context, while general knowledge remains available.
+
+**Isolation guarantee:** Project lessons never appear in general (non-project) context. A lesson learned in `omega-trader` will not influence conversations when no project is active.
+
 ### Difference from Skill Improvement
 
 | | Skill Improvement | Reward-Based Learning |

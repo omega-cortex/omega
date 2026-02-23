@@ -30,6 +30,7 @@ impl Store {
         incoming: &IncomingMessage,
         base_system_prompt: &str,
         needs: &ContextNeeds,
+        active_project: Option<&str>,
     ) -> Result<Context, OmegaError> {
         let conv_id = self
             .get_or_create_conversation(&incoming.channel, &incoming.sender_id)
@@ -83,15 +84,17 @@ impl Store {
         };
 
         // Outcomes are conditionally loaded; lessons are always loaded (tiny, high value).
+        // When a project is active, scope outcomes to that project; lessons get layered
+        // (project-specific first, then general).
         let outcomes = if needs.outcomes {
-            self.get_recent_outcomes(&incoming.sender_id, 15)
+            self.get_recent_outcomes(&incoming.sender_id, 15, active_project)
                 .await
                 .unwrap_or_default()
         } else {
             vec![]
         };
         let lessons = self
-            .get_lessons(&incoming.sender_id)
+            .get_lessons(&incoming.sender_id, active_project)
             .await
             .unwrap_or_default();
 
@@ -294,15 +297,15 @@ pub(super) fn onboarding_hint_text(stage: u8, language: &str) -> Option<String> 
 }
 
 /// Build a dynamic system prompt enriched with facts, conversation history, and recalled messages.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn build_system_prompt(
     base_rules: &str,
     facts: &[(String, String)],
     summaries: &[(String, String)],
     recall: &[(String, String, String)],
-    pending_tasks: &[(String, String, String, Option<String>, String)],
+    pending_tasks: &[(String, String, String, Option<String>, String, String)],
     outcomes: &[(i32, String, String, String)],
-    lessons: &[(String, String)],
+    lessons: &[(String, String, String)],
     language: &str,
     onboarding_hint: Option<u8>,
 ) -> String {
@@ -335,15 +338,20 @@ pub(super) fn build_system_prompt(
 
     if !pending_tasks.is_empty() {
         prompt.push_str("\n\nUser's scheduled tasks:");
-        for (id, desc, due_at, repeat, task_type) in pending_tasks {
+        for (id, desc, due_at, repeat, task_type, project) in pending_tasks {
             let r = repeat.as_deref().unwrap_or("once");
             let type_badge = if task_type == "action" {
                 " [action]"
             } else {
                 ""
             };
+            let project_badge = if project.is_empty() {
+                String::new()
+            } else {
+                format!(" ({project})")
+            };
             prompt.push_str(&format!(
-                "\n- [{id_short}] {desc}{type_badge} (due: {due_at}, {r})",
+                "\n- [{id_short}] {desc}{type_badge}{project_badge} (due: {due_at}, {r})",
                 id_short = &id[..8.min(id.len())]
             ));
         }
@@ -351,8 +359,12 @@ pub(super) fn build_system_prompt(
 
     if !lessons.is_empty() {
         prompt.push_str("\n\nLearned behavioral rules:");
-        for (domain, rule) in lessons {
-            prompt.push_str(&format!("\n- [{domain}] {rule}"));
+        for (domain, rule, project) in lessons {
+            if project.is_empty() {
+                prompt.push_str(&format!("\n- [{domain}] {rule}"));
+            } else {
+                prompt.push_str(&format!("\n- [{domain}] ({project}) {rule}"));
+            }
         }
     }
 

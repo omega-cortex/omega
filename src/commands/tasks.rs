@@ -9,7 +9,7 @@ pub(super) async fn handle_tasks(store: &Store, sender_id: &str, lang: &str) -> 
         Ok(tasks) if tasks.is_empty() => i18n::t("no_pending_tasks", lang).to_string(),
         Ok(tasks) => {
             let mut out = format!("{}\n", i18n::t("scheduled_tasks", lang));
-            for (id, description, due_at, repeat, task_type) in &tasks {
+            for (id, description, due_at, repeat, task_type, project) in &tasks {
                 let short_id = &id[..8.min(id.len())];
                 let repeat_label = repeat.as_deref().unwrap_or_else(|| i18n::t("once", lang));
                 let type_badge = if task_type == "action" {
@@ -17,8 +17,13 @@ pub(super) async fn handle_tasks(store: &Store, sender_id: &str, lang: &str) -> 
                 } else {
                     ""
                 };
+                let project_badge = if project.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({project})")
+                };
                 out.push_str(&format!(
-                    "\n[{short_id}] {description}{type_badge}\n  {} {due_at} ({repeat_label})",
+                    "\n[{short_id}] {description}{type_badge}{project_badge}\n  {} {due_at} ({repeat_label})",
                     i18n::t("due", lang),
                 ));
             }

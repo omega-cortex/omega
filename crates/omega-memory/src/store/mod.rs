@@ -169,6 +169,10 @@ impl Store {
                 "010_outcomes",
                 include_str!("../../migrations/010_outcomes.sql"),
             ),
+            (
+                "011_project_learning",
+                include_str!("../../migrations/011_project_learning.sql"),
+            ),
         ];
 
         for (name, sql) in migrations {

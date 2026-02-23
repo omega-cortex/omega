@@ -92,8 +92,10 @@ Simple contexts are lightweight and disposable. They are used when there is no c
 When a message arrives through Telegram or another channel, the gateway builds a much richer context using the memory store:
 
 ```rust
-let context = self.memory.build_context(&incoming, &self.prompts.system).await?;
+let context = self.memory.build_context(&incoming, &self.prompts.system, active_project.as_deref()).await?;
 ```
+
+The `active_project` parameter (resolved from the user's `active_project` fact) controls project-scoped data loading for outcomes and lessons.
 
 This does significantly more work behind the scenes:
 
@@ -101,7 +103,8 @@ This does significantly more work behind the scenes:
 2. **Loads recent history** from the database (the last N messages in this conversation, in chronological order).
 3. **Fetches stored facts** about the user (name, preferences, location, etc. -- things Omega has learned from past conversations).
 4. **Retrieves recent conversation summaries** from the user's previous interactions.
-5. **Builds a custom system prompt** that weaves in the facts and summaries, making the AI aware of who the user is and what they have discussed before.
+5. **Loads project-scoped outcomes and lessons** -- when `active_project` is set, project-specific entries appear first, general entries fill the remaining budget.
+6. **Builds a custom system prompt** that weaves in the facts, summaries, outcomes, and lessons, making the AI aware of who the user is and what they have discussed before. When a project is active, `build_system_prompt()` includes a `[Project: name]` badge so the AI knows which project context it is operating in.
 
 The result is a context that feels personal. The AI knows the user's name, remembers their preferences, and can reference earlier conversations.
 

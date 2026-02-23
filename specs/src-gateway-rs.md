@@ -1,26 +1,29 @@
 # Specification: src/gateway/ (Directory Module)
 
 ## File Path
-`src/gateway/` (directory module with 9 files)
+`src/gateway/` (directory module with 11 files)
 
 ## Refactoring History
 - **2026-02-20:** Marker extraction/parsing/stripping functions (40+) extracted into `src/markers.rs`. See `specs/src-markers-rs.md`.
 - **2026-02-20:** Task confirmation logic extracted into `src/task_confirmation.rs`. See `specs/src-task-confirmation-rs.md`.
 - **2026-02-22:** Gateway refactored from a single `src/gateway.rs` (3,449 lines) into a `src/gateway/` directory module with 9 files. All struct fields use `pub(super)` visibility. No changes to `main.rs` or public API.
+- **2026-02-23:** Project-scoped learning: `scheduler_action.rs` extracted from `scheduler.rs` (~310 lines), `heartbeat_helpers.rs` extracted from `heartbeat.rs` (~250 lines). `active_project` threaded through pipeline, routing, and process_markers.
 
 ## Module Structure
 
 | File | Lines (prod) | Responsibility |
 |------|-------------|----------------|
-| `mod.rs` | ~417 | Struct Gateway, `new()`, `run()`, `dispatch_message()`, `shutdown()`, `send_text()`, tests |
-| `keywords.rs` | ~310 | Constants (`MAX_ACTION_RETRIES`, `SCHEDULING_KW`, `RECALL_KW`, `TASKS_KW`, `PROJECTS_KW`, `PROFILE_KW`, `OUTCOMES_KW`, `META_KW`, `SYSTEM_FACT_KEYS`), `kw_match()`, `is_valid_fact()`, tests |
+| `mod.rs` | ~824 | Struct Gateway, `new()`, `run()`, `dispatch_message()`, `shutdown()`, `send_text()`, tests |
+| `keywords.rs` | ~340 | Constants (`MAX_ACTION_RETRIES`, `SCHEDULING_KW`, `RECALL_KW`, `TASKS_KW`, `PROJECTS_KW`, `PROFILE_KW`, `OUTCOMES_KW`, `META_KW`, `SYSTEM_FACT_KEYS`), `kw_match()`, `is_valid_fact()`, tests |
 | `summarizer.rs` | ~276 | `summarize_and_extract()`, `background_summarizer()`, `summarize_conversation()`, `handle_forget()` |
-| `scheduler.rs` | ~417 | `scheduler_loop()` |
-| `heartbeat.rs` | ~370 | `heartbeat_loop()`, `classify_heartbeat_groups()`, `execute_heartbeat_group()`, `process_heartbeat_markers()`, `build_enrichment()`, `build_system_prompt()`, `send_heartbeat_result()` |
-| `pipeline.rs` | ~423 | `handle_message()`, `build_system_prompt()` |
-| `routing.rs` | ~417 | `classify_and_route()`, `execute_steps()`, `handle_direct_response()` |
+| `scheduler.rs` | ~105 | Slim orchestrator: `scheduler_loop()` polls due tasks, delegates action execution to `scheduler_action.rs` |
+| `scheduler_action.rs` | ~456 | Action task execution: `execute_action_task()`, system prompt enrichment, `ACTION_OUTCOME` parsing, marker processing, retry/failure handling |
+| `heartbeat.rs` | ~318 | `heartbeat_loop()` (global + per-project), `classify_heartbeat_groups()`, `execute_heartbeat_group()`, per-project heartbeat iteration via `get_all_facts_by_key("active_project")` |
+| `heartbeat_helpers.rs` | ~289 | `process_heartbeat_markers()`, `build_enrichment()`, `build_system_prompt()`, `send_heartbeat_result()` |
+| `pipeline.rs` | ~443 | `handle_message()`, `build_system_prompt()`, resolves `active_project` and threads it through routing and markers |
+| `routing.rs` | ~423 | `classify_and_route()`, `execute_steps()`, `handle_direct_response()`, passes `active_project` to `process_markers()` |
 | `auth.rs` | ~167 | `check_auth()`, `handle_whatsapp_qr()` |
-| `process_markers.rs` | ~498 | `process_markers()`, `process_purge_facts()`, `process_improvement_markers()`, `send_task_confirmation()` |
+| `process_markers.rs` | ~504 | `process_markers(incoming, text, active_project)`, `process_purge_facts()`, `process_improvement_markers()`, `send_task_confirmation()` |
 
 All submodules access `Gateway` fields via `pub(super)` visibility (module-internal, not public API).
 
@@ -260,7 +263,7 @@ If sandbox:        + sandbox constraint (unchanged)
 ### Scheduler Functions (scheduler.rs)
 
 #### `async fn scheduler_loop(store, channels, poll_secs, provider, skills, prompts, model_complex, sandbox_prompt, heartbeat_interval, audit, provider_name)`
-**Purpose:** Background task that periodically checks for due scheduled tasks and delivers them via the appropriate channel. Action tasks include outcome verification, audit logging, and retry logic.
+**Purpose:** Slim orchestrator — background task that periodically checks for due scheduled tasks, delivers reminders directly, and delegates action tasks to `scheduler_action::execute_action_task()`.
 
 **Parameters:**
 - `store: Store` - Shared memory store for task queries.
@@ -274,19 +277,8 @@ If sandbox:        + sandbox constraint (unchanged)
 **Logic:**
 1. Loop forever with `poll_secs`-second sleep between iterations.
 2. Call `store.get_due_tasks()` to find tasks where `status = 'pending'` and `due_at <= now`.
-3. For each due task `(id, channel_name, sender_id, reply_target, description, repeat, task_type)`:
-   - **Action tasks:**
-     a. Start timing with `Instant::now()`.
-     b. Enrich system prompt with user profile (facts from DB) and language preference.
-     c. Inject delivery context instruction — tells the AI its text response will be delivered directly to the task owner via their messaging channel (no external email/API/curl needed).
-     d. Inject `ACTION_OUTCOME:` verification instruction into system prompt.
-     e. Invoke provider with full tool/MCP access.
-     d. Parse `ACTION_OUTCOME:` marker from response (`Success`, `Failed(reason)`, or missing).
-     e. Process response markers (SCHEDULE, SCHEDULE_ACTION, CANCEL_TASK, UPDATE_TASK, REWARD, LESSON, HEARTBEAT).
-     f. Write audit log entry with `[ACTION]` prefix, elapsed time, status.
-     g. On success (or missing marker — backward compat): call `complete_task()`, send response.
-     h. On failure: call `fail_task()` (up to `MAX_ACTION_RETRIES=3` retries, 2-minute delay), notify user.
-     i. On provider error: call `fail_task()`, notify user, write error audit entry.
+3. For each due task `(id, channel_name, sender_id, reply_target, description, repeat, task_type, project)`:
+   - **Action tasks:** Delegate to `scheduler_action::execute_action_task()` which handles enrichment, provider call, outcome parsing, marker processing, audit, retry logic. The `project` field is propagated to all nested operations (create_task, store_outcome, store_lesson).
    - **Reminder tasks:** Build an `OutgoingMessage` with text `"Reminder: {description}"` and `reply_target`.
    - Look up the channel by `channel_name` in the channels map.
    - If channel not found, log warning and skip.
@@ -294,8 +286,26 @@ If sandbox:        + sandbox constraint (unchanged)
    - If send fails, log error and skip to next task.
    - Call `store.complete_task(id, repeat)` to mark task as delivered (one-shot) or advance `due_at` (recurring).
    - Log success.
-   - **Note:** `sender_id` is propagated from the parent task to all nested task operations (create, cancel, update), ensuring correct ownership.
+   - **Note:** `sender_id` and `project` are propagated from the parent task to all nested task operations (create, cancel, update), ensuring correct ownership and project scope.
 4. Log errors from `get_due_tasks()` but continue the loop.
+
+### Scheduler Action Functions (scheduler_action.rs)
+
+#### `async fn execute_action_task(...)`
+**Purpose:** Execute a single action task via the provider with full tool/MCP access. Extracted from `scheduler.rs` to keep the orchestrator slim.
+
+**Logic:**
+1. Start timing with `Instant::now()`.
+2. Enrich system prompt with user profile (facts from DB) and language preference.
+3. Inject delivery context instruction — tells the AI its text response will be delivered directly to the task owner via their messaging channel.
+4. Inject `ACTION_OUTCOME:` verification instruction into system prompt.
+5. Invoke provider with full tool/MCP access.
+6. Parse `ACTION_OUTCOME:` marker from response (`Success`, `Failed(reason)`, or missing).
+7. Process response markers (SCHEDULE, SCHEDULE_ACTION, CANCEL_TASK, UPDATE_TASK, REWARD, LESSON, HEARTBEAT) — all with `project` scope from the parent task.
+8. Write audit log entry with `[ACTION]` prefix, elapsed time, status.
+9. On success (or missing marker): call `complete_task()`, send response.
+10. On failure: call `fail_task()` (up to `MAX_ACTION_RETRIES=3` retries, 2-minute delay), notify user.
+11. On provider error: call `fail_task()`, notify user, write error audit entry.
 
 **Async Patterns:**
 - Uses `tokio::time::sleep()` for periodic ticking.
@@ -310,7 +320,7 @@ If sandbox:        + sandbox constraint (unchanged)
 ### Heartbeat Functions (heartbeat.rs)
 
 #### `async fn heartbeat_loop(provider, channels, config, prompts, sandbox_prompt, memory, interval, model_complex, model_fast, skills, audit, provider_name)`
-**Purpose:** Background task that periodically invokes the AI provider for **active execution** of a health checklist. A fast Sonnet classification call groups related items by domain before execution. Each group gets its own focused Opus session **in parallel**. Falls back to a single call when all items belong to the same domain (≤3 items or closely related). Processes response markers (SCHEDULE, SCHEDULE_ACTION, HEARTBEAT_*, CANCEL_TASK, UPDATE_TASK) identically to the scheduler.
+**Purpose:** Background task that periodically invokes the AI provider for **active execution** of health checklists. Runs **two scopes per tick**: a global heartbeat (from `~/.omega/prompts/HEARTBEAT.md`) and per-project heartbeats (from `~/.omega/projects/<name>/HEARTBEAT.md` for each user with an `active_project` fact). A fast Sonnet classification call groups related items by domain before execution. Each group gets its own focused Opus session **in parallel**. Falls back to a single call when all items belong to the same domain. Processes response markers identically to the scheduler.
 
 **Parameters:**
 - `provider: Arc<dyn Provider>` - Shared provider reference for the check-in call.
@@ -331,23 +341,26 @@ If sandbox:        + sandbox constraint (unchanged)
 **Logic:**
 1. Loop forever, reading the interval from the shared `AtomicU64` on each iteration. Sleep is **clock-aligned**.
 2. Check active hours; skip if outside window.
-3. Read checklist from `~/.omega/prompts/HEARTBEAT.md` via `read_heartbeat_file()`. Skip if none.
-4. **Build enrichment and system prompt once** (shared across all groups) via `build_enrichment()` and `build_system_prompt()`.
-5. **Classify checklist** via `classify_heartbeat_groups()` — fast Sonnet call (no tools) that returns `None` for DIRECT or `Some(Vec<String>)` for grouped domains.
-6. **DIRECT path (None):** Single Opus call via `execute_heartbeat_group()` with the full checklist. Result handled by `send_heartbeat_result()`.
-7. **Grouped path (Some):** Spawn each group as a parallel `tokio::spawn(execute_heartbeat_group(...))`. Collect results. Groups returning `None` (HEARTBEAT_OK) are logged. Non-OK texts are joined with `\n\n---\n\n` and sent as a single combined message via `send_heartbeat_result()`.
+3. **Global heartbeat:** Read checklist from `~/.omega/prompts/HEARTBEAT.md` via `read_heartbeat_file()`. If present, execute via classify-then-route (same as before).
+4. **Per-project heartbeat:** Query `get_all_facts_by_key("active_project")` to find all users with active projects. For each `(sender_id, project_name)`, read `~/.omega/projects/<project_name>/HEARTBEAT.md` via `read_project_heartbeat_file()`. If present, build project-scoped enrichment (lessons and outcomes filtered to project) and execute. Project name is threaded through all marker processing (`store_outcome`, `store_lesson`, `create_task` all receive the project).
+5. **Build enrichment and system prompt** via `build_enrichment()` and `build_system_prompt()` — for project heartbeats, enrichment is scoped to the project.
+6. **Classify checklist** via `classify_heartbeat_groups()` — fast Sonnet call (no tools) that returns `None` for DIRECT or `Some(Vec<String>)` for grouped domains.
+7. **DIRECT path (None):** Single Opus call via `execute_heartbeat_group()` with the full checklist. Result handled by `send_heartbeat_result()`.
+8. **Grouped path (Some):** Spawn each group as a parallel `tokio::spawn(execute_heartbeat_group(...))`. Collect results. Groups returning `None` (HEARTBEAT_OK) are logged. Non-OK texts are joined with `\n\n---\n\n` and sent as a single combined message via `send_heartbeat_result()`.
 
 #### `async fn classify_heartbeat_groups(provider, model_fast, checklist) -> Option<Vec<String>>`
 **Purpose:** Fast Sonnet classification that groups related checklist items by domain. Returns `None` for DIRECT (all items closely related or ≤3 items). Returns `Some(groups)` when items span different domains. Reuses `parse_plan_response()` for parsing. On failure, returns `None` (safe fallback).
 
-#### `async fn execute_heartbeat_group(provider, model_complex, group_items, heartbeat_template, enrichment, system_prompt, skills, memory, sender_id, channel_name, interval) -> Option<(String, i64)>`
-**Purpose:** Execute a single heartbeat group via Opus. Builds the prompt from the heartbeat template with the group's items, enriches with pre-computed context, matches MCP servers per group, calls the provider, processes markers via `process_heartbeat_markers()`, and evaluates HEARTBEAT_OK. Returns `None` if OK, `Some((text, elapsed_ms))` if content for the user.
+#### `async fn execute_heartbeat_group(provider, model_complex, group_items, heartbeat_template, enrichment, system_prompt, skills, memory, sender_id, channel_name, interval, project) -> Option<(String, i64)>`
+**Purpose:** Execute a single heartbeat group via Opus. Builds the prompt from the heartbeat template with the group's items, enriches with pre-computed context, matches MCP servers per group, calls the provider, processes markers via `process_heartbeat_markers()` (with `project` scope), and evaluates HEARTBEAT_OK. Returns `None` if OK, `Some((text, elapsed_ms))` if content for the user.
 
-#### `async fn process_heartbeat_markers(text, memory, sender_id, channel_name, interval) -> String`
-**Purpose:** Process all markers in a heartbeat response (SCHEDULE, SCHEDULE_ACTION, HEARTBEAT_*, CANCEL_TASK, UPDATE_TASK, REWARD, LESSON). REWARD markers are stored via `store_outcome()` with source=`"heartbeat"`. LESSON markers are stored via `store_lesson()`. Returns text with all markers stripped. Shared by both single-call and per-group paths to avoid duplication.
+### Heartbeat Helper Functions (heartbeat_helpers.rs)
 
-#### `async fn build_enrichment(memory) -> String`
-**Purpose:** Build enrichment context from user facts, recent conversation summaries, learned lessons (via `get_all_lessons()`), and recent outcomes (via `get_all_recent_outcomes(24, 20)`). Computed once and shared across all groups. Lessons are formatted as `"Learned rules:\n- [domain] rule"`. Outcomes are formatted as `"Recent outcomes (last 24h):\n- [+/-/~] domain: lesson (timestamp)"`.
+#### `async fn process_heartbeat_markers(text, memory, sender_id, channel_name, interval, project) -> String`
+**Purpose:** Process all markers in a heartbeat response (SCHEDULE, SCHEDULE_ACTION, HEARTBEAT_*, CANCEL_TASK, UPDATE_TASK, REWARD, LESSON). REWARD markers are stored via `store_outcome()` with `project` scope and source=`"heartbeat"`. LESSON markers are stored via `store_lesson()` with `project` scope. HEARTBEAT_ADD/REMOVE calls `apply_heartbeat_changes()` with `project` scope (writes to per-project file when project is non-empty). Returns text with all markers stripped. Shared by both single-call and per-group paths.
+
+#### `async fn build_enrichment(memory, project) -> String`
+**Purpose:** Build enrichment context from user facts, recent conversation summaries, learned lessons (via `get_all_lessons(project)`), and recent outcomes (via `get_all_recent_outcomes(24, 20, project)`). When `project` is `Some`, outcomes and lessons are scoped to the project (project-specific first, then general fill). Computed once and shared across all groups.
 
 #### `fn build_system_prompt(prompts, sandbox_prompt) -> String`
 **Purpose:** Build the heartbeat system prompt (Identity + Soul + System + sandbox + current time). Computed once and shared across all groups.
@@ -538,8 +551,10 @@ If sandbox:        + sandbox constraint (unchanged)
 - This architecture reduces average token overhead by ~55% for typical messages (e.g., "good morning" skips scheduling rules, task lists, project rules, and meta instructions).
 
 **Stage 5: Build Context from Memory**
-- Call `self.memory.build_context(&clean_incoming, &system_prompt, &context_needs)` to build enriched context.
+- Resolve `active_project` from the user's `active_project` fact.
+- Call `self.memory.build_context(&clean_incoming, &system_prompt, &context_needs, active_project.as_deref())` to build enriched context.
 - The `&context_needs` parameter gates expensive DB queries: semantic recall (FTS5) is skipped unless `needs_recall` is true, and pending tasks are skipped unless `needs_tasks` is true.
+- The `active_project` parameter scopes outcomes (filtered to project) and layers lessons (project-specific first, then general).
 - This includes recent conversation history, relevant facts (always loaded), and the keyword-composed system prompt.
 - If error, abort typing task, send error message, and return.
 
@@ -581,7 +596,7 @@ If sandbox:        + sandbox constraint (unchanged)
 
 **Stage 5: Process Markers**
 - After SILENT suppression check:
-- Call `self.process_markers(&incoming, &mut response.text)` — a unified method that extracts and processes all markers from the provider response. This same method is called on each step result in `execute_steps()`, ensuring markers work in both direct and multi-step paths.
+- Call `self.process_markers(&incoming, &mut response.text, active_project.as_deref())` — a unified method that extracts and processes all markers from the provider response. The `active_project` is threaded through so all side effects (task creation, outcome/lesson storage, heartbeat file writes) are project-scoped. This same method is called on each step result in `execute_steps()`, ensuring markers work in both direct and multi-step paths.
 - Markers processed in order: SCHEDULE, SCHEDULE_ACTION, PROJECT_ACTIVATE/DEACTIVATE, WHATSAPP_QR, LANG_SWITCH, REWARD, LESSON, HEARTBEAT_ADD/REMOVE/INTERVAL, SKILL_IMPROVE.
 - Each marker is stripped from the response text after processing.
 
@@ -737,8 +752,8 @@ If sandbox:        + sandbox constraint (unchanged)
 
 ### Process Markers (process_markers.rs)
 
-#### `async fn process_markers(&self, incoming: &IncomingMessage, text: &mut String)`
-**Purpose:** Extract and process all markers from a provider response text. Unified method called by both `handle_message` (direct path) and `execute_steps` (multi-step path) to ensure markers work in all execution modes.
+#### `async fn process_markers(&self, incoming: &IncomingMessage, text: &mut String, active_project: Option<&str>) -> Vec<MarkerResult>`
+**Purpose:** Extract and process all markers from a provider response text. Unified method called by both `handle_message` (direct path) and `execute_steps` (multi-step path) to ensure markers work in all execution modes. The `active_project` parameter scopes all side effects (task creation, outcome/lesson storage, heartbeat file writes) to the current project.
 
 **Markers processed (in order):**
 1. SCHEDULE — create reminder task
@@ -884,13 +899,24 @@ If sandbox:        + sandbox constraint (unchanged)
 **Logic:** Filters out lines whose trimmed form equals `"PURGE_FACTS"`, joins, trims.
 
 ### `fn read_heartbeat_file() -> Option<String>`
-**Purpose:** Read `~/.omega/prompts/HEARTBEAT.md` if it exists, for use as a heartbeat checklist.
+**Purpose:** Read `~/.omega/prompts/HEARTBEAT.md` if it exists, for use as the global heartbeat checklist.
 
 **Logic:**
 1. Get `$HOME` env var.
 2. Read `{home}/.omega/prompts/HEARTBEAT.md`.
 3. Return `None` if file does not exist, is unreadable, or has only whitespace.
 4. Return `Some(content)` otherwise.
+
+### `fn read_project_heartbeat_file(project_name: &str) -> Option<String>`
+**Purpose:** Read a project-specific heartbeat file at `~/.omega/projects/<name>/HEARTBEAT.md`.
+
+**Logic:**
+1. Get `$HOME` env var.
+2. Read `{home}/.omega/projects/{project_name}/HEARTBEAT.md`.
+3. Return `None` if file does not exist, is unreadable, or has only whitespace.
+4. Return `Some(content)` otherwise.
+
+**Called by:** `gateway/heartbeat.rs` during per-project heartbeat iteration.
 
 ### `enum HeartbeatAction`
 **Purpose:** Represents an action extracted from a `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, or `HEARTBEAT_INTERVAL:` marker.
@@ -910,16 +936,21 @@ If sandbox:        + sandbox constraint (unchanged)
 
 **Logic:** Filters out any line whose trimmed form starts with `"HEARTBEAT_ADD:"`, `"HEARTBEAT_REMOVE:"`, or `"HEARTBEAT_INTERVAL:"`, then joins remaining lines and trims the result.
 
-### `fn apply_heartbeat_changes(actions: &[HeartbeatAction])`
-**Purpose:** Apply heartbeat add/remove actions to `~/.omega/prompts/HEARTBEAT.md`.
+### `fn apply_heartbeat_changes(actions: &[HeartbeatAction], project: Option<&str>)`
+**Purpose:** Apply heartbeat add/remove actions to the appropriate heartbeat file.
+
+**File selection:**
+- When `project` is `None`: writes to `~/.omega/prompts/HEARTBEAT.md` (global).
+- When `project` is `Some(name)`: writes to `~/.omega/projects/<name>/HEARTBEAT.md` (per-project).
 
 **Logic:**
 1. Get `$HOME` env var. Return silently if not set.
-2. Read existing file lines (or start with empty vec if file does not exist).
-3. For each `Add(item)`: check if item already exists (case-insensitive, ignoring `- ` prefix). If not, append `- {item}`.
-4. For each `Remove(item)`: remove all non-comment lines whose content contains the item (case-insensitive partial match). Comment lines (starting with `#`) are never removed.
-5. Ensure `~/.omega/` directory exists.
-6. Write the updated lines back to the file.
+2. Determine file path and parent directory based on `project` parameter.
+3. Read existing file lines (or start with empty vec if file does not exist).
+4. For each `Add(item)`: check if item already exists (case-insensitive, ignoring `- ` prefix). If not, append `- {item}`.
+5. For each `Remove(item)`: remove all non-comment lines whose content contains the item (case-insensitive partial match). Comment lines (starting with `#`) are never removed.
+6. Ensure parent directory exists.
+7. Write the updated lines back to the file.
 
 ### `const IMAGE_EXTENSIONS: &[&str]`
 **Purpose:** List of image file extensions recognized for workspace diff: `["png", "jpg", "jpeg", "gif", "webp"]`.

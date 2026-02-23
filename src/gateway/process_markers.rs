@@ -22,7 +22,9 @@ impl Gateway {
         &self,
         incoming: &IncomingMessage,
         text: &mut String,
+        active_project: Option<&str>,
     ) -> Vec<MarkerResult> {
+        let project = active_project.unwrap_or("");
         let mut marker_results = Vec::new();
 
         // SCHEDULE — process ALL markers
@@ -44,6 +46,7 @@ impl Gateway {
                         &due_at,
                         repeat_opt,
                         "reminder",
+                        project,
                     )
                     .await
                 {
@@ -91,6 +94,7 @@ impl Gateway {
                         &due_at,
                         repeat_opt,
                         "action",
+                        project,
                     )
                     .await
                 {
@@ -293,7 +297,12 @@ impl Gateway {
         // HEARTBEAT_ADD / HEARTBEAT_REMOVE / HEARTBEAT_INTERVAL
         let heartbeat_actions = extract_heartbeat_markers(text);
         if !heartbeat_actions.is_empty() {
-            apply_heartbeat_changes(&heartbeat_actions);
+            let hb_project = if project.is_empty() {
+                None
+            } else {
+                Some(project)
+            };
+            apply_heartbeat_changes(&heartbeat_actions, hb_project);
             for action in &heartbeat_actions {
                 match action {
                     HeartbeatAction::Add(item) => info!("heartbeat: added '{item}' to checklist"),
@@ -330,12 +339,19 @@ impl Gateway {
         // SKILL_IMPROVE + BUG_REPORT
         self.process_improvement_markers(text, &mut marker_results);
 
-        // REWARD — process ALL markers
+        // REWARD — process ALL markers (project-tagged)
         for reward_line in extract_all_rewards(text) {
             if let Some((score, domain, lesson)) = parse_reward_line(&reward_line) {
                 match self
                     .memory
-                    .store_outcome(&incoming.sender_id, &domain, score, &lesson, "conversation")
+                    .store_outcome(
+                        &incoming.sender_id,
+                        &domain,
+                        score,
+                        &lesson,
+                        "conversation",
+                        project,
+                    )
                     .await
                 {
                     Ok(()) => info!("outcome recorded: {score:+} | {domain} | {lesson}"),
@@ -345,12 +361,12 @@ impl Gateway {
         }
         *text = strip_reward_markers(text);
 
-        // LESSON — process ALL markers
+        // LESSON — process ALL markers (project-tagged)
         for lesson_line in extract_all_lessons(text) {
             if let Some((domain, rule)) = parse_lesson_line(&lesson_line) {
                 match self
                     .memory
-                    .store_lesson(&incoming.sender_id, &domain, &rule)
+                    .store_lesson(&incoming.sender_id, &domain, &rule, project)
                     .await
                 {
                     Ok(()) => info!("lesson stored: {domain} | {rule}"),
@@ -398,7 +414,7 @@ impl Gateway {
         let mut similar_warnings = Vec::new();
         let mut seen_warnings = std::collections::HashSet::new();
         if let Ok(existing_tasks) = self.memory.get_tasks_for_sender(&incoming.sender_id).await {
-            for (_, existing_desc, existing_due, _, _) in &existing_tasks {
+            for (_, existing_desc, existing_due, _, _, _) in &existing_tasks {
                 // Skip tasks we just created in this batch.
                 if just_created.contains(existing_desc.as_str()) {
                     continue;

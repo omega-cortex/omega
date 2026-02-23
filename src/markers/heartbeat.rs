@@ -1,5 +1,5 @@
 //! Heartbeat markers: HEARTBEAT_ADD, HEARTBEAT_REMOVE, HEARTBEAT_INTERVAL,
-//! and heartbeat file operations.
+//! and heartbeat file operations (global and per-project).
 
 /// Action extracted from a `HEARTBEAT_ADD:`, `HEARTBEAT_REMOVE:`, or `HEARTBEAT_INTERVAL:` marker.
 #[derive(Debug, Clone, PartialEq)]
@@ -69,16 +69,40 @@ pub fn read_heartbeat_file() -> Option<String> {
     }
 }
 
-/// Apply heartbeat add/remove actions to `~/.omega/prompts/HEARTBEAT.md`.
+/// Read a project-specific heartbeat file at `~/.omega/projects/<name>/HEARTBEAT.md`.
+pub fn read_project_heartbeat_file(project_name: &str) -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let path = format!("{home}/.omega/projects/{project_name}/HEARTBEAT.md");
+    let content = std::fs::read_to_string(path).ok()?;
+    if content.trim().is_empty() {
+        None
+    } else {
+        Some(content)
+    }
+}
+
+/// Apply heartbeat add/remove actions to the appropriate heartbeat file.
 ///
+/// When `project` is None, writes to `~/.omega/prompts/HEARTBEAT.md` (global).
+/// When `project` is Some, writes to `~/.omega/projects/<name>/HEARTBEAT.md`.
 /// Creates the file if missing. Prevents duplicate adds. Uses case-insensitive
 /// partial matching for removes. Skips comment lines (`#`) during removal.
-pub fn apply_heartbeat_changes(actions: &[HeartbeatAction]) {
+pub fn apply_heartbeat_changes(actions: &[HeartbeatAction], project: Option<&str>) {
     let home = match std::env::var("HOME") {
         Ok(h) => h,
         Err(_) => return,
     };
-    let path = format!("{home}/.omega/prompts/HEARTBEAT.md");
+
+    let (path, dir) = match project {
+        Some(name) => (
+            format!("{home}/.omega/projects/{name}/HEARTBEAT.md"),
+            format!("{home}/.omega/projects/{name}"),
+        ),
+        None => (
+            format!("{home}/.omega/prompts/HEARTBEAT.md"),
+            format!("{home}/.omega/prompts"),
+        ),
+    };
 
     // Read existing lines (or start empty).
     let mut lines: Vec<String> = std::fs::read_to_string(&path)
@@ -121,7 +145,6 @@ pub fn apply_heartbeat_changes(actions: &[HeartbeatAction]) {
     // Write back.
     let content = lines.join("\n");
     // Ensure parent directory exists.
-    let dir = format!("{home}/.omega/prompts");
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(
         &path,

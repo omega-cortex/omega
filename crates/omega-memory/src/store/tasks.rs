@@ -18,6 +18,7 @@ impl Store {
         due_at: &str,
         repeat: Option<&str>,
         task_type: &str,
+        project: &str,
     ) -> Result<String, OmegaError> {
         let normalized_due = normalize_due_at(due_at);
 
@@ -62,8 +63,8 @@ impl Store {
 
         let id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO scheduled_tasks (id, channel, sender_id, reply_target, description, due_at, repeat, task_type) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO scheduled_tasks (id, channel, sender_id, reply_target, description, due_at, repeat, task_type, project) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(channel)
@@ -73,6 +74,7 @@ impl Store {
         .bind(&normalized_due)
         .bind(repeat)
         .bind(task_type)
+        .bind(project)
         .execute(&self.pool)
         .await
         .map_err(|e| OmegaError::Memory(format!("create task failed: {e}")))?;
@@ -93,10 +95,11 @@ impl Store {
             String,
             Option<String>,
             String,
+            String,
         )>,
         OmegaError,
     > {
-        // Returns: (id, channel, sender_id, reply_target, description, repeat, task_type)
+        // Returns: (id, channel, sender_id, reply_target, description, repeat, task_type, project)
         let rows: Vec<(
             String,
             String,
@@ -105,8 +108,9 @@ impl Store {
             String,
             Option<String>,
             String,
+            String,
         )> = sqlx::query_as(
-            "SELECT id, channel, sender_id, reply_target, description, repeat, task_type \
+            "SELECT id, channel, sender_id, reply_target, description, repeat, task_type, project \
                  FROM scheduled_tasks \
                  WHERE status = 'pending' AND datetime(due_at) <= datetime('now')",
         )
@@ -229,10 +233,10 @@ impl Store {
     pub async fn get_tasks_for_sender(
         &self,
         sender_id: &str,
-    ) -> Result<Vec<(String, String, String, Option<String>, String)>, OmegaError> {
-        // Returns: (id, description, due_at, repeat, task_type)
-        let rows: Vec<(String, String, String, Option<String>, String)> = sqlx::query_as(
-            "SELECT id, description, due_at, repeat, task_type \
+    ) -> Result<Vec<(String, String, String, Option<String>, String, String)>, OmegaError> {
+        // Returns: (id, description, due_at, repeat, task_type, project)
+        let rows: Vec<(String, String, String, Option<String>, String, String)> = sqlx::query_as(
+            "SELECT id, description, due_at, repeat, task_type, project \
              FROM scheduled_tasks \
              WHERE sender_id = ? AND status = 'pending' \
              ORDER BY due_at ASC",

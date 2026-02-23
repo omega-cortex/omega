@@ -13,7 +13,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 
 ### Milestone 2: Binary (`src/`)
 - [binary-main.md](binary-main.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap
-- [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`src/gateway/`) — 9-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, heartbeat, summarizer, keywords
+- [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`src/gateway/`) — 11-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, scheduler_action, heartbeat, heartbeat_helpers, summarizer, keywords
 - [src-markers-rs.md](src-markers-rs.md) — Marker extraction, parsing, stripping (40+ functions extracted from gateway)
 - [src-task-confirmation-rs.md](src-task-confirmation-rs.md) — Task scheduling confirmation (anti-hallucination, duplicate detection, localized confirmation messages)
 - [binary-commands.md](binary-commands.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, purge, help)
@@ -60,6 +60,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [memory-migration-007.md](memory-migration-007.md) — Task type column for action scheduler (reminder vs provider-backed execution)
 - [memory-migration-009.md](memory-migration-009.md) — Task retry columns (retry_count, last_error) for action task failure handling
 - [memory-migration-010.md](memory-migration-010.md) — Reward-based learning tables (outcomes for working memory, lessons for long-term behavioral rules)
+- [memory-migration-011.md](memory-migration-011.md) — Project-scoped learning (project columns on outcomes, lessons, scheduled_tasks)
 
 ### Milestone 7: omega-skills
 - [skills-lib.md](skills-lib.md) — Skill loader + project loader + MCP trigger matching (skills from `~/.omega/skills/*/SKILL.md`, projects from `~/.omega/projects/*/ROLE.md`)
@@ -84,7 +85,9 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 │    gateway/process_markers.rs (marker handling)  │
 │    gateway/auth.rs       (authentication)        │
 │    gateway/scheduler.rs  (task scheduling)       │
+│    gateway/scheduler_action.rs (action exec)     │
 │    gateway/heartbeat.rs  (periodic check-ins)    │
+│    gateway/heartbeat_helpers.rs (HB helpers)     │
 │    gateway/summarizer.rs (conversation summary)  │
 │    gateway/keywords.rs   (constants & matching)  │
 │              markers.rs  task_confirmation.rs    │
@@ -111,7 +114,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 ## Data Flow
 
 ```
-Message → Auth → Sanitize → Memory (context + outcomes/lessons) → Provider (protected_command) → process_markers (SCHEDULE/SCHEDULE_ACTION/CANCEL_TASK/UPDATE_TASK/HEARTBEAT/SKILL_IMPROVE/REWARD/LESSON/...) → Memory (store) → Audit → Send → Task confirmation
+Message → Auth → Sanitize → Memory (context + project-scoped outcomes/lessons) → Provider (protected_command) → process_markers (SCHEDULE/SCHEDULE_ACTION/CANCEL_TASK/UPDATE_TASK/HEARTBEAT/SKILL_IMPROVE/REWARD/LESSON/..., active_project threading) → Memory (store) → Audit → Send → Task confirmation
 
 Background:
   Scheduler: poll due_tasks → channel.send(reminder) → complete_task
