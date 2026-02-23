@@ -84,7 +84,7 @@ pub struct Gateway {
 - `active_senders`: A `Mutex<HashMap<String, Vec<IncomingMessage>>>` that tracks which senders currently have an active provider call in flight. When a new message arrives for a sender that is already being processed, the message is buffered here. After the active call completes, buffered messages are dispatched in order.
 - `heartbeat_interval`: An `Arc<AtomicU64>` holding the current heartbeat interval in minutes. Initialized from `heartbeat_config.interval_minutes` and shared with the heartbeat loop and scheduler loop. Updated at runtime via `HEARTBEAT_INTERVAL:` markers. Changes are persisted to `config.toml` via `config::patch_heartbeat_interval()` so they survive service restarts.
 - `config_path`: Path to `config.toml` — used for persisting runtime changes (e.g. heartbeat interval) via text-based patching.
-- `cli_sessions`: Thread-safe map of `channel:sender_id` to CLI session_id. Used for session-based prompt persistence -- subsequent messages in the same conversation skip the heavy system prompt (~2282 tokens) and send only a minimal context update. Cleared on `/forget`, `FORGET_CONVERSATION` marker, and idle conversation timeout.
+- `cli_sessions`: Thread-safe map of `channel:sender_id` to CLI session_id. Used for session-based prompt persistence -- subsequent messages in the same conversation skip the heavy system prompt (~2282 tokens) and send only a minimal context update (current time + keyword-gated sections + project awareness hint + active project ROLE.md). Cleared on `/forget`, `FORGET_CONVERSATION` marker, and idle conversation timeout.
 
 ## Token-Efficient Prompt Architecture (Keyword-Gated Conditional Injection)
 
@@ -97,7 +97,7 @@ The gateway reduces system prompt token overhead by ~55% for typical messages. I
 | `SCHEDULING_KW` | Scheduling rules injection (`prompts.scheduling`) | "remind", "schedule", "alarm", "tomorrow", "cancel", "recurring", multilingual variants |
 | `RECALL_KW` | Semantic recall DB query (FTS5 related past messages) | "remember", "last time", "you said", "we discussed", multilingual variants |
 | `TASKS_KW` | Pending tasks DB query | "task", "reminder", "pending", "scheduled", "my tasks", multilingual variants |
-| `PROJECTS_KW` | Projects rules injection (`prompts.projects_rules`) + active project instructions | "project", "activate", "deactivate", multilingual variants |
+| `PROJECTS_KW` | Projects management rules injection (`prompts.projects_rules`) | "project", "activate", "deactivate", multilingual variants |
 | `PROFILE_KW` | User profile (facts) injection into prompt | "who am i", "my name", "about me", "my profile", "what do you know", multilingual variants |
 | `OUTCOMES_KW` | Recent reward outcomes injection | "how did i", "how am i doing", "reward", "outcome", "feedback", "performance", multilingual variants |
 | `META_KW` | Meta rules injection (`prompts.meta`) — skill improvement, bug reporting, WhatsApp, personality, purge | "skill", "improve", "bug", "whatsapp", "qr", "personality", "forget", "purge" |
@@ -135,7 +135,7 @@ let needs_outcomes  = kw_match(&msg_lower, OUTCOMES_KW);
 
 **Key rules:**
 - `needs_tasks` is `true` when either scheduling or task keywords match (scheduling implies task awareness).
-- `needs_projects` is keyword-only — active project instructions are injected only when project keywords match.
+- `needs_projects` is keyword-only — gates project management rules (`prompts.projects_rules`). Active project ROLE.md and project awareness hint are always injected (not keyword-gated).
 - `needs_profile` cascades from scheduling/recall/tasks (identity context is useful for timezone, past context, and task ownership).
 - `needs_summaries` tracks `needs_recall` — summaries are past conversation context.
 - `needs_outcomes` is keyword-only (feedback/performance queries).
@@ -146,9 +146,9 @@ let needs_outcomes  = kw_match(&msg_lower, OUTCOMES_KW);
 
 ### Prompt Composition (Conditional Sections)
 ```
-Always: Identity + Soul + System + provider info + time + platform hint + lessons
+Always: Identity + Soul + System + provider info + time + platform hint + project awareness hint + active project ROLE.md + lessons
 If SCHEDULING_KW:  + prompts.scheduling
-If PROJECTS_KW:    + prompts.projects_rules + active project instructions
+If PROJECTS_KW:    + prompts.projects_rules (management rules only)
 If META_KW:        + prompts.meta
 If heartbeat KW:   + heartbeat checklist + heartbeat pulse
 If PROFILE_KW/scheduling/recall/tasks: + user profile (facts)
@@ -545,9 +545,9 @@ If sandbox:        + sandbox constraint (unchanged)
 - Lowercase the user's message text once as `msg_lower`.
 - Run `kw_match()` against each keyword list to compute `needs_scheduling`, `needs_recall`, `needs_tasks`, `needs_projects`, `needs_meta`.
 - Compose the system prompt:
-  1. Always: `format!("{}\n\n{}\n\n{}", identity, soul, system)` + provider info + current time + platform hint.
+  1. Always: `format!("{}\n\n{}\n\n{}", identity, soul, system)` + provider info + current time + platform hint + project awareness hint (~40-50 tokens listing available project names, or creation suggestion if none exist) + active project ROLE.md (always when a project is active).
   2. Conditionally append `prompts.scheduling` (if `needs_scheduling`), `prompts.projects_rules` (if `needs_projects`), `prompts.meta` (if `needs_meta`).
-  3. Conditionally append active project instructions, heartbeat checklist, heartbeat pulse, sandbox constraint (unchanged from prior behavior).
+  3. Conditionally append heartbeat checklist, heartbeat pulse (unchanged from prior behavior).
 - Build `ContextNeeds { recall, pending_tasks, profile, summaries, outcomes }` to gate DB queries and prompt injection.
 - This architecture reduces average token overhead by ~55% for typical messages (e.g., "good morning" skips scheduling rules, task lists, project rules, and meta instructions).
 

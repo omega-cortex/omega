@@ -288,6 +288,29 @@ impl Gateway {
                         minimal.push_str(&self.prompts.meta);
                     }
 
+                    // Project awareness + active ROLE.md in continuations
+                    if !projects.is_empty() {
+                        let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
+                        let active_note = match active_project.as_deref() {
+                            Some(ap) => format!(" (active: {ap})"),
+                            None => String::new(),
+                        };
+                        minimal.push_str(&format!(
+                            "\n\nAvailable projects: [{}]{}.",
+                            names.join(", "),
+                            active_note,
+                        ));
+                    }
+                    if let Some(ref project_name) = active_project {
+                        if let Some(instructions) =
+                            omega_skills::get_project_instructions(&projects, project_name)
+                        {
+                            minimal.push_str(&format!(
+                                "\n\n---\n\n[Active project: {project_name}]\n{instructions}"
+                            ));
+                        }
+                    }
+
                     context.system_prompt = minimal;
                     context.history.clear();
 
@@ -395,6 +418,24 @@ impl Gateway {
             _ => {}
         }
 
+        // Always-on project awareness (compact hint, ~40-50 tokens)
+        if !projects.is_empty() {
+            let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
+            let active_note = match active_project {
+                Some(ap) => format!(" (active: {ap})"),
+                None => String::new(),
+            };
+            prompt.push_str(&format!(
+                "\n\nAvailable projects: [{}]{}. When conversation aligns with a project domain, activate it. For new recurring domains, suggest creating a project (~/.omega/projects/<name>/ROLE.md). User commands: /projects, /project <name>, /project off.",
+                names.join(", "),
+                active_note,
+            ));
+        } else {
+            prompt.push_str(
+                "\n\nNo projects yet. When the user works in a recurring domain (trading, real estate, fitness...), suggest creating a project (~/.omega/projects/<name>/ROLE.md). User commands: /projects, /project <name>, /project off."
+            );
+        }
+
         if needs_scheduling {
             prompt.push_str("\n\n");
             prompt.push_str(&self.prompts.scheduling);
@@ -408,15 +449,15 @@ impl Gateway {
             prompt.push_str(&self.prompts.meta);
         }
 
-        if needs_projects {
-            if let Some(project_name) = active_project {
-                if let Some(instructions) =
-                    omega_skills::get_project_instructions(projects, project_name)
-                {
-                    prompt.push_str(&format!(
-                        "\n\n---\n\n[Active project: {project_name}]\n{instructions}"
-                    ));
-                }
+        // Active project ROLE.md — always injected when a project is active
+        // (not gated by needs_projects — that gates management rules only)
+        if let Some(project_name) = active_project {
+            if let Some(instructions) =
+                omega_skills::get_project_instructions(projects, project_name)
+            {
+                prompt.push_str(&format!(
+                    "\n\n---\n\n[Active project: {project_name}]\n{instructions}"
+                ));
             }
         }
 

@@ -136,11 +136,13 @@ The gateway **always builds** the full system prompt first (needed as fallback a
 | `## Identity` | First message only | Who OMEGA is, behavioral examples |
 | `## Soul` | First message only | Personality, tone, boundaries |
 | `## System` | First message only | Core rules, marker quick-reference |
+| Project awareness | Always (~40-50 tokens) | Available project names, creation/activation hints |
+| Active project ROLE.md | Always when a project is active | Full project instructions from `~/.omega/projects/<name>/ROLE.md` |
 | `## Scheduling` | If scheduling keywords match | Task/reminder rules |
-| `## Projects` | If project keywords match | Project conventions |
+| `## Projects` | If project keywords match | Project management conventions |
 | `## Meta` | If meta keywords match | Skill improvement, heartbeat, WhatsApp |
 
-The core sections (Identity + Soul + System) are sent **once** on the first message of a conversation. On subsequent messages within the same CLI session, they are completely replaced by a minimal context update (see 3.10 below). The conditional sections (Scheduling, Projects, Meta) are keyword-gated on every message — included only when relevant keywords appear.
+The core sections (Identity + Soul + System) are sent **once** on the first message of a conversation. On subsequent messages within the same CLI session, they are completely replaced by a minimal context update (see 3.10 below). The conditional sections (Scheduling, Projects management, Meta) are keyword-gated on every message — included only when relevant keywords appear. Project awareness (~40-50 tokens) and active project ROLE.md are always injected regardless of keywords.
 
 **Token savings:** ~55-70% on first messages (conditional sections skipped), ~90-99% on continuations (entire prompt replaced).
 
@@ -158,6 +160,8 @@ If an active CLI session exists for this sender:
   [+ scheduling section, only if scheduling keywords match]
   [+ projects section, only if project keywords match]
   [+ meta section, only if meta keywords match]
+  [+ project awareness hint, if projects exist]
+  [+ active project ROLE.md, if a project is active]
   ```
 - Clear conversation history (the CLI session already has it)
 - **Token savings:** ~90-99% — the CLI session already carries the full identity/soul/system from the first message
