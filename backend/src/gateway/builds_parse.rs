@@ -350,47 +350,98 @@ pub(super) fn parse_build_summary(text: &str) -> Option<BuildSummary> {
     })
 }
 
-/// Localized phase progress message.
+/// Localized phase progress message for the 7-phase build pipeline.
+///
+/// | Phase | Agent          | English                 |
+/// |-------|----------------|-------------------------|
+/// | 1     | Analyst        | Analyzing requirements  |
+/// | 2     | Architect      | Designing architecture  |
+/// | 3     | Test Writer    | Writing tests           |
+/// | 4     | Developer      | Implementing code       |
+/// | 5     | QA             | Validating quality      |
+/// | 6     | Reviewer       | Reviewing code          |
+/// | 7     | Delivery       | Preparing delivery      |
 pub(super) fn phase_message(lang: &str, phase: u8, action: &str) -> String {
     match lang {
         "Spanish" => match phase {
-            1 => "Analizando tu solicitud de construcci\u{f3}n...".to_string(),
-            5 => "Preparando la entrega...".to_string(),
+            1 => "Analizando requisitos...".to_string(),
+            2 => "Dise\u{f1}ando arquitectura...".to_string(),
+            3 => "Escribiendo pruebas...".to_string(),
+            4 => "Implementando c\u{f3}digo...".to_string(),
+            5 => "Validando calidad...".to_string(),
+            6 => "Revisando c\u{f3}digo...".to_string(),
+            7 => "Preparando entrega...".to_string(),
             _ => format!("Fase {phase}: {action}..."),
         },
         "Portuguese" => match phase {
-            1 => "Analisando sua solicita\u{e7}\u{e3}o de constru\u{e7}\u{e3}o...".to_string(),
-            5 => "Preparando a entrega...".to_string(),
+            1 => "Analisando requisitos...".to_string(),
+            2 => "Projetando arquitetura...".to_string(),
+            3 => "Escrevendo testes...".to_string(),
+            4 => "Implementando c\u{f3}digo...".to_string(),
+            5 => "Validando qualidade...".to_string(),
+            6 => "Revisando c\u{f3}digo...".to_string(),
+            7 => "Preparando entrega...".to_string(),
             _ => format!("Fase {phase}: {action}..."),
         },
         "French" => match phase {
-            1 => "Analyse de votre demande de construction...".to_string(),
-            5 => "Pr\u{e9}paration de la livraison...".to_string(),
+            1 => "Analyse des exigences...".to_string(),
+            2 => "Conception de l'architecture...".to_string(),
+            3 => "R\u{e9}daction des tests...".to_string(),
+            4 => "Impl\u{e9}mentation du code...".to_string(),
+            5 => "Validation de la qualit\u{e9}...".to_string(),
+            6 => "R\u{e9}vision du code...".to_string(),
+            7 => "Pr\u{e9}paration de la livraison...".to_string(),
             _ => format!("Phase {phase}\u{a0}: {action}..."),
         },
         "German" => match phase {
-            1 => "Analysiere deine Build-Anfrage...".to_string(),
-            5 => "Lieferung wird vorbereitet...".to_string(),
+            1 => "Analysiere Anforderungen...".to_string(),
+            2 => "Architektur entwerfen...".to_string(),
+            3 => "Tests schreiben...".to_string(),
+            4 => "Code implementieren...".to_string(),
+            5 => "Qualit\u{e4}t validieren...".to_string(),
+            6 => "Code \u{fc}berpr\u{fc}fen...".to_string(),
+            7 => "Lieferung vorbereiten...".to_string(),
             _ => format!("Phase {phase}: {action}..."),
         },
         "Italian" => match phase {
-            1 => "Analisi della richiesta di costruzione...".to_string(),
-            5 => "Preparazione della consegna...".to_string(),
+            1 => "Analisi dei requisiti...".to_string(),
+            2 => "Progettazione dell'architettura...".to_string(),
+            3 => "Scrittura dei test...".to_string(),
+            4 => "Implementazione del codice...".to_string(),
+            5 => "Validazione della qualit\u{e0}...".to_string(),
+            6 => "Revisione del codice...".to_string(),
+            7 => "Preparazione della consegna...".to_string(),
             _ => format!("Fase {phase}: {action}..."),
         },
         "Dutch" => match phase {
-            1 => "Je build-verzoek analyseren...".to_string(),
-            5 => "Levering voorbereiden...".to_string(),
+            1 => "Vereisten analyseren...".to_string(),
+            2 => "Architectuur ontwerpen...".to_string(),
+            3 => "Tests schrijven...".to_string(),
+            4 => "Code implementeren...".to_string(),
+            5 => "Kwaliteit valideren...".to_string(),
+            6 => "Code reviewen...".to_string(),
+            7 => "Levering voorbereiden...".to_string(),
             _ => format!("Fase {phase}: {action}..."),
         },
         "Russian" => match phase {
-            1 => "\u{410}\u{43d}\u{430}\u{43b}\u{438}\u{437}\u{438}\u{440}\u{443}\u{44e} \u{437}\u{430}\u{43f}\u{440}\u{43e}\u{441} \u{43d}\u{430} \u{441}\u{431}\u{43e}\u{440}\u{43a}\u{443}...".to_string(),
-            5 => "\u{41f}\u{43e}\u{434}\u{433}\u{43e}\u{442}\u{43e}\u{432}\u{43a}\u{430} \u{43a} \u{434}\u{43e}\u{441}\u{442}\u{430}\u{432}\u{43a}\u{435}...".to_string(),
+            1 => "\u{410}\u{43d}\u{430}\u{43b}\u{438}\u{437} \u{442}\u{440}\u{435}\u{431}\u{43e}\u{432}\u{430}\u{43d}\u{438}\u{439}...".to_string(),
+            2 => "\u{41f}\u{440}\u{43e}\u{435}\u{43a}\u{442}\u{438}\u{440}\u{43e}\u{432}\u{430}\u{43d}\u{438}\u{435} \u{430}\u{440}\u{445}\u{438}\u{442}\u{435}\u{43a}\u{442}\u{443}\u{440}\u{44b}...".to_string(),
+            3 => "\u{41d}\u{430}\u{43f}\u{438}\u{441}\u{430}\u{43d}\u{438}\u{435} \u{442}\u{435}\u{441}\u{442}\u{43e}\u{432}...".to_string(),
+            4 => "\u{420}\u{435}\u{430}\u{43b}\u{438}\u{437}\u{430}\u{446}\u{438}\u{44f} \u{43a}\u{43e}\u{434}\u{430}...".to_string(),
+            5 => "\u{41f}\u{440}\u{43e}\u{432}\u{435}\u{440}\u{43a}\u{430} \u{43a}\u{430}\u{447}\u{435}\u{441}\u{442}\u{432}\u{430}...".to_string(),
+            6 => "\u{41e}\u{431}\u{437}\u{43e}\u{440} \u{43a}\u{43e}\u{434}\u{430}...".to_string(),
+            7 => "\u{41f}\u{43e}\u{434}\u{433}\u{43e}\u{442}\u{43e}\u{432}\u{43a}\u{430} \u{43a} \u{434}\u{43e}\u{441}\u{442}\u{430}\u{432}\u{43a}\u{435}...".to_string(),
             _ => format!("\u{424}\u{430}\u{437}\u{430} {phase}: {action}..."),
         },
+        // English and any unknown language
         _ => match phase {
-            1 => "Analyzing your build request...".to_string(),
-            5 => "Preparing delivery...".to_string(),
+            1 => "Analyzing requirements...".to_string(),
+            2 => "Designing architecture...".to_string(),
+            3 => "Writing tests...".to_string(),
+            4 => "Implementing code...".to_string(),
+            5 => "Validating quality...".to_string(),
+            6 => "Reviewing code...".to_string(),
+            7 => "Preparing delivery...".to_string(),
             _ => format!("Phase {phase}: {action}..."),
         },
     }
@@ -541,26 +592,313 @@ mod tests {
 
     #[test]
     fn test_phase_message_all_languages() {
-        // Phase 1 — each language has a custom string
+        // Phase 1 (Analyst) — each language has a custom string
         assert!(phase_message("Portuguese", 1, "").contains("Analisando"));
         assert!(phase_message("French", 1, "").contains("Analyse"));
         assert!(phase_message("German", 1, "").contains("Analysiere"));
         assert!(phase_message("Italian", 1, "").contains("Analisi"));
         assert!(phase_message("Dutch", 1, "").contains("analyseren"));
-        assert!(phase_message("Russian", 1, "").contains("запрос"));
+        assert!(phase_message("Russian", 1, "").contains("Анализ"));
 
-        // Phase 5 — delivery
-        assert!(phase_message("French", 5, "").contains("livraison"));
-        assert!(phase_message("German", 5, "").contains("Lieferung"));
-        assert!(phase_message("Italian", 5, "").contains("consegna"));
-        assert!(phase_message("Dutch", 5, "").contains("Levering"));
-        assert!(phase_message("Russian", 5, "").contains("доставке"));
+        // Phase 7 (Delivery) — moved from phase 5 in the 7-phase pipeline
+        assert!(phase_message("French", 7, "").contains("livraison"));
+        assert!(phase_message("German", 7, "").contains("Lieferung"));
+        assert!(phase_message("Italian", 7, "").contains("consegna"));
+        assert!(phase_message("Dutch", 7, "").contains("Levering"));
+        assert!(phase_message("Russian", 7, "").contains("доставке"));
 
-        // Generic phase — uses "Phase/Fase/Фаза N: action..."
-        assert!(phase_message("French", 3, "building").contains("Phase 3"));
-        assert!(phase_message("German", 3, "building").contains("Phase 3"));
-        assert!(phase_message("Italian", 3, "building").contains("Fase 3"));
-        assert!(phase_message("Dutch", 3, "building").contains("Fase 3"));
-        assert!(phase_message("Russian", 3, "building").contains("Фаза 3"));
+        // Phase 3 (Test Writer) — now has custom messages per language
+        assert!(phase_message("French", 3, "").contains("tests"));
+        assert!(phase_message("German", 3, "").contains("Tests"));
+        assert!(phase_message("Italian", 3, "").contains("test"));
+        assert!(phase_message("Dutch", 3, "").contains("Tests"));
+        assert!(phase_message("Russian", 3, "").contains("тестов"));
+    }
+
+    // =======================================================================
+    // REQ-BAP-010 (Must): Preserve existing parse functions — regression
+    // =======================================================================
+    //
+    // These tests lock the CURRENT behavior of parse functions. They must
+    // pass both before and after the build agent pipeline implementation.
+
+    // Requirement: REQ-BAP-010 (Must)
+    // Acceptance: parse_project_brief remains functional
+    // Edge case: extra whitespace around field values
+    #[test]
+    fn test_regression_parse_project_brief_whitespace_in_values() {
+        let text = "PROJECT_NAME:   my-tool  \nLANGUAGE:  Python \nSCOPE: Does stuff";
+        let brief = parse_project_brief(text).unwrap();
+        assert_eq!(brief.name, "my-tool", "Should trim whitespace from name");
+        assert_eq!(
+            brief.language, "Python",
+            "Should trim whitespace from language"
+        );
+    }
+
+    // Requirement: REQ-BAP-010 (Must)
+    // Edge case: multiline text with BUILD_COMPLETE embedded in middle
+    #[test]
+    fn test_regression_parse_project_brief_no_false_positive() {
+        // Brief text that also happens to contain BUILD_COMPLETE should still
+        // parse as a brief, not as a build summary.
+        let text = "PROJECT_NAME: my-tool\nSCOPE: Does stuff\nBUILD_COMPLETE";
+        let brief = parse_project_brief(text);
+        assert!(brief.is_some(), "Brief should still parse even with BUILD_COMPLETE present");
+    }
+
+    // Requirement: REQ-BAP-010 (Must)
+    // Edge case: VERIFICATION: PASS appears multiple times
+    #[test]
+    fn test_regression_parse_verification_multiple_pass_markers() {
+        let text = "Phase 1: VERIFICATION: PASS\nPhase 2: VERIFICATION: PASS";
+        assert!(matches!(
+            parse_verification_result(text),
+            VerificationResult::Pass
+        ));
+    }
+
+    // Requirement: REQ-BAP-010 (Must)
+    // Edge case: VERIFICATION: FAIL with REASON on non-adjacent line
+    #[test]
+    fn test_regression_parse_verification_reason_non_adjacent() {
+        let text = "VERIFICATION: FAIL\nSome other output\nREASON: tests fail";
+        match parse_verification_result(text) {
+            VerificationResult::Fail(reason) => {
+                assert!(
+                    reason.contains("tests fail"),
+                    "Should find REASON even if not adjacent to FAIL"
+                );
+            }
+            _ => panic!("expected Fail"),
+        }
+    }
+
+    // Requirement: REQ-BAP-010 (Must)
+    // Edge case: empty text to all three parse functions
+    #[test]
+    fn test_regression_parse_functions_empty_input() {
+        assert!(parse_project_brief("").is_none(), "Empty string -> None");
+        match parse_verification_result("") {
+            VerificationResult::Fail(reason) => {
+                assert!(reason.contains("No verification marker"));
+            }
+            _ => panic!("Empty string should fail verification"),
+        }
+        assert!(
+            parse_build_summary("").is_none(),
+            "Empty string -> None for build summary"
+        );
+    }
+
+    // Requirement: REQ-BAP-010 (Must)
+    // Edge case: very large input (stress test)
+    #[test]
+    fn test_regression_parse_project_brief_large_input() {
+        let mut text = String::from("PROJECT_NAME: huge-project\nSCOPE: Test\nCOMPONENTS:\n");
+        for i in 0..1000 {
+            text.push_str(&format!("- component {i}\n"));
+        }
+        let brief = parse_project_brief(&text).unwrap();
+        assert_eq!(brief.name, "huge-project");
+        assert_eq!(brief.components.len(), 1000);
+    }
+
+    // Requirement: REQ-BAP-010 (Must)
+    // Edge case: unicode in project name
+    #[test]
+    fn test_regression_parse_project_brief_unicode_scope() {
+        let text =
+            "PROJECT_NAME: emoji-tracker\nSCOPE: Tracks emojis like \u{1f600} and \u{1f4a5}\nLANGUAGE: Rust";
+        let brief = parse_project_brief(text).unwrap();
+        assert_eq!(brief.name, "emoji-tracker");
+        assert!(brief.scope.contains('\u{1f600}'));
+    }
+
+    // Requirement: REQ-BAP-010 (Must)
+    // Edge case: BUILD_COMPLETE with missing fields
+    #[test]
+    fn test_regression_parse_build_summary_partial_fields() {
+        let text = "BUILD_COMPLETE\nPROJECT: my-app";
+        let summary = parse_build_summary(text).unwrap();
+        assert_eq!(summary.project, "my-app");
+        assert!(summary.location.is_empty(), "Missing field should default to empty");
+        assert!(summary.language.is_empty());
+        assert!(summary.summary.is_empty());
+        assert!(summary.usage.is_empty());
+        assert_eq!(summary.skill, None);
+    }
+
+    // Requirement: REQ-BAP-010 (Must)
+    // Security: script injection in project name
+    #[test]
+    fn test_regression_parse_project_brief_script_injection_with_slash() {
+        // Names with / are rejected — </script> contains a slash.
+        let text = "PROJECT_NAME: <script>alert(1)</script>\nSCOPE: evil";
+        assert!(
+            parse_project_brief(text).is_none(),
+            "Name containing / (from </script>) should be rejected"
+        );
+    }
+
+    // Requirement: REQ-BAP-010 (Must)
+    // Security: special chars in project name (no path separators)
+    #[test]
+    fn test_regression_parse_project_brief_special_chars_no_slash() {
+        // Names without / \ .. or leading . are accepted by the parser.
+        let text = "PROJECT_NAME: my-app-v2.0\nSCOPE: test";
+        let brief = parse_project_brief(text);
+        assert!(brief.is_some(), "Name with dots (not leading) should be accepted");
+        assert_eq!(brief.unwrap().name, "my-app-v2.0");
+    }
+
+    // =======================================================================
+    // REQ-BAP-009 (Must): Localized progress messages for all 7 phases
+    // =======================================================================
+    //
+    // The current phase_message() handles phases 1 and 5 with custom messages
+    // and uses a generic format for others. For the 7-phase pipeline, the
+    // developer must extend this to handle all 7 phases with meaningful
+    // localized messages.
+    //
+    // These tests will FAIL until the developer extends phase_message().
+
+    // Requirement: REQ-BAP-009 (Must)
+    // Acceptance: Each phase transition sends a dedicated localized message
+    // (not just the generic "Phase N: action..." format).
+    //
+    // IMPORTANT: These tests call phase_message with an EMPTY action string
+    // to ensure the function produces meaningful per-phase messages from its
+    // own content, not by echoing the action parameter back.
+    #[test]
+    fn test_phase_message_7_phases_english_custom_messages() {
+        // Phase 1: Analyst — already has custom message
+        let msg1 = phase_message("English", 1, "");
+        assert!(
+            msg1.contains("Analyzing"),
+            "Phase 1 must have custom English message: got '{msg1}'"
+        );
+        // Phase 2: Architect — needs custom message about architecture/design
+        let msg2 = phase_message("English", 2, "");
+        assert!(
+            msg2.contains("architecture") || msg2.contains("Architecture")
+                || msg2.contains("design") || msg2.contains("Design"),
+            "Phase 2 must have custom English message about architecture: got '{msg2}'"
+        );
+        // Phase 3: Test Writer — needs custom message about tests
+        let msg3 = phase_message("English", 3, "");
+        assert!(
+            msg3.contains("test") || msg3.contains("Test"),
+            "Phase 3 must have custom English message about tests: got '{msg3}'"
+        );
+        // Phase 4: Developer — needs custom message about implementation
+        let msg4 = phase_message("English", 4, "");
+        assert!(
+            msg4.contains("implement") || msg4.contains("Implement")
+                || msg4.contains("build") || msg4.contains("Build")
+                || msg4.contains("cod") || msg4.contains("Cod"),
+            "Phase 4 must have custom English message about implementation: got '{msg4}'"
+        );
+        // Phase 5: QA — needs custom message about verification/quality
+        let msg5 = phase_message("English", 5, "");
+        assert!(
+            msg5.contains("verif") || msg5.contains("Verif")
+                || msg5.contains("quality") || msg5.contains("Quality")
+                || msg5.contains("check") || msg5.contains("Check")
+                || msg5.contains("test") || msg5.contains("Test"),
+            "Phase 5 must have custom English message about QA: got '{msg5}'"
+        );
+        // Phase 6: Reviewer — needs custom message about review
+        let msg6 = phase_message("English", 6, "");
+        assert!(
+            msg6.contains("review") || msg6.contains("Review")
+                || msg6.contains("audit") || msg6.contains("Audit"),
+            "Phase 6 must have custom English message about review: got '{msg6}'"
+        );
+        // Phase 7: Delivery — needs custom message about delivery
+        let msg7 = phase_message("English", 7, "");
+        assert!(
+            msg7.contains("deliver") || msg7.contains("Deliver")
+                || msg7.contains("Preparing") || msg7.contains("delivery"),
+            "Phase 7 must have custom English message about delivery: got '{msg7}'"
+        );
+    }
+
+    // Requirement: REQ-BAP-009 (Must)
+    // Acceptance: All 8 languages supported for all 7 phases
+    #[test]
+    fn test_phase_message_7_phases_all_languages_non_empty() {
+        let languages = [
+            "English", "Spanish", "Portuguese", "French",
+            "German", "Italian", "Dutch", "Russian",
+        ];
+        for lang in &languages {
+            for phase in 1..=7 {
+                let msg = phase_message(lang, phase, "action");
+                assert!(
+                    !msg.is_empty(),
+                    "Phase {phase} message for {lang} must not be empty"
+                );
+            }
+        }
+    }
+
+    // Requirement: REQ-BAP-009 (Must)
+    // Acceptance: Spanish messages for all 7 phases
+    #[test]
+    fn test_phase_message_7_phases_spanish() {
+        let msg1 = phase_message("Spanish", 1, "");
+        assert!(msg1.contains("Analizando"), "Spanish phase 1: got '{msg1}'");
+
+        let msg7 = phase_message("Spanish", 7, "");
+        assert!(
+            msg7.contains("entrega") || msg7.contains("Entrega") || msg7.contains("Preparando"),
+            "Spanish phase 7 should mention delivery: got '{msg7}'"
+        );
+    }
+
+    // Requirement: REQ-BAP-009 (Must)
+    // Edge case: unknown language falls back to English-like behavior
+    #[test]
+    fn test_phase_message_unknown_language_all_phases() {
+        for phase in 1..=7 {
+            let msg = phase_message("Klingon", phase, "action");
+            assert!(
+                !msg.is_empty(),
+                "Unknown language should still produce a message for phase {phase}"
+            );
+        }
+    }
+
+    // Requirement: REQ-BAP-009 (Must)
+    // Edge case: phase 0 and phase 8 (out of range)
+    #[test]
+    fn test_phase_message_out_of_range_phases() {
+        // Phase 0 and 8+ should produce a reasonable generic message.
+        let msg0 = phase_message("English", 0, "unknown");
+        assert!(
+            !msg0.is_empty(),
+            "Phase 0 should produce some output (generic fallback)"
+        );
+        let msg8 = phase_message("English", 8, "unknown");
+        assert!(
+            !msg8.is_empty(),
+            "Phase 8 should produce some output (generic fallback)"
+        );
+    }
+
+    // Requirement: REQ-BAP-009 (Must)
+    // Regression: In the 7-phase pipeline, phase 7 is delivery.
+    // The custom message must not depend on the action parameter.
+    #[test]
+    fn test_phase_message_delivery_phase_english() {
+        // Phase 7 is delivery in the new pipeline.
+        // Use EMPTY action to ensure the function has its own custom message.
+        let msg = phase_message("English", 7, "");
+        assert!(
+            msg.contains("deliver") || msg.contains("Deliver")
+                || msg.contains("Preparing") || msg.contains("delivery"),
+            "Phase 7 (delivery) must have a custom English message: got '{msg}'"
+        );
     }
 }
