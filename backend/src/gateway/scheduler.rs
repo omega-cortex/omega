@@ -2,6 +2,7 @@
 
 use super::scheduler_action;
 use super::Gateway;
+use crate::markers::{is_within_active_hours, next_active_start_utc};
 use omega_core::{
     config::Prompts,
     message::{MessageMetadata, OutgoingMessage},
@@ -18,6 +19,8 @@ impl Gateway {
     ///
     /// Reminder tasks send a text message. Action tasks invoke the provider
     /// with full tool access and process response markers.
+    /// During quiet hours (outside active_start..active_end), due tasks are
+    /// deferred to the next active_start instead of executing.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn scheduler_loop(
         store: Store,
@@ -31,9 +34,33 @@ impl Gateway {
         audit: AuditLogger,
         provider_name: String,
         data_dir: String,
+        active_start: String,
+        active_end: String,
     ) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(poll_secs)).await;
+
+            // Quiet hours gate: defer due tasks to next active_start.
+            if !active_start.is_empty()
+                && !active_end.is_empty()
+                && !is_within_active_hours(&active_start, &active_end)
+            {
+                if let Ok(tasks) = store.get_due_tasks().await {
+                    if !tasks.is_empty() {
+                        let next = next_active_start_utc(&active_start);
+                        for (id, _, _, _, description, _, _, _) in &tasks {
+                            if let Err(e) = store.defer_task(id, &next).await {
+                                error!("scheduler: failed to defer task {id}: {e}");
+                            } else {
+                                info!(
+                                    "scheduler: deferred task {id} to {next} (quiet hours): {description}"
+                                );
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
 
             match store.get_due_tasks().await {
                 Ok(tasks) => {

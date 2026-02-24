@@ -173,6 +173,8 @@ impl Gateway {
             let sched_audit = AuditLogger::new(self.memory.pool().clone());
             let sched_provider_name = self.provider.name().to_string();
             let sched_data_dir = self.data_dir.clone();
+            let sched_active_start = self.heartbeat_config.active_start.clone();
+            let sched_active_end = self.heartbeat_config.active_end.clone();
             Some(tokio::spawn(async move {
                 Self::scheduler_loop(
                     sched_store,
@@ -186,6 +188,8 @@ impl Gateway {
                     sched_audit,
                     sched_provider_name,
                     sched_data_dir,
+                    sched_active_start,
+                    sched_active_end,
                 )
                 .await;
             }))

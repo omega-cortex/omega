@@ -80,6 +80,33 @@ pub fn is_within_active_hours(start: &str, end: &str) -> bool {
     }
 }
 
+/// Compute the next occurrence of `active_start` (local "HH:MM") as a UTC
+/// datetime string suitable for `scheduled_tasks.due_at`.
+pub fn next_active_start_utc(start: &str) -> String {
+    use chrono::{Local, NaiveTime, TimeZone};
+
+    let now = Local::now();
+    let start_time = NaiveTime::parse_from_str(start, "%H:%M")
+        .unwrap_or_else(|_| NaiveTime::from_hms_opt(8, 0, 0).unwrap());
+
+    let today_candidate = now.date_naive().and_time(start_time);
+    let candidate = if today_candidate > now.naive_local() {
+        today_candidate
+    } else {
+        today_candidate + chrono::Duration::days(1)
+    };
+
+    // Convert local candidate to UTC for the DB.
+    let local_dt = Local
+        .from_local_datetime(&candidate)
+        .earliest()
+        .unwrap_or_else(|| now.into());
+    local_dt
+        .with_timezone(&chrono::Utc)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
 // ---------------------------------------------------------------------------
 // Classification helpers
 // ---------------------------------------------------------------------------
