@@ -178,6 +178,7 @@ impl Store {
             allowed_tools: None,
             model: None,
             session_id: None,
+            agent_name: None,
         })
     }
 }
