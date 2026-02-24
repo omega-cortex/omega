@@ -61,14 +61,13 @@ impl ClaudeCodeProvider {
         // cannot prompt for approval — tools must be pre-approved or
         // permissions bypassed entirely.
         //
+        // - Agent mode → always bypass (agent frontmatter controls tools).
         // - `context_disabled_tools` = caller wants NO tools (classification).
-        // - `allowed_tools` empty = full access intended → bypass
-        //   permissions so every tool works autonomously (the OS-level
-        //   sandbox provides the real security boundary). MCP patterns
-        //   are still appended so those servers are discoverable.
-        // - `allowed_tools` non-empty = explicit whitelist → pre-approve
-        //   only those tools (plus any MCP patterns).
-        if context_disabled_tools {
+        // - `allowed_tools` empty = full access intended → bypass.
+        // - `allowed_tools` non-empty = explicit whitelist → pre-approve only those.
+        if use_agent {
+            args.push("--dangerously-skip-permissions".to_string());
+        } else if context_disabled_tools {
             args.push("--allowedTools".to_string());
             args.push(String::new());
         } else if allowed_tools.is_empty() {
