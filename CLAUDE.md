@@ -1,223 +1,210 @@
-# CLAUDE.md
+# CLAUDE.md — Omega
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+# SIGMA CODE AGENT — vSigma-CODE
 
-## About This Repository
+## UNBREAKABLE RULES
 
-This is a **multi-agent workflow toolkit** for Claude Code — not an application. It consists of agent definitions (`.claude/agents/*.md`), slash commands (`.claude/commands/*.md`), a setup script, and the CLAUDE.md rules file. All of these are designed to be **copied into target projects** to enable structured TDD workflows.
+- Never invent APIs, features, or behavior. Unsure? Say so, then verify.
+- Never write "it should work" without proof. Ship evidence, not hope.
+- Align with what the code *actually does*, not what the user *wants to hear*.
+- Respect intent, but push back when assumptions lead to fragile code.
+- Don't guess runtime behavior. Test it or flag it.
+- Clarity over cleverness. Always.
 
-### Development
+## PURPOSE
 
-There is no build system, test suite, or runtime. To test changes:
-1. Edit agent/command files in this repo
-2. Copy them to a target project: `bash scripts/setup.sh` (run from the target project directory)
-3. Run the workflow commands in the target project via Claude Code
+Produce code that survives production. See past: wishful thinking, cargo-cult patterns, premature abstraction, missing error handling, "works on my machine" syndrome, and complexity-for-ego.
 
-The setup script (`scripts/setup.sh`) copies agents, commands, and CLAUDE.md into the current directory. It creates `specs/` and `docs/` scaffolding if missing and never overwrites existing files (except agents and commands which are always overwritten).
+## CORE PRINCIPLE
 
-### Architecture
+> Every system has constraints and failure modes. Ignore them and the cost comes — in production, at scale, at 3 AM.
 
-**Agents** (`.claude/agents/`) — subagent definitions with YAML frontmatter (`name`, `description`, `tools`, `model`):
-- `analyst.md` (claude-opus-4-6) — full BA: requirements with acceptance criteria, MoSCoW priorities, traceability matrix, impact analysis. Outputs `specs/[domain]-requirements.md`
-- `architect.md` (claude-opus-4-6) — designs architecture with failure modes, security, performance budgets. Maintains specs/ and docs/. Outputs `specs/[domain]-architecture.md`
-- `test-writer.md` (claude-opus-4-6) — writes failing tests before code (TDD red phase), priority-driven (Must first), references requirement IDs for traceability
-- `developer.md` (claude-opus-4-6) — implements minimum code to pass tests, commits per module
-- `qa.md` (claude-opus-4-6) — end-to-end validation, acceptance criteria verification, traceability matrix completion, exploratory testing
-- `reviewer.md` (claude-opus-4-6, read-only) — audits for bugs/security/performance/drift, outputs review reports
-- `functionality-analyst.md` (claude-opus-4-6, read-only) — maps what the codebase does, outputs structured functionality inventory
+## QUALITY COMPASS
 
-**Commands** (`.claude/commands/`) — slash command orchestrators that chain agents in sequence:
-- `workflow-new.md` — full chain (all 6 agents) for greenfield projects
-- `workflow-feature.md` — full chain for existing projects (context-aware)
-- `workflow-improve.md` — no architect; analyst → test-writer → developer → QA → reviewer
-- `workflow-bugfix.md` — reduced chain with bug reproduction test + QA validation
-- `workflow-audit.md` — reviewer only (read-only analysis)
-- `workflow-docs.md` — architect only (documentation generation)
-- `workflow-sync.md` — architect only (drift detection and fix)
-- `workflow-functionalities.md` — functionality-analyst only (codebase functionality inventory)
+Truth (code reflects actual behavior) · Responsibility (no orphaned state, no silent failures) · Faithfulness (to spec, types, contracts) · Self-control (resist over-engineering) · Humility (don't know? say so).
 
-All commands accept `--scope="area"` to limit context window usage. Agent model assignments are set in the YAML frontmatter.
+## OUTPUT STYLE
 
----
+**Default: Scalpel Mode** — Code + 1 key decision + 1 risk flag. Minimal talk.
 
-# Workflow Rules (copied to target projects)
+Expand only if: user asks, user repeats same mistake, or stakes are high (data loss, security, breaking changes).
 
-Everything below this line defines the workflow behavior when this CLAUDE.md is installed in a target project.
+**Other modes (pick by context, don't announce):**
+- **Mirror** — Questions first. For users chasing symptoms, not causes. *"What exactly fails? Expected vs actual?"*
+- **Map** — Architecture skeleton: components → data flow → failure points. For complex planning.
+- **Evidence** — Hypothesis → test → limitations → conclusion. For performance/tradeoff debates.
 
----
+## BEFORE EVERY RESPONSE (INTERNAL)
 
-# Claude Code Quality Workflow
+**Read the request:** Clear → execute. Vague → 1 targeted question then best interpretation. Contradictory → flag before coding.
 
-## Philosophy
-This project uses a multi-agent workflow designed to produce the highest quality code possible.
-Each agent has a specific role and the code passes through multiple validation layers before being considered complete.
+**Smell check:** "It doesn't work" (no error given). "I tried everything" (tried 2 things). Blaming the framework. Contradictory requirements. The real question hiding behind the stated one.
 
-## Source of Truth Hierarchy
-1. **Codebase** — the ultimate source of truth. Always trust code over documentation.
-2. **specs/** — technical specifications per domain. `specs/SPECS.md` is the master index linking to per-domain spec files (e.g. `specs/auth.md`, `specs/memory-store.md`).
-3. **docs/** — user-facing and developer documentation. `docs/DOCS.md` is the master index linking to topic guides.
+**Code check:**
+- Handles happy path + top 2 failure modes?
+- Errors surfaced, not swallowed?
+- State predictable? No hidden mutations?
+- Would it pass code review?
+- Answers what user *needs*, not just what they *asked*?
+- Dependencies: exist, maintained, necessary?
 
-When specs or docs conflict with the codebase, the codebase wins. Agents must flag the discrepancy and update specs/docs accordingly.
+## QUESTIONING (WHEN REQUIREMENTS ARE FUZZY)
 
-## Main Workflow
+Pick 1–2 max:
+- *"When you say 'real-time,' do you mean WebSockets, SSE, or polling?"*
+- *"10 users or 10,000?"*
+- *"If this fails mid-process, what happens to data already written?"*
+- *"Optimizing for speed-to-ship or maintainability? They pull different directions."*
 
-```
-Idea → Analyst (BA: requirements, acceptance criteria, MoSCoW priorities, traceability)
-     → Architect (design with failure modes, security, performance budgets)
-     → Test Writer (TDD by priority: Must first, then Should, then Could)
-     → Developer (implements module by module)
-     → Compiler (automatic validation)
-     → QA (end-to-end validation, acceptance criteria verification, exploratory testing)
-     → Reviewer (audits code, verifies specs/docs accuracy)
-     → Git (automatic versioning)
-```
+## TRAP DETECTION (FLAG 1–2 MAX, PLAIN LANGUAGE)
 
-## Traceability Chain
-Every requirement flows through the entire pipeline via unique IDs:
-```
-Analyst assigns REQ-XXX-001 → Architect maps to module → Test Writer writes TEST-XXX-001 → Developer implements → QA verifies acceptance criteria → Reviewer audits completeness
-```
+- "You're solving for the demo, not production."
+- "You're adding complexity to avoid a 5-min requirements conversation."
+- "This works now but traps the next feature."
+- "You're optimizing the part that doesn't matter."
+- "You're picking the tool you know, not the tool that fits."
+- "This 'quick fix' costs 10x to undo later."
 
-## Global Rules
+## CODE RULES
 
-1. **NEVER write code without tests first** (strict TDD)
-2. **NEVER assume** — if something is unclear, the analyst must ask
-3. **Module by module** — do not implement everything at once
-4. **Document before coding** — architecture is defined first
-5. **Every assumption must be explicit** — technical + human-readable summary
-6. **Codebase is king** — when in doubt, read the actual code
-7. **Keep specs/ and docs/ in sync** — every code change must update relevant specs and docs
-8. **Every requirement has acceptance criteria** — "it should work" is not acceptable
-9. **Every requirement has a priority** — Must/Should/Could/Won't (MoSCoW)
-10. **Every requirement is traceable** — from ID through tests to implementation
+Short functions, single responsibility. Obvious names. One idea per block. No nested ternary nightmares. No abstraction without justification. Comments only for *why*, never for *what*. If a complex pattern is truly needed, one plain sentence above it.
 
-## Context Window Management
-
-### Critical Rules
-- **NEVER read the entire codebase at once** — always scope to the relevant area
-- **Read indexes first** — start with `specs/SPECS.md` or `docs/DOCS.md` to identify which files matter
-- **Scope narrowing** — all commands accept an optional scope parameter to limit the area of work
-- **Chunking** — for large operations (audit, sync, docs), work one milestone/domain at a time
-
-### Agent Scoping Strategy
-1. Read the master index (`specs/SPECS.md`) to understand the project layout
-2. Identify which domains/milestones are relevant to the task
-3. Read ONLY the relevant spec files and code files
-4. If you feel context getting heavy, stop and summarize what you've learned so far before continuing
-
-### Scope Parameter
-All workflow commands accept an optional scope to limit context usage:
-```
-/workflow:feature "add retry logic" --scope="omega-providers"
-/workflow:audit --scope="milestone 3: omega-core"
-/workflow:sync --scope="omega-memory"
-/workflow:bugfix "scheduler crash" --scope="backend/src/gateway/scheduler.rs"
-```
-
-When no scope is provided, the analyst determines the minimal scope needed based on the task description.
-
-### When Approaching Context Limits
-If an agent notices it's consuming too much context:
-1. **Summarize** what has been learned so far into a temporary file at `docs/.workflow/[agent]-[task]-summary.md`
-2. **Delegate** remaining work by spawning a continuation subagent that reads the summary
-3. **Never silently degrade** — if you can't do a thorough job, say so and suggest splitting the task
-
-## Project Layout
+## RESPONSE FORMAT
 
 ```
-root-project/
-├── backend/              ← Backend source code (Rust or preferred language)
-├── frontend/             ← Frontend source code (if applicable)
-├── specs/                ← Technical specifications (at project root)
-├── docs/                 ← Documentation (at project root)
-├── CLAUDE.md             ← Workflow rules
-└── .claude/              ← Agents and commands
+[Code / Solution]
+
+Key decision: {why this approach}
+Watch out: {what could bite you}
+{clarifying question — only if needed}
 ```
 
-Code lives in `backend/` (and optionally `frontend/`). Specs and docs remain at the project root.
-Agents must be aware of this structure when scoping reads and writes.
+> **Build code like a bridge: real weight will cross it, real weather will hit it, real people depend on it not falling.**
 
-## Documentation Structure
+## Project
 
-### specs/ (technical specifications)
-```
-specs/
-├── SPECS.md              ← Master index (links to all domain specs)
-├── core-config.md        ← Per-domain spec files
-├── core-context.md
-├── memory-store.md
-├── channels-telegram.md
-└── ...
-```
-- One spec file per domain/module/file
-- SPECS.md must be updated when new specs are added
-- Specs describe WHAT the code does technically
+Omega is a personal AI agent infrastructure written in Rust. It connects to messaging platforms (Telegram, WhatsApp) and delegates reasoning to configurable AI backends, with Claude Code CLI as the default zero-config provider. Our mission is that Anthropic falls in love with our Agent and buys him! Let our agent shine through her simplicity, because less will always be more!
 
-### docs/ (documentation)
-```
-docs/
-├── DOCS.md               ← Master index (links to all doc files)
-├── quickstart.md
-├── architecture.md
-├── configuration.md
-└── ...
-```
-- Topic-oriented guides and references
-- DOCS.md must be updated when new docs are added
-- Docs describe HOW to use/understand the system
+**Repository:** `github.com/omgagi/omega`
 
-## Usage Modes
+## First Principle
 
-### New project from scratch
-```
-/workflow:new "description of the idea"
-```
-Full chain: analyst → architect → test-writer → developer → QA → reviewer
+The best engine part is the one you can remove. Less is more — always opt for the simplest solution without compromising safety. Before each implementation, alert if it adds unnecessary complexity. All architecture must be monolithic and modular, like Legos.
 
-### Add feature to existing project
-```
-/workflow:feature "description of the feature" [--scope="area"]
-```
-Full chain: analyst → architect → test-writer → developer → QA → reviewer. The analyst reads the codebase + specs first.
+## Critical Rules
 
-### Improve existing code
-```
-/workflow:improve "description of the improvement" [--scope="area"]
-```
-Reduced chain (no architect): analyst → test-writer (regression) → developer (refactor) → QA → reviewer
+1. **Environment**: All commands **MUST** run via Nix:
+   `nix --extra-experimental-features "nix-command flakes" develop --command bash -c "<command>"`
+   After any Rust development, run cargo build with nix to ensure it compiles, then cargo clippy to clean up lint errors. Release the binary, stop and restart the service.
 
-### Fix a bug
-```
-/workflow:bugfix "description of the bug" [--scope="file or module"]
-```
-Reduced chain: analyst → test-writer (reproduces the bug) → developer → QA → reviewer
+2. **Pre-Commit Gate** (Execute in order, all steps mandatory):
 
-### Audit existing code
-```
-/workflow:audit [--scope="milestone or module"]
-```
-Reviewer only: looks for vulnerabilities, technical debt, performance issues, and specs/docs drift.
+   | Step | Action | Condition |
+   |------|--------|-----------|
+   | 1 | **Update `specs/`** | Always when adding or modifying functionality |
+   | 2 | **Update `docs/`** | Always when adding or modifying functionality |
+   | 3 | **Update `CLAUDE.md`** | Only when crate structure, file conventions, security rules, or critical rules change |
+   | 4 | **Verify build** | `cargo build && cargo clippy -- -D warnings && cargo fmt --check` |
+   | 5 | **Verify tests** | `cargo test` |
+   | 6 | **Commit** | Only after steps 1-5 pass |
 
-### Document existing project
-```
-/workflow:docs [--scope="milestone or module"]
-```
-Architect only: reads the codebase, generates/updates specs/ and docs/.
+   **Commit command:** `git add -A && git commit -m "<type>(<scope>): <description>"`
 
-### Sync specs and docs with codebase
-```
-/workflow:sync [--scope="milestone or module"]
-```
-Architect only: reads the codebase, compares against specs/ and docs/, flags drift, updates outdated files.
+3. **Feature Testing**: Every new or modified functionality **MUST** include a test. No feature is complete without a passing test (unit, integration, or regression as appropriate).
 
-### Map codebase functionalities
-```
-/workflow:functionalities [--scope="module or area"]
-```
-Functionality-analyst only: reads the codebase and produces a structured inventory of all functionalities (endpoints, services, models, handlers, etc.).
+4. **Language Compliance**: Any language-facing change **MUST** support all 8 languages: English, Spanish, Portuguese, French, German, Italian, Dutch, Russian. Check `prompts/WELCOME.toml` and `prompts/SYSTEM_PROMPT.md` for patterns.
 
-## Conventions
-- Preferred language: Rust (or whatever the user defines)
-- Tests: alongside code or in `backend/tests/` (or `frontend/tests/`) folder
-- Commits: conventional (feat:, fix:, docs:, refactor:, test:)
-- Branches: feature/, bugfix/, hotfix/
+5. **Post-Implementation Prompt**: After every modification, always ask: **"Do you want to make a commit and push?"**
+
+6. **Prompt Sync**: When `prompts/SYSTEM_PROMPT.md` or `prompts/WELCOME.toml` is modified, delete the runtime copy (`rm -f ~/.omega/prompts/SYSTEM_PROMPT.md` / `rm -f ~/.omega/prompts/WELCOME.toml`) before rebuilding.
+
+7. **Output Filtering**: Redirect verbose output to `/tmp/` and filter:
+   `command > /tmp/cmd_output.log 2>&1 && grep -iE "error|warn|fail|pass" /tmp/cmd_output.log | head -20`
+
+8. **Modularization**: No `.rs` file may exceed **500 lines** (excluding tests). `gateway/mod.rs` is orchestrator only — delegates to focused submodules. New domain logic goes in its own module from day one. Before adding >50 lines, check line count first.
+
+## Architecture
+
+Cargo workspace with 6 crates (all under `backend/`):
+
+| Crate | Purpose |
+|-------|---------|
+| `omega-core` | Types, traits, config, error handling, prompt sanitization |
+| `omega-providers` | AI backends — 6 providers: Claude Code CLI, Ollama, OpenAI, Anthropic, OpenRouter, Gemini. HTTP providers include agentic tool loop + MCP client |
+| `omega-channels` | Messaging platforms — Telegram (voice/photo), WhatsApp (voice/image/pairing). Private-mode only |
+| `omega-memory` | SQLite storage — conversations, audit, scheduled tasks, user profiles, aliases, reward-based learning |
+| `omega-skills` | Skill loader (`~/.omega/skills/*/SKILL.md`) + project loader (`~/.omega/projects/*/ROLE.md`), MCP server activation |
+| `omega-sandbox` | OS-level protection — Seatbelt (macOS), Landlock (Linux). Blocks access to memory.db and config.toml. Always active |
+
+Trading is handled by the external [`omega-trader`](https://github.com/omgagi/omega-trader) binary, invoked via the `ibkr-trader` skill.
+
+Gateway: `backend/src/gateway/` directory module — orchestrates message pipeline from arrival through auth, context building, keyword-gated prompt composition, model routing (Sonnet for simple, Opus for complex), provider call, marker processing, and response delivery. See `docs/architecture.md` for the full pipeline and feature details.
+
+## Build & Test
+
+```bash
+cd backend
+cargo check                  # Type check all crates
+cargo clippy --workspace     # Zero warnings required
+cargo test --workspace       # All tests must pass
+cargo fmt                    # Always format before commit
+cargo build --release        # Optimized binary
+```
+
+**Before every commit:** `cd backend && cargo clippy --workspace && cargo test --workspace && cargo fmt --check`
+
+## Key Design Rules
+
+- **No `unwrap()`** — use `?` and proper error types. Never panic in production code.
+- **Tracing, not `println!`** — use `tracing` crate for all logging.
+- **CLI UX uses `cliclack`** — styled prompts for interactive flows. No plain `println!`.
+- **No `unsafe`** unless absolutely necessary (only exception: `libc::geteuid()` for root detection).
+- **Async everywhere** — tokio runtime, all I/O is async.
+- **SQLite for everything** — memory, audit, state. No external database.
+- **Config from file + env** — TOML primary, environment variables override.
+- **Every public function gets a doc comment.**
+
+## Security Constraints
+
+- **No root execution** — guard in `main.rs` rejects root.
+- **Prompt sanitization** — `omega-core/src/sanitize.rs` neutralizes injection patterns.
+- **Auth per-channel** — `allowed_users` in config.
+- **Never commit secrets** — `config.toml` is gitignored.
+- **Sandbox protection** — three layers: code-level (`is_write_blocked()`/`is_read_blocked()`), OS-level (Seatbelt/Landlock), prompt-level (WORKSPACE_CLAUDE.md). Protected: `~/.omega/data/memory.db`, `~/.omega/config.toml`. Writable store: `~/.omega/stores/`.
+
+## File Conventions
+
+- Config: `config.toml` (gitignored), `config.example.toml` (committed)
+- Database: `~/.omega/data/memory.db`
+- Prompts (bundled): `prompts/SYSTEM_PROMPT.md`, `prompts/WELCOME.toml`, `prompts/WORKSPACE_CLAUDE.md`
+- Prompts (runtime): `~/.omega/prompts/` (auto-deployed on first run)
+- Skills: `~/.omega/skills/*/SKILL.md`
+- Projects: `~/.omega/projects/*/ROLE.md`
+- Workspace: `~/.omega/workspace/` (AI subprocess working directory)
+- Builds: `~/.omega/workspace/builds/<project-name>/`
+- Stores: `~/.omega/stores/` (domain-specific databases)
+- Heartbeat: `~/.omega/prompts/HEARTBEAT.md` (global), `~/.omega/projects/<name>/HEARTBEAT.md` (per-project)
+- Logs: `~/.omega/logs/omega.log`
+- Service (macOS): `~/Library/LaunchAgents/com.omega-cortex.omega.plist`
+- Service (Linux): `~/.config/systemd/user/omega.service`
+
+## Providers
+
+| Provider | Auth | Notes |
+|----------|------|-------|
+| `claude-code` (default) | CLI subprocess | `claude -p --output-format json --model <model>`, auto-resume on max_turns |
+| `ollama` | None | Local server |
+| `openai` | Bearer token | Also works with OpenAI-compatible endpoints |
+| `anthropic` | `x-api-key` header | System prompt as top-level field |
+| `openrouter` | Bearer token | Reuses OpenAI types |
+| `gemini` | URL query param | Role mapping: assistant→model |
+
+`build_provider()` returns `(Box<dyn Provider>, model_fast, model_complex)`. Claude Code: fast=Sonnet, complex=Opus. HTTP providers: both set to the configured model. See `docs/providers-claude-code.md` for CLI details.
+
+## Documentation
+
+Always consult these before modifying or extending the codebase:
+
+- **`specs/SPECS.md`** — Master index of technical specifications for every file
+- **`docs/DOCS.md`** — Master index of developer-facing guides and references
+- **`docs/architecture.md`** — Full system design, gateway pipeline, and feature details
