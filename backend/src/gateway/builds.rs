@@ -83,6 +83,8 @@ impl Gateway {
             }
         };
 
+        // Phase 1 output is parsed below — no need to log in production.
+
         let brief = match parse_project_brief(&brief_text) {
             Some(b) => b,
             None => {

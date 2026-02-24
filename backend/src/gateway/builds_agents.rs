@@ -32,28 +32,53 @@ You are a build analyst. Analyze the user's build request and produce a structur
 
 Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable defaults for anything ambiguous.
 
-## Output Format
+## CRITICAL OUTPUT FORMAT RULES
 
-You MUST output the following structured fields so downstream phases can parse them:
+Your output MUST be machine-parseable. A downstream parser reads your output line by line.
 
-PROJECT_NAME: <snake_case project name>
+- Your VERY FIRST line of output MUST be exactly: PROJECT_NAME: <value>
+- Do NOT write any text, prose, headers, or commentary before PROJECT_NAME
+- Do NOT use markdown formatting (no **, no `, no #, no bold, no italic)
+- Do NOT wrap field names or values in backticks or asterisks
+- Each field MUST be on its own line, starting with the field name followed by a colon and space
+
+## Required Output Fields (in this exact order)
+
+PROJECT_NAME: <snake-case-name>
 LANGUAGE: <primary programming language>
-DATABASE: <database if needed, or \"none\">
-FRONTEND: <frontend framework if needed, or \"none\">
+DATABASE: <database if needed, or none>
+FRONTEND: <frontend framework if needed, or none>
 SCOPE: <one-line description of what the project does>
 COMPONENTS:
 - <component 1>
 - <component 2>
 - <component 3>
 
-After these fields, write a detailed requirements section with numbered requirements (REQ-001, REQ-002, etc.) each with acceptance criteria.
+After the COMPONENTS list, write a detailed requirements section with numbered requirements (REQ-001, REQ-002, etc.) each with acceptance criteria.
+
+## Example Output
+
+PROJECT_NAME: price-tracker
+LANGUAGE: Rust
+DATABASE: SQLite
+FRONTEND: none
+SCOPE: CLI tool that tracks cryptocurrency prices and sends alerts
+COMPONENTS:
+- price-fetcher: HTTP client for exchange APIs
+- storage: SQLite persistence layer
+- alerter: threshold-based notification system
+- cli: command-line interface with subcommands
+
+REQ-001: Price Fetching
+...
 
 ## Rules
 
-- Keep the project name short and snake_case
+- Keep the project name short and snake-case (max 3 words)
 - Choose the most appropriate language for the task
 - Be specific about COMPONENTS — list concrete modules as `- item` lines, not vague categories
 - Every requirement must have testable acceptance criteria
+- REMINDER: No markdown formatting. Plain text only. First line must be PROJECT_NAME.
 ";
 
 pub(super) const BUILD_ARCHITECT_AGENT: &str = "\

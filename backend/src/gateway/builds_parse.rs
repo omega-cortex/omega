@@ -43,15 +43,26 @@ pub(super) struct BuildSummary {
 // Pure parsing functions (testable without mocking)
 // ---------------------------------------------------------------------------
 
+/// Strip markdown bold markers (`**`) and leading whitespace from a line.
+fn strip_markdown(line: &str) -> String {
+    line.trim().replace("**", "")
+}
+
 /// Parse structured output from Phase 1 into a `ProjectBrief`.
+///
+/// Resilient to LLM output that wraps fields in markdown bold (`**PROJECT_NAME:**`)
+/// or includes prose before the structured fields.
 pub(super) fn parse_project_brief(text: &str) -> Option<ProjectBrief> {
     let get_field = |key: &str| -> Option<String> {
         text.lines()
+            .map(|line| strip_markdown(line))
             .find(|line| line.starts_with(&format!("{key}:")))
             .map(|line| line[key.len() + 1..].trim().to_string())
     };
 
     let name = get_field("PROJECT_NAME")?;
+    // Strip backticks that LLMs sometimes wrap values in.
+    let name = name.trim_matches('`').trim().to_string();
     if name.is_empty()
         || name.contains('/')
         || name.contains('\\')
@@ -70,6 +81,7 @@ pub(super) fn parse_project_brief(text: &str) -> Option<ProjectBrief> {
 
     let components: Vec<String> = text
         .lines()
+        .map(|line| strip_markdown(line))
         .skip_while(|line| !line.starts_with("COMPONENTS:"))
         .skip(1)
         .take_while(|line| line.starts_with("- "))
@@ -393,6 +405,36 @@ mod tests {
     //
     // These tests lock the CURRENT behavior of parse functions. They must
     // pass both before and after the build agent pipeline implementation.
+
+    // Edge case: LLM wraps field names in markdown bold (**FIELD:**)
+    #[test]
+    fn test_parse_project_brief_markdown_bold_fields() {
+        let text = "Here is the structured project brief:\n\n\
+                     **PROJECT_NAME:** crm-tool\n\
+                     **LANGUAGE:** Rust\n\
+                     **DATABASE:** SQLite\n\
+                     **FRONTEND:** none\n\
+                     **SCOPE:** CLI-first CRM system\n\
+                     **COMPONENTS:**\n\
+                     - contacts module\n\
+                     - deals pipeline\n\
+                     - reporting engine";
+        let brief = parse_project_brief(text).unwrap();
+        assert_eq!(brief.name, "crm-tool");
+        assert_eq!(brief.language, "Rust");
+        assert_eq!(brief.database, "SQLite");
+        assert!(!brief.frontend);
+        assert!(brief.scope.contains("CRM"));
+        assert_eq!(brief.components.len(), 3);
+    }
+
+    // Edge case: LLM wraps values in backticks
+    #[test]
+    fn test_parse_project_brief_backtick_name() {
+        let text = "PROJECT_NAME: `my-tool`\nSCOPE: Does stuff";
+        let brief = parse_project_brief(text).unwrap();
+        assert_eq!(brief.name, "my-tool");
+    }
 
     // Requirement: REQ-BAP-010 (Must)
     // Acceptance: parse_project_brief remains functional
