@@ -41,7 +41,10 @@ LANGUAGE: <primary programming language>
 DATABASE: <database if needed, or \"none\">
 FRONTEND: <frontend framework if needed, or \"none\">
 SCOPE: <one-line description of what the project does>
-COMPONENTS: <comma-separated list of major components>
+COMPONENTS:
+- <component 1>
+- <component 2>
+- <component 3>
 
 After these fields, write a detailed requirements section with numbered requirements (REQ-001, REQ-002, etc.) each with acceptance criteria.
 
@@ -49,7 +52,7 @@ After these fields, write a detailed requirements section with numbered requirem
 
 - Keep the project name short and snake_case
 - Choose the most appropriate language for the task
-- Be specific about COMPONENTS — list concrete modules, not vague categories
+- Be specific about COMPONENTS — list concrete modules as `- item` lines, not vague categories
 - Every requirement must have testable acceptance criteria
 ";
 
@@ -252,7 +255,7 @@ Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable def
 
 You MUST end your response with a build summary block:
 
-BUILD_SUMMARY:
+BUILD_COMPLETE
 PROJECT: <project name>
 LOCATION: <absolute path to project>
 LANGUAGE: <primary language>

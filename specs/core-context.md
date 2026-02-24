@@ -67,6 +67,16 @@ pub struct Context {
     /// Session ID for conversation continuity (Claude Code CLI).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Maximum turns the provider may use for this request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_turns: Option<u32>,
+    /// Allowed tools whitelist. Empty vec triggers --dangerously-skip-permissions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_tools: Option<Vec<String>>,
+    /// Agent name for Claude Code CLI `--agent` flag. When set, the CLI
+    /// loads `.claude/agents/<name>.md` from the working directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
 }
 ```
 
@@ -78,6 +88,9 @@ pub struct Context {
 | `mcp_servers` | `Vec<McpServer>` | MCP servers to activate for this request. Populated by skill trigger matching in the gateway. Default: empty. |
 | `model` | `Option<String>` | Optional model override for this request. When `Some`, the provider uses this model instead of its default. Set by the gateway's classify-and-route logic. Default: `None`. |
 | `session_id` | `Option<String>` | Session ID for CLI conversation continuity. When set, `to_prompt_string()` skips system prompt and history (already in the session) and emits only the current message with a minimal context update. Default: `None`. |
+| `max_turns` | `Option<u32>` | Maximum turns the provider may use for this request. When set, passed as `--max-turns` to the CLI. Default: `None`. |
+| `allowed_tools` | `Option<Vec<String>>` | Allowed tools whitelist. When `None`, inherits from provider config. When `Some(vec![])`, triggers `--dangerously-skip-permissions` (full access). Default: `None`. |
+| `agent_name` | `Option<String>` | Agent name for Claude Code CLI `--agent` flag. When set, the CLI loads the agent definition from `.claude/agents/<name>.md` in the working directory. The agent provides the system prompt, so `to_prompt_string()` returns only `current_message`. Default: `None`. |
 
 **Traits derived:** `Debug`, `Clone`, `Serialize`, `Deserialize`.
 
@@ -144,6 +157,9 @@ pub fn new(message: &str) -> Self
 - `mcp_servers` is an empty `Vec`.
 - `model` is `None`.
 - `session_id` is `None`.
+- `max_turns` is `None`.
+- `allowed_tools` is `None`.
+- `agent_name` is `None`.
 
 **Usage sites:**
 - `backend/src/main.rs` -- the `omega ask` CLI command creates a one-shot context for a single prompt with no history.
@@ -194,7 +210,11 @@ pub fn to_prompt_string(&self) -> String
 - If `history` is empty, only the system prompt (if present) and the current message appear.
 - Roles other than `"user"` (including typos or future roles) all map to `"Assistant"`.
 
-**Session continuation behavior (`session_id` is `Some`):**
+**Agent mode behavior (`agent_name` is `Some`):**
+
+When `agent_name` is set (takes precedence over `session_id`), the method returns only `self.current_message` with no formatting — no `[System]`, no `[User]` wrapper, no history. The agent file provides the system prompt via the `--agent` flag, so only the user message is needed.
+
+**Session continuation behavior (`session_id` is `Some`, `agent_name` is `None`):**
 
 When `session_id` is set, the method switches to a minimal output mode for CLI session continuity:
 1. The `[System]` block and history entries are skipped entirely (they're already in the CLI session).
@@ -369,5 +389,6 @@ Currently, serialization is not explicitly used in the codebase but is available
 2. `history` entries are in chronological order (oldest first).
 3. Every `ContextEntry.role` is either `"user"` or `"assistant"`.
 4. The `[User]` section for `current_message` is always the last section in `to_prompt_string()` output.
-5. `to_prompt_string()` never produces an empty string (at minimum it contains the current message).
+5. `to_prompt_string()` never produces an empty string (at minimum it contains the current message) — except in agent mode where an empty `current_message` returns an empty string.
 6. When `session_id` is `Some`, `to_prompt_string()` never emits `[System]` or `[Assistant]` sections.
+7. When `agent_name` is `Some`, `to_prompt_string()` returns only `current_message` (no formatting). Agent mode takes precedence over session mode.

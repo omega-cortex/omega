@@ -242,9 +242,13 @@ Delegates to `Self::check_cli()`. Returns `true` if the `claude` binary is insta
 
 ## CLI Invocation Detail
 
-### `run_cli(prompt, extra_allowed_tools, model, context_disabled_tools, session_id)` (private, async)
+### `build_run_cli_args(...)` (pub(crate), pure function)
 
-Private helper that assembles and executes the `claude` CLI subprocess. Called by `complete()`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. The `context_disabled_tools: bool` parameter is `true` when the caller explicitly set `context.allowed_tools = Some(vec![])`. The `session_id: Option<&str>` parameter comes from `Context.session_id` — when `Some`, passes `--resume` to the CLI for conversation continuity.
+Pure function that constructs the CLI argument vector for `run_cli()`. Extracted for testability. Takes all the same parameters as `run_cli()` and returns `Vec<String>`.
+
+### `run_cli(prompt, extra_allowed_tools, model, context_disabled_tools, session_id, agent_name)` (private, async)
+
+Private helper that assembles and executes the `claude` CLI subprocess. Called by `complete()`. Takes an additional `model: &str` parameter; when non-empty, passes `--model <value>` to the CLI. The `context_disabled_tools: bool` parameter is `true` when the caller explicitly set `context.allowed_tools = Some(vec![])`. The `session_id: Option<&str>` parameter comes from `Context.session_id` — when `Some`, passes `--resume` to the CLI for conversation continuity. The `agent_name: Option<&str>` parameter comes from `Context.agent_name` — when `Some` and non-empty, passes `--agent <name>` and skips `--resume` (agent mode and session resume are mutually exclusive).
 
 Permission logic (3 branches):
 1. **Tools disabled** (`context_disabled_tools = true`): passes `--allowedTools ""` to disable all tool use (used by classification calls).
@@ -268,7 +272,8 @@ The subprocess is invoked with the following arguments:
 | `--output-format` | `json` | Yes |
 | `--max-turns` | `self.max_turns` (default `10`) | Yes |
 | `--model` | Effective model string | Only if model is non-empty |
-| `--resume` | `session_id` parameter (from Context) | Only if `session_id` is `Some` |
+| `--agent` | `agent_name` from Context | Only if `agent_name` is `Some` and non-empty |
+| `--resume` | `session_id` parameter (from Context) | Only if `session_id` is `Some` AND `agent_name` is `None` |
 | `--dangerously-skip-permissions` | (flag, no value) | Only when `allowed_tools` is empty (full access mode) |
 | `--allowedTools` | One per tool in `self.allowed_tools` + MCP patterns | Only when `allowed_tools` is non-empty, or for MCP patterns in full access mode |
 

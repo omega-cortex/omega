@@ -87,7 +87,8 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [sandbox-cargo-toml.md](sandbox-cargo-toml.md) — Sandbox crate Cargo.toml
 
 ### Improvements
-- [improvements/builds-routing-improvement.md](improvements/builds-routing-improvement.md) — Multi-phase builds pipeline replacing single-shot build execution
+- [improvements/builds-routing-improvement.md](improvements/builds-routing-improvement.md) — [SUPERSEDED] Multi-phase builds pipeline replacing single-shot build execution
+- [improvements/build-agent-pipeline-improvement.md](improvements/build-agent-pipeline-improvement.md) — Replace 5-phase hardcoded prompts with 7-phase agent pipeline using `--agent` flag and embedded agent definitions
 
 ## Architecture Diagram
 

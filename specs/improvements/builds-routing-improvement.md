@@ -1,3 +1,5 @@
+# [SUPERSEDED by build-agent-pipeline-improvement.md]
+
 # Improvement: Builds Pipeline — Multi-Phase Orchestration
 
 ## Problem Statement

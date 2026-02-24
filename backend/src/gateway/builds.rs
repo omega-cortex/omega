@@ -384,9 +384,11 @@ impl Gateway {
         ctx.system_prompt = String::new();
         ctx.agent_name = Some(agent_name.to_string());
         ctx.model = Some(model.to_string());
-        if let Some(mt) = max_turns {
-            ctx.max_turns = Some(mt);
-        }
+        // Empty allowed_tools forces --dangerously-skip-permissions path,
+        // ensuring agents can use Grep/Glob/etc. beyond the provider's whitelist.
+        ctx.allowed_tools = Some(vec![]);
+        // Explicit max_turns prevents auto-resume from losing agent context.
+        ctx.max_turns = Some(max_turns.unwrap_or(100));
 
         for attempt in 1..=3u32 {
             match self.provider.complete(&ctx).await {

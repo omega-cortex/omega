@@ -1,7 +1,7 @@
 # Specification: backend/src/gateway/ (Directory Module)
 
 ## File Path
-`backend/src/gateway/` (directory module with 13 files)
+`backend/src/gateway/` (directory module with 14 files)
 
 ## Refactoring History
 - **2026-02-20:** Marker extraction/parsing/stripping functions (40+) extracted into `backend/src/markers.rs`. See `specs/src-markers-rs.md`.
@@ -22,8 +22,9 @@
 | `heartbeat_helpers.rs` | ~289 | `process_heartbeat_markers()`, `build_enrichment()`, `build_system_prompt()`, `send_heartbeat_result()` |
 | `pipeline.rs` | ~455 | `handle_message()`, `build_system_prompt()`, resolves `active_project`, routes builds to `handle_build_request()` and all other messages to `handle_direct_response()` |
 | `routing.rs` | ~436 | `classify_and_route()` (dead code), `execute_steps()` (dead code), `handle_direct_response()`, passes `active_project` to `process_markers()` |
-| `builds.rs` | ~393 | Multi-phase build orchestrator: `handle_build_request()`, `run_build_phase()`, `audit_build()` |
-| `builds_parse.rs` | ~384 | Pure parsing functions and constants for builds: `parse_project_brief()`, `parse_verification_result()`, `parse_build_summary()`, `phase_message()`, phase prompt templates (`PHASE_1_PROMPT`, `PHASE_2_TEMPLATE`..`PHASE_5_TEMPLATE`), data structures (`ProjectBrief`, `VerificationResult`, `BuildSummary`), tests |
+| `builds.rs` | ~433 | 7-phase agent build orchestrator: `handle_build_request()` (analyst → architect → test-writer → developer → QA → reviewer → delivery), `run_build_phase()` (agent-based with `--agent` flag), `audit_build()`. QA retry loop (1 cycle). Per-phase retry (3 attempts, 2s). |
+| `builds_parse.rs` | ~384 | Pure parsing functions for builds: `parse_project_brief()`, `parse_verification_result()`, `parse_build_summary()`, `phase_message()` (7 phases, 8 languages), data structures (`ProjectBrief`, `VerificationResult`, `BuildSummary`), tests |
+| `builds_agents.rs` | ~270 | Embedded build agent definitions (7 agents compiled into binary), `AgentFilesGuard` RAII lifecycle (writes temp `.claude/agents/` files, cleans up on Drop), `BUILD_AGENTS` name-to-content mapping |
 | `auth.rs` | ~167 | `check_auth()`, `handle_whatsapp_qr()` |
 | `process_markers.rs` | ~504 | `process_markers(incoming, text, active_project)`, `process_purge_facts()`, `process_improvement_markers()`, `send_task_confirmation()` |
 
@@ -42,7 +43,7 @@ Message → Auth → Sanitize → Command Check → Typing → Keyword Detection
 Conditional Prompt Compose (Identity+Soul+System always, scheduling/projects/builds/meta if keywords match) →
 Context (build_context with ContextNeeds gating recall/tasks DB queries) → MCP Trigger Match →
 Session Check (strip heavy prompt if continuation) →
-  if BUILDS_KW: → Multi-phase build pipeline (5 isolated phases) → Audit → Send
+  if BUILDS_KW: → Confirmation gate → 7-phase agent pipeline (analyst→architect→test-writer→developer→QA→reviewer→delivery) → Audit → Send
   else:         → DIRECT → Provider → Session Capture → Memory Store → Audit → Send
 ```
 
