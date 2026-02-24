@@ -4,7 +4,7 @@
 
 | Property | Value |
 |----------|-------|
-| **Path** | `crates/omega-providers/src/mcp_client.rs` |
+| **Path** | `backend/crates/omega-providers/src/mcp_client.rs` |
 | **Crate** | `omega-providers` |
 | **Module** | `pub mod mcp_client` |
 | **Status** | Implemented |

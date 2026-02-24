@@ -1,7 +1,7 @@
-# Specification: omega-core/src/context.rs
+# Specification: backend/crates/omega-core/src/context.rs
 
 ## Path
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-core/src/context.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-core/src/context.rs`
 
 ## Purpose
 Defines the conversation context data structures that carry a system prompt, conversation history, and the current user message through the Omega message pipeline. Every AI provider receives a `Context` to generate a response. This module also provides the logic to flatten a multi-part context into a single prompt string for providers that accept plain text input (such as the Claude Code CLI).
@@ -117,8 +117,8 @@ pub struct ContextNeeds {
 **No derived traits.** This struct is a gateway-internal control signal, not serialized or sent to providers.
 
 **Usage sites:**
-- `src/gateway/pipeline.rs` — keyword detection builds a `ContextNeeds` with selective flags, resolves `active_project` from user facts, and passes both to `store.build_context()`.
-- `crates/omega-memory/src/store/context.rs` — `build_context()` accepts `&ContextNeeds` and `active_project: Option<&str>`, conditionally skips queries and scopes outcomes/lessons based on the flags and active project.
+- `backend/src/gateway/pipeline.rs` — keyword detection builds a `ContextNeeds` with selective flags, resolves `active_project` from user facts, and passes both to `store.build_context()`.
+- `backend/crates/omega-memory/src/store/context.rs` — `build_context()` accepts `&ContextNeeds` and `active_project: Option<&str>`, conditionally skips queries and scopes outcomes/lessons based on the flags and active project.
 
 ## Methods
 
@@ -146,8 +146,8 @@ pub fn new(message: &str) -> Self
 - `session_id` is `None`.
 
 **Usage sites:**
-- `src/main.rs` -- the `omega ask` CLI command creates a one-shot context for a single prompt with no history.
-- `src/gateway.rs` -- the `summarize_conversation()` function creates throwaway contexts for summarization and fact-extraction prompts.
+- `backend/src/main.rs` -- the `omega ask` CLI command creates a one-shot context for a single prompt with no history.
+- `backend/src/gateway.rs` -- the `summarize_conversation()` function creates throwaway contexts for summarization and fact-extraction prompts.
 
 ---
 
@@ -204,7 +204,7 @@ When `session_id` is set, the method switches to a minimal output mode for CLI s
 This reduces token overhead by ~90-99% for continuation messages.
 
 **Usage sites:**
-- `crates/omega-providers/src/claude_code.rs` -- the Claude Code provider calls `context.to_prompt_string()` to produce the single prompt string passed to the `claude -p` CLI command.
+- `backend/crates/omega-providers/src/claude_code.rs` -- the Claude Code provider calls `context.to_prompt_string()` to produce the single prompt string passed to the `claude -p` CLI command.
 
 ### `Context::to_api_messages(&self) -> (String, Vec<ApiMessage>)`
 
@@ -279,7 +279,7 @@ Context::new(prompt)
   --> model = None
 ```
 
-**Call sites:** `src/main.rs:161`, `src/gateway.rs:166`, `src/gateway.rs:182`.
+**Call sites:** `backend/src/main.rs:161`, `backend/src/gateway.rs:166`, `backend/src/gateway.rs:182`.
 
 ### Path 2: Memory-enriched (`Store::build_context`)
 
@@ -297,7 +297,7 @@ store.build_context(&incoming, &system_prompt, &needs, active_project)
   --> Context { system_prompt, history, current_message }
 ```
 
-**Call site:** `src/gateway/pipeline.rs`.
+**Call site:** `backend/src/gateway/pipeline.rs`.
 
 **Project-scoped learning:** When `active_project` is `Some`, outcomes are filtered to that project only, and lessons are layered — project-specific lessons appear first, then general lessons fill the remaining capacity. When `active_project` is `None`, all outcomes are returned and only general lessons (project='') are loaded.
 

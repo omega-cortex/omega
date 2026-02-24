@@ -82,7 +82,7 @@ cargo clippy --workspace && cargo test --workspace && cargo fmt --check
 **In CLAUDE.md:**
 ```
 - Omega must not run as root. A guard in main.rs rejects root execution.
-- Prompt sanitization in omega-core/src/sanitize.rs neutralizes injection patterns
+- Prompt sanitization in backend/crates/omega-core/src/sanitize.rs neutralizes injection patterns
 ```
 
 **Why this matters for AI:** Security isn't an afterthought. The AI knows that every user input must be sanitized, that no code can assume elevated privileges, and that credentials must never be committed. This prevents entire classes of vulnerabilities.
@@ -113,7 +113,7 @@ Here's how a developer might ask Claude Code to help:
    - Understands validation: must pass `cargo clippy`, `cargo test`, `cargo fmt`
 
 3. **Claude Code** (getting to work):
-   - Creates new WhatsApp channel module in `omega-channels/src/whatsapp.rs`
+   - Creates new WhatsApp channel module in `backend/crates/omega-channels/src/whatsapp.rs`
    - Implements the `Channel` trait (from `omega-core`)
    - Follows async/await patterns
    - Writes tests

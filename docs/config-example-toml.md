@@ -395,12 +395,12 @@ cat config.toml | head -20  # Preview the file
 For CLI use (asking questions directly):
 ```bash
 cargo build --release
-./target/release/omega ask "What is 2 + 2?"
+./backend/target/release/omega ask "What is 2 + 2?"
 ```
 
 For 24/7 bot service (listens on Telegram):
 ```bash
-./target/release/omega daemon
+./backend/target/release/omega daemon
 ```
 
 **Check the logs:**

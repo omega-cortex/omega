@@ -4,7 +4,7 @@
 
 | Field       | Value                                                        |
 |-------------|--------------------------------------------------------------|
-| Path        | `crates/omega-sandbox/Cargo.toml`                            |
+| Path        | `backend/crates/omega-sandbox/Cargo.toml`                            |
 | Crate name  | `omega-sandbox`                                              |
 | Description | Secure execution environment for Omega                       |
 | Role        | Defines the build manifest for the `omega-sandbox` crate     |
@@ -70,7 +70,7 @@ omega-sandbox
 
 The workspace root `Cargo.toml` registers `omega-sandbox` in two places:
 
-1. **Workspace member** — all crates under `crates/*` are automatically included via the `members = ["crates/*"]` glob pattern.
+1. **Workspace member** — all crates under `backend/crates/*` are automatically included via the `members = ["crates/*"]` glob pattern.
 
 2. **Workspace dependency** — declared as an internal workspace dependency:
 

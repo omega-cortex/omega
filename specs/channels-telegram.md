@@ -1,6 +1,6 @@
 # Technical Specification: Telegram Channel
 
-**File:** `crates/omega-channels/src/telegram.rs`
+**File:** `backend/crates/omega-channels/src/telegram.rs`
 **Crate:** `omega-channels`
 **Last updated:** 2026-02-18
 

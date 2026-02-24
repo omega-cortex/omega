@@ -1,7 +1,7 @@
-# src/service.rs — Service Management Specification
+# backend/src/service.rs — Service Management Specification
 
 ## Path
-`src/service.rs`
+`backend/src/service.rs`
 
 ## Purpose
 OS-aware service management for Omega. Detects macOS vs Linux and generates the appropriate service file (LaunchAgent plist or systemd user unit). Provides `install`, `uninstall`, and `status` commands with cliclack-styled interactive output. Pure generation functions are separated from I/O functions for testability.
@@ -168,8 +168,8 @@ All subprocess calls use `std::process::Command` with `.output()`. Failures are 
 - `omega_core::shellexpand` — Home directory expansion for data_dir
 
 ## Called By
-- `src/main.rs` — `Commands::Service { action }` match arm
-- `src/init.rs` — `install()` for optional service install at end of interactive wizard; `install_quiet()` for non-interactive deployment
+- `backend/src/main.rs` — `Commands::Service { action }` match arm
+- `backend/src/init.rs` — `install()` for optional service install at end of interactive wizard; `install_quiet()` for non-interactive deployment
 
 ## Files Created/Modified
 - `~/Library/LaunchAgents/com.omega-cortex.omega.plist` (macOS)

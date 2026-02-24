@@ -1,13 +1,13 @@
-# Specification: omega-core/src/message.rs
+# Specification: backend/crates/omega-core/src/message.rs
 
 ## Path
-`crates/omega-core/src/message.rs`
+`backend/crates/omega-core/src/message.rs`
 
 ## Purpose
 Defines the canonical message types used throughout the Omega pipeline. Every message that enters the system (from a channel) is represented as an `IncomingMessage`, and every response that leaves the system (from a provider) is represented as an `OutgoingMessage`. These two structs, together with `MessageMetadata`, `Attachment`, and `AttachmentType`, form the core data contract between channels, the gateway, memory, providers, and the audit system.
 
 ## Module Location
-The module is declared in `omega-core/src/lib.rs` as `pub mod message` and re-exported as `omega_core::message`. All other crates in the workspace import message types through `omega_core::message::*`.
+The module is declared in `backend/crates/omega-core/src/lib.rs` as `pub mod message` and re-exported as `omega_core::message`. All other crates in the workspace import message types through `omega_core::message::*`.
 
 ## Dependencies
 

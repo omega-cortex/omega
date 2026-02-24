@@ -1,8 +1,8 @@
-# Specification: src/commands.rs
+# Specification: backend/src/commands.rs
 
 ## Overview
 
-**File Path:** `src/commands/` (directory module)
+**File Path:** `backend/src/commands/` (directory module)
 
 **Purpose:** Implements built-in bot commands for Omega. Commands are instant-response operations that bypass the AI provider entirely. They directly query and manipulate the memory store, providing users with immediate access to system status, conversation history, facts, and memory management.
 
@@ -608,7 +608,7 @@ No learning data yet. Interact with me so I can learn.
 
 ## i18n Integration
 
-All user-facing strings in command responses are internationalized via the `i18n` module (`src/i18n.rs`). The module provides:
+All user-facing strings in command responses are internationalized via the `i18n` module (`backend/src/i18n.rs`). The module provides:
 
 - **`i18n::t(key, lang)`** — Returns a static translation string for the given key and language code. Falls back to English if the key or language is not found.
 - **`i18n::format_*()`** — Helper functions for interpolated strings (e.g., strings that include dynamic values like counts, names, or durations).
@@ -706,7 +706,7 @@ All handlers are `async` even though most only interact with local SQLite. This 
 
 ## Integration Points
 
-**Called From:** `src/gateway/pipeline.rs` (message pipeline, via `handle_message()`)
+**Called From:** `backend/src/gateway/pipeline.rs` (message pipeline, via `handle_message()`)
 
 **Flow:**
 1. Message arrives (Telegram/WhatsApp)

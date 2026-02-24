@@ -1,4 +1,4 @@
-# src/init.rs — Init Wizard Documentation
+# backend/src/init.rs — Init Wizard Documentation
 
 ## Overview
 
@@ -1116,8 +1116,8 @@ Then config.toml would reference the env var instead of token directly.
 **Solution:**
 ```bash
 cargo build --release
-# Now omega binary is at ./target/release/omega
-# Either add to PATH or use full path: ./target/release/omega init
+# Now omega binary is at ./backend/target/release/omega
+# Either add to PATH or use full path: ./backend/target/release/omega init
 ```
 
 ### "claude CLI not found"

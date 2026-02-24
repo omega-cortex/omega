@@ -2,9 +2,9 @@
 
 ## Path
 
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-core/src/sanitize.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-core/src/sanitize.rs`
 
-Re-exported from `omega-core` via `pub mod sanitize` in `crates/omega-core/src/lib.rs`.
+Re-exported from `omega-core` via `pub mod sanitize` in `backend/crates/omega-core/src/lib.rs`.
 
 ## Purpose
 
@@ -151,7 +151,7 @@ This instructs the downstream AI provider to treat the content as user data, not
 
 ## Integration Point
 
-The function is called in the gateway message processing pipeline (`src/gateway.rs`, line 295), immediately after authentication and before command dispatch:
+The function is called in the gateway message processing pipeline (`backend/src/gateway.rs`, line 295), immediately after authentication and before command dispatch:
 
 ```rust
 // --- 2. SANITIZE INPUT ---

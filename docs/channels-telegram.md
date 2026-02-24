@@ -2,7 +2,7 @@
 
 The Telegram channel connects Omega to Telegram via the [Bot API](https://core.telegram.org/bots/api). It uses long polling to receive messages and HTTP POST requests to send responses. This is the primary messaging channel for Omega and was introduced in Phase 2.
 
-**Source file:** `crates/omega-channels/src/telegram.rs`
+**Source file:** `backend/crates/omega-channels/src/telegram.rs`
 
 ---
 

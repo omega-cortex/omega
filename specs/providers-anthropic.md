@@ -4,7 +4,7 @@
 
 | Property | Value |
 |----------|-------|
-| **Path** | `crates/omega-providers/src/anthropic.rs` |
+| **Path** | `backend/crates/omega-providers/src/anthropic.rs` |
 | **Crate** | `omega-providers` |
 | **Module** | `pub mod anthropic` |
 | **Status** | Implemented |

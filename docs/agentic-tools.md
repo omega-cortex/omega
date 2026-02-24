@@ -1,8 +1,8 @@
 # Agentic Tool Executor and MCP Client
 
 **Files:**
-- `crates/omega-providers/src/tools.rs` — Built-in tool executor + MCP routing
-- `crates/omega-providers/src/mcp_client.rs` — Minimal MCP client over stdio (JSON-RPC 2.0)
+- `backend/crates/omega-providers/src/tools.rs` — Built-in tool executor + MCP routing
+- `backend/crates/omega-providers/src/mcp_client.rs` — Minimal MCP client over stdio (JSON-RPC 2.0)
 
 All five HTTP-based providers (OpenAI, Anthropic, Ollama, OpenRouter, Gemini) include an agentic
 tool-execution loop. This means they can autonomously call tools, observe the results, and continue
@@ -163,7 +163,7 @@ No configuration is needed -- protection is automatic.
 
 ## Model Routing for Non-Claude Providers
 
-`build_provider()` in `omega-providers/src/lib.rs` now returns a tuple:
+`build_provider()` in `backend/crates/omega-providers/src/lib.rs` now returns a tuple:
 
 ```
 (Box<dyn Provider>, model_fast: String, model_complex: String)

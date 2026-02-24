@@ -26,7 +26,7 @@ Three components. One process. No microservices.
 
 ## Phase 1: Message Arrives (Channel Layer)
 
-**Files:** `crates/omega-channels/src/telegram/polling.rs`
+**Files:** `backend/crates/omega-channels/src/telegram/polling.rs`
 
 ### How Telegram Long Polling Works
 
@@ -61,7 +61,7 @@ WhatsApp follows the same pattern but uses the WhatsApp Web protocol instead of 
 
 ## Phase 2: Gateway Dispatch (Concurrency Control)
 
-**File:** `src/gateway/mod.rs`
+**File:** `backend/src/gateway/mod.rs`
 
 The gateway receives messages from all channels through a unified receiver. Each message spawns as an independent async task (`tokio::spawn`), but messages from the **same sender** are serialized:
 
@@ -80,7 +80,7 @@ This prevents race conditions (two provider calls for the same user) while keepi
 
 ## Phase 3: Message Pipeline (Step by Step)
 
-**File:** `src/gateway/pipeline.rs`
+**File:** `backend/src/gateway/pipeline.rs`
 
 Every message passes through these stages in order:
 
@@ -111,7 +111,7 @@ Send Telegram's "typing..." bubble. A background task re-sends it every 5 second
 
 ### 3.7 Build Context from Memory
 
-**File:** `crates/omega-memory/src/store/context.rs`
+**File:** `backend/crates/omega-memory/src/store/context.rs`
 
 This is where the gateway decides **what data** to load from SQLite:
 
@@ -172,7 +172,7 @@ If no session exists (first message, after `/forget`, after error), send the ful
 
 ## Phase 4: Classification & Routing
 
-**File:** `src/gateway/routing.rs`
+**File:** `backend/src/gateway/routing.rs`
 
 Every message gets a fast **Sonnet classification call** before the real work:
 
@@ -192,7 +192,7 @@ When in doubt, the classifier prefers DIRECT.
 
 ## Phase 5: Claude Code CLI Invocation
 
-**File:** `crates/omega-providers/src/claude_code/`
+**File:** `backend/crates/omega-providers/src/claude_code/`
 
 ### Command Construction
 
@@ -246,7 +246,7 @@ While Claude works, the gateway sends delayed status messages to keep the user i
 
 ## Phase 6: Response Processing
 
-**File:** `src/gateway/routing.rs`, `src/gateway/process_markers.rs`
+**File:** `backend/src/gateway/routing.rs`, `backend/src/gateway/process_markers.rs`
 
 ### 6.1 Capture Session ID
 

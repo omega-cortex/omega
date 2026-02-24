@@ -1,7 +1,7 @@
 # Core Traits: Provider and Channel
 
 ## Path
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-core/src/traits.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-core/src/traits.rs`
 
 ## Overview
 
@@ -10,7 +10,7 @@ Omega's architecture is built around two central traits that define the contract
 - **`Provider`** -- the brain. Any AI backend that can take a conversation context and return a response.
 - **`Channel`** -- the nervous system. Any messaging platform that can receive messages from users and send responses back.
 
-These traits live in `omega-core` so that every crate in the workspace can depend on them without circular dependencies. The gateway in `src/gateway.rs` consumes both traits as trait objects (`Arc<dyn Provider>` and `Arc<dyn Channel>`), meaning your implementations are wired in at runtime -- no generics, no monomorphization, just clean dynamic dispatch.
+These traits live in `omega-core` so that every crate in the workspace can depend on them without circular dependencies. The gateway in `backend/src/gateway.rs` consumes both traits as trait objects (`Arc<dyn Provider>` and `Arc<dyn Channel>`), meaning your implementations are wired in at runtime -- no generics, no monomorphization, just clean dynamic dispatch.
 
 ```
                        omega-core
@@ -341,18 +341,18 @@ impl Provider for MyProvider {
 
 ## Checklist: Adding a New Provider
 
-1. Create a new file in `crates/omega-providers/src/` (e.g., `openai.rs`).
+1. Create a new file in `backend/crates/omega-providers/src/` (e.g., `openai.rs`).
 2. Define your struct with whatever configuration it needs.
 3. Implement `Provider` with `#[async_trait]`.
 4. Return `OmegaError::Provider(...)` for all errors.
 5. Track `processing_time_ms` in `complete()`.
-6. Expose the struct from `crates/omega-providers/src/lib.rs`.
-7. Wire it into `src/main.rs` based on config selection.
+6. Expose the struct from `backend/crates/omega-providers/src/lib.rs`.
+7. Wire it into `backend/src/main.rs` based on config selection.
 8. Add tests: at minimum, test `name()`, `requires_api_key()`, and a mock `complete()`.
 
 ## Checklist: Adding a New Channel
 
-1. Create a new file in `crates/omega-channels/src/` (e.g., `whatsapp.rs`).
+1. Create a new file in `backend/crates/omega-channels/src/` (e.g., `whatsapp.rs`).
 2. Define your struct with platform-specific config.
 3. Implement `Channel` with `#[async_trait]`.
 4. In `start()`: create an mpsc channel, spawn a listener task, return the receiver.
@@ -361,6 +361,6 @@ impl Provider for MyProvider {
 7. In `stop()`: clean up resources.
 8. Return `OmegaError::Channel(...)` for all errors.
 9. Set `reply_target` on every `IncomingMessage` you produce.
-10. Expose the struct from `crates/omega-channels/src/lib.rs`.
-11. Wire it into `src/main.rs` and `src/gateway.rs`.
+10. Expose the struct from `backend/crates/omega-channels/src/lib.rs`.
+11. Wire it into `backend/src/main.rs` and `backend/src/gateway.rs`.
 12. Add tests: at minimum, test `name()` and message splitting/formatting logic.

@@ -125,9 +125,9 @@ cargo build
 
 ```bash
 cargo update
-git diff Cargo.lock
+git diff backend/Cargo.lock
 # Review what changed
-git add Cargo.lock Cargo.toml
+git add backend/Cargo.lock backend/Cargo.toml
 git commit -m "chore: update dependencies"
 ```
 

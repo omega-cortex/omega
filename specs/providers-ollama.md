@@ -4,7 +4,7 @@
 
 | Property | Value |
 |----------|-------|
-| **Path** | `crates/omega-providers/src/ollama.rs` |
+| **Path** | `backend/crates/omega-providers/src/ollama.rs` |
 | **Crate** | `omega-providers` |
 | **Module** | `pub mod ollama` |
 | **Status** | Implemented |

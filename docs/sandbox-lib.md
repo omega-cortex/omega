@@ -7,7 +7,7 @@
 ## Crate structure
 
 ```
-crates/omega-sandbox/
+backend/crates/omega-sandbox/
   Cargo.toml
   src/
     lib.rs               # Public API: protected_command() + is_write_blocked() + is_read_blocked()
@@ -195,9 +195,9 @@ The system never fails to start because of sandbox limitations. Working director
 
 | You want to... | Where to look |
 |----------------|---------------|
-| See the public API | `crates/omega-sandbox/src/lib.rs` |
-| See the macOS implementation | `crates/omega-sandbox/src/seatbelt.rs` |
-| See the Linux implementation | `crates/omega-sandbox/src/landlock_sandbox.rs` |
-| See code-level enforcement in HTTP providers | `crates/omega-providers/src/tools.rs` |
-| See CLI provider integration | `crates/omega-providers/src/claude_code/` |
-| See workspace creation | `src/main.rs`, startup sequence |
+| See the public API | `backend/crates/omega-sandbox/src/lib.rs` |
+| See the macOS implementation | `backend/crates/omega-sandbox/src/seatbelt.rs` |
+| See the Linux implementation | `backend/crates/omega-sandbox/src/landlock_sandbox.rs` |
+| See code-level enforcement in HTTP providers | `backend/crates/omega-providers/src/tools.rs` |
+| See CLI provider integration | `backend/crates/omega-providers/src/claude_code/` |
+| See workspace creation | `backend/src/main.rs`, startup sequence |

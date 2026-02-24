@@ -35,7 +35,7 @@ Version, license, and repository information are defined once here and inherited
 [workspace]
 members = ["crates/*"]
 ```
-This glob pattern means "all directories under `crates/` are part of this workspace." Cargo automatically discovers them.
+This glob pattern means "all directories under `backend/crates/` are part of this workspace." Cargo automatically discovers them.
 
 ### Shared Package Metadata
 ```toml
@@ -101,7 +101,7 @@ All crates automatically use the new version on next `cargo build`.
 
 ### Adding a New Crate
 
-1. Create a new directory under `crates/`: `mkdir crates/omega-newcrate`
+1. Create a new directory under `crates/`: `mkdir backend/crates/omega-newcrate`
 2. The workspace automatically discovers it (because of `members = ["crates/*"]`)
 3. No need to edit `Cargo.toml` unless you want custom settings
 
@@ -163,7 +163,7 @@ cargo check --workspace
 
 ## Related Files
 
-- **Individual Crate Manifests:** Each crate under `crates/*/Cargo.toml` has its own manifest that references workspace dependencies and defines crate-specific settings.
+- **Individual Crate Manifests:** Each crate under `backend/crates/*/Cargo.toml` has its own manifest that references workspace dependencies and defines crate-specific settings.
 - **Cargo.lock:** Auto-generated file that locks exact versions for reproducible builds. Commit this if building a binary, ignore it for libraries.
 - **`config.example.toml`:** Application configuration (different from Cargo.toml). This is where Omega's runtime settings live.
 
@@ -174,7 +174,7 @@ The workspace might not have discovered a new crate. Try:
 ```bash
 cargo check --workspace
 ```
-If it still fails, ensure the new crate is under `crates/` and has its own `Cargo.toml`.
+If it still fails, ensure the new crate is under `backend/crates/` and has its own `Cargo.toml`.
 
 ### "version conflict for package..."
 Two crates are trying to use different versions of the same dependency. Ensure they both reference `{ workspace = true }`.

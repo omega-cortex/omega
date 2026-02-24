@@ -1,7 +1,7 @@
-# Specification: omega-memory/src/store.rs
+# Specification: backend/crates/omega-memory/src/store.rs
 
 ## File Path
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-memory/src/store.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-memory/src/store.rs`
 
 ## Purpose
 SQLite-backed persistent memory store for Omega. Manages conversation lifecycle (creation, activity tracking, idle detection, closure), message storage, user fact persistence, context building for AI providers, and memory statistics. This is the central data layer that enables Omega to maintain conversation continuity, user personalization, and long-term memory across sessions.

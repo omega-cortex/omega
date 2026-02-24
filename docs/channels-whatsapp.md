@@ -164,10 +164,10 @@ If you paired WhatsApp via `/whatsapp` but messages don't flow:
 
 ## Reference
 
-- Implementation: `crates/omega-channels/src/whatsapp.rs`
-- Config struct: `crates/omega-core/src/config.rs` (`WhatsAppConfig`)
-- Channel trait: `crates/omega-core/src/traits.rs`
-- Gateway integration: `src/gateway.rs` (auth + WHATSAPP_QR marker)
-- Commands: `src/commands.rs` (`/whatsapp`)
-- Init wizard: `src/init.rs` (WhatsApp QR step)
+- Implementation: `backend/crates/omega-channels/src/whatsapp.rs`
+- Config struct: `backend/crates/omega-core/src/config.rs` (`WhatsAppConfig`)
+- Channel trait: `backend/crates/omega-core/src/traits.rs`
+- Gateway integration: `backend/src/gateway.rs` (auth + WHATSAPP_QR marker)
+- Commands: `backend/src/commands.rs` (`/whatsapp`)
+- Init wizard: `backend/src/init.rs` (WhatsApp QR step)
 - whatsapp-rust crate: https://crates.io/crates/whatsapp-rust

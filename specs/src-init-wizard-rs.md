@@ -1,7 +1,7 @@
-# src/init_wizard.rs — Interactive Init Helpers Specification
+# backend/src/init_wizard.rs — Interactive Init Helpers Specification
 
 ## Path
-`src/init_wizard.rs`
+`backend/src/init_wizard.rs`
 
 ## Purpose
 Interactive-only helpers extracted from `init.rs` to keep the init module under the 500-line limit. Contains browser detection, Anthropic authentication, WhatsApp QR pairing, and Google Workspace OAuth setup — all of which require cliclack interactive prompts and are not used in non-interactive mode.
@@ -17,7 +17,7 @@ Interactive-only helpers extracted from `init.rs` to keep the init module under 
 - `whatsapp_already_paired()` — private helper
 
 ## Called By
-- `src/init.rs` — `run()` (interactive wizard path only)
+- `backend/src/init.rs` — `run()` (interactive wizard path only)
 
 ## Unit Tests (3 tests)
 | Test | Assertions |

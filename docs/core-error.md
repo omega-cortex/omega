@@ -1,7 +1,7 @@
 # Developer Guide: Error Handling in Omega
 
 ## Path
-`crates/omega-core/src/error.rs`
+`backend/crates/omega-core/src/error.rs`
 
 ## Overview
 
@@ -152,7 +152,7 @@ Errors flow upward through the system, from the originating crate to the user:
        |
 3. The trait boundary passes it through:  Result<T, OmegaError>
        |
-4. The gateway (src/gateway.rs) catches it, logs it, decides to retry or propagate
+4. The gateway (backend/src/gateway.rs) catches it, logs it, decides to retry or propagate
        |
 5. main.rs converts to anyhow::Error and displays it to the user
 ```
@@ -167,7 +167,7 @@ Error: memory error: failed to connect to sqlite: ...
 
 ## Where OmegaError Lives in the Trait System
 
-The `Provider` and `Channel` traits in `omega-core/src/traits.rs` use `OmegaError` as their error type. This means every provider and channel implementation must return `OmegaError`:
+The `Provider` and `Channel` traits in `backend/crates/omega-core/src/traits.rs` use `OmegaError` as their error type. This means every provider and channel implementation must return `OmegaError`:
 
 ```rust
 #[async_trait]
@@ -220,7 +220,7 @@ OmegaError::Channel(format!("token={}", bot_token))   // Leaks secret
 
 If Omega gains a new subsystem that does not fit any existing variant, you can add one to the enum. The steps:
 
-1. Add the variant to `OmegaError` in `crates/omega-core/src/error.rs`
+1. Add the variant to `OmegaError` in `backend/crates/omega-core/src/error.rs`
 2. Add a `#[error("yourprefix error: {0}")]` attribute
 3. Decide whether the inner type should be `String` (domain-specific, manually constructed) or a foreign error type with `#[from]`
 4. Run `cargo check --workspace` to confirm compilation across all crates
@@ -229,11 +229,11 @@ Since `OmegaError` is not `#[non_exhaustive]`, adding a variant may break exhaus
 
 ## Relationship to `anyhow`
 
-The binary crate (`src/main.rs`) uses `anyhow::Result<()>` as its return type. `OmegaError` implements `std::error::Error`, so it converts to `anyhow::Error` automatically via `?`. This means:
+The binary crate (`backend/src/main.rs`) uses `anyhow::Result<()>` as its return type. `OmegaError` implements `std::error::Error`, so it converts to `anyhow::Error` automatically via `?`. This means:
 
 - Library crates (`omega-core`, `omega-providers`, `omega-channels`, `omega-memory`) use `Result<T, OmegaError>`
-- The binary crate (`src/main.rs`) uses `anyhow::Result<T>` and can propagate `OmegaError` with `?`
-- The gateway (`src/gateway.rs`) works at the `OmegaError` boundary and decides what to do with each error
+- The binary crate (`backend/src/main.rs`) uses `anyhow::Result<T>` and can propagate `OmegaError` with `?`
+- The gateway (`backend/src/gateway.rs`) works at the `OmegaError` boundary and decides what to do with each error
 
 You should never use `anyhow` inside the library crates. Keep `anyhow` confined to the binary.
 

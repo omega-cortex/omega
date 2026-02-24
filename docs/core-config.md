@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-core/src/config.rs`
+`backend/crates/omega-core/src/config.rs`
 
 ## Overview
 
@@ -272,7 +272,7 @@ There is no validation beyond TOML parsing. Semantic checks (is the provider ava
 
 ### Adding a field to an existing section
 
-1. Open `crates/omega-core/src/config.rs`.
+1. Open `backend/crates/omega-core/src/config.rs`.
 2. Add your field to the appropriate struct. Use `#[serde(default)]` for a type-default or `#[serde(default = "your_default_fn")]` for a custom default:
 
 ```rust

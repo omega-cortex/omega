@@ -1,6 +1,6 @@
 # Technical Specification: Claude Code CLI Provider
 
-**File:** `crates/omega-providers/src/claude_code.rs`
+**File:** `backend/crates/omega-providers/src/claude_code.rs`
 
 **Module:** `omega_providers::claude_code`
 

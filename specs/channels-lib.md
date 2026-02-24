@@ -1,10 +1,10 @@
-# Technical Specification: omega-channels/src/lib.rs
+# Technical Specification: backend/crates/omega-channels/src/lib.rs
 
 ## File
 
 | Field | Value |
 |-------|-------|
-| **Path** | `crates/omega-channels/src/lib.rs` |
+| **Path** | `backend/crates/omega-channels/src/lib.rs` |
 | **Crate** | `omega-channels` |
 | **Role** | Crate root -- declares submodules and controls public API surface |
 

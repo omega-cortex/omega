@@ -3,7 +3,7 @@
 ## File Path
 
 ```
-crates/omega-providers/Cargo.toml
+backend/crates/omega-providers/Cargo.toml
 ```
 
 ## Purpose

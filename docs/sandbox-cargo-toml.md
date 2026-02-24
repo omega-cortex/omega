@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-sandbox/Cargo.toml`
+`backend/crates/omega-sandbox/Cargo.toml`
 
 ## What is omega-sandbox?
 
@@ -63,7 +63,7 @@ The macOS implementation uses `sandbox-exec` which is a built-in macOS binary --
 ### Standard dependency
 
 1. Add to root `Cargo.toml` under `[workspace.dependencies]`
-2. Reference in `crates/omega-sandbox/Cargo.toml` with `{ workspace = true }`
+2. Reference in `backend/crates/omega-sandbox/Cargo.toml` with `{ workspace = true }`
 
 ### Platform-specific dependency
 

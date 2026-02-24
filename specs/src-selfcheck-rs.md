@@ -1,7 +1,7 @@
-# Spec: src/selfcheck.rs
+# Spec: backend/src/selfcheck.rs
 
 ## File Path
-`/Users/isudoajl/ownCloud/Projects/omega/src/selfcheck.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/src/selfcheck.rs`
 
 ## Purpose
 Startup self-check module that verifies all components of the Omega system are operational before the gateway event loop begins. It performs a series of validation checks and produces cliclack-styled diagnostic output to confirm system readiness.

@@ -1,7 +1,7 @@
 # Specification: omega-memory Audit System
 
 ## Path
-`crates/omega-memory/src/audit.rs`
+`backend/crates/omega-memory/src/audit.rs`
 
 ## Purpose
 Implements the audit log subsystem for Omega. Every interaction that flows through the gateway -- whether it succeeds, fails, or is denied by auth -- is recorded as an immutable row in the `audit_log` SQLite table. The audit module provides the data structures for describing an interaction (`AuditEntry`, `AuditStatus`) and a writer (`AuditLogger`) that inserts entries into the database.
@@ -13,7 +13,7 @@ Implements the audit log subsystem for Omega. Every interaction that flows throu
 - **uuid::Uuid** -- generates UUIDv4 primary keys for each audit row
 
 ## Module Declaration
-Declared public in `crates/omega-memory/src/lib.rs`:
+Declared public in `backend/crates/omega-memory/src/lib.rs`:
 
 ```rust
 pub mod audit;
@@ -244,7 +244,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_sender ON audit_log(channel, sender_id)
 
 ## Gateway Integration
 
-The audit system is used at three points in the gateway's `handle_message()` pipeline in `src/gateway.rs`:
+The audit system is used at three points in the gateway's `handle_message()` pipeline in `backend/src/gateway.rs`:
 
 ### 1. Auth Denial (Pipeline Stage 1)
 
@@ -417,8 +417,8 @@ The following interactions are **not** recorded in the audit log:
 
 | Aspect | Detail |
 |--------|--------|
-| File | `crates/omega-memory/src/audit.rs` |
-| Migration | `crates/omega-memory/migrations/002_audit_log.sql` |
+| File | `backend/crates/omega-memory/src/audit.rs` |
+| Migration | `backend/crates/omega-memory/migrations/002_audit_log.sql` |
 | Public types | `AuditEntry`, `AuditStatus`, `AuditLogger` |
 | Public methods | `AuditLogger::new`, `AuditLogger::log` |
 | SQL operations | 1 (`INSERT INTO audit_log`) |

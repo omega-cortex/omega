@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/006_limitations.sql`
+`backend/crates/omega-memory/migrations/006_limitations.sql`
 
 ## Purpose
 

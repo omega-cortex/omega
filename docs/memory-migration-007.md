@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/007_task_type.sql`
+`backend/crates/omega-memory/migrations/007_task_type.sql`
 
 ## What This Migration Does
 

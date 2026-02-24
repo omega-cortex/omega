@@ -1,7 +1,7 @@
-# src/init.rs — Init Wizard Specification
+# backend/src/init.rs — Init Wizard Specification
 
 ## Path
-`src/init.rs`
+`backend/src/init.rs`
 
 ## Purpose
 Interactive setup wizard and non-interactive deployment for new Omega users. Provides a guided onboarding experience using the `cliclack` crate for polished terminal UX (interactive mode), or programmatic deployment via CLI arguments and environment variables (non-interactive mode). The wizard creates the data directory structure, validates Claude CLI availability, collects Telegram credentials, offers WhatsApp pairing, runs Google Workspace setup via the `gog` CLI, generates the configuration file, and provides next steps. This is the entry point for the `omega init` command.
@@ -15,7 +15,7 @@ The `init.rs` module contains:
 - Uses `omega_core::shellexpand()` for home directory expansion (imported, not local)
 - Uses `omega_channels::whatsapp` for WhatsApp pairing flow
 
-Interactive wizard helpers have been extracted to `src/init_wizard.rs`:
+Interactive wizard helpers have been extracted to `backend/src/init_wizard.rs`:
 - `run_anthropic_auth()` — Handles Anthropic authentication (setup-token flow)
 - `run_whatsapp_setup()` — Handles WhatsApp QR-code pairing
 - `run_google_setup()` — Handles Google Workspace OAuth setup via `gog` CLI
@@ -261,7 +261,7 @@ See [Google Workspace Setup Flow](#google-workspace-setup-flow-run_google_setup)
 
 **Purpose:** Offers convenient auto-start setup as part of the init flow. Non-fatal — failures don't block the wizard.
 
-**Related:** See `src/service.rs` for full service install specification.
+**Related:** See `backend/src/service.rs` for full service install specification.
 
 ---
 
@@ -559,7 +559,7 @@ Tests exercise `generate_config()` and `parse_allowed_users()` in `init.rs`. Bro
 | `test_detect_private_browsers_returns_valid_indices` | — | *(Moved to init_wizard.rs)* |
 | `test_create_incognito_script` | — | *(Moved to init_wizard.rs)* |
 
-**Note:** Browser-related tests (`test_private_browsers_constant_has_entries`, `test_detect_private_browsers_returns_valid_indices`, `test_create_incognito_script`) are now in `src/init_wizard.rs` alongside the functions they test.
+**Note:** Browser-related tests (`test_private_browsers_constant_has_entries`, `test_detect_private_browsers_returns_valid_indices`, `test_create_incognito_script`) are now in `backend/src/init_wizard.rs` alongside the functions they test.
 
 ---
 
@@ -721,9 +721,9 @@ The `init.rs` module follows these error handling principles:
 
 ## Related Components
 
-**Called by:** `src/main.rs` in the `init` command handler. `main.rs` dispatches to `run_noninteractive()` when deployment CLI args are provided, or `run()` for the interactive wizard.
+**Called by:** `backend/src/main.rs` in the `init` command handler. `main.rs` dispatches to `run_noninteractive()` when deployment CLI args are provided, or `run()` for the interactive wizard.
 
-**Companion module:** `src/init_wizard.rs` -- contains interactive wizard helpers extracted from `init.rs` (browser detection, Anthropic auth, WhatsApp setup, Google setup)
+**Companion module:** `backend/src/init_wizard.rs` -- contains interactive wizard helpers extracted from `init.rs` (browser detection, Anthropic auth, WhatsApp setup, Google setup)
 
 **Reads from:** stdin (via cliclack interactive prompts in interactive mode), CLI args and env vars (in non-interactive mode)
 

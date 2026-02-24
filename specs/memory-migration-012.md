@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/012_project_sessions.sql`
+`backend/crates/omega-memory/migrations/012_project_sessions.sql`
 
 ## Purpose
 

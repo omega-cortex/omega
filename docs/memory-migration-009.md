@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/009_task_retry.sql`
+`backend/crates/omega-memory/migrations/009_task_retry.sql`
 
 ## What This Migration Does
 

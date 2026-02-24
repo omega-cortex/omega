@@ -2,7 +2,7 @@
 
 ## File Information
 
-**Path:** `/Users/isudoajl/ownCloud/Projects/omega/Cargo.lock`
+**Path:** `/Users/isudoajl/ownCloud/Projects/omega/backend/Cargo.lock`
 
 **Purpose:** The Cargo.lock file is an automatically-generated dependency lock file created and maintained by Cargo (Rust's package manager). It records the exact versions and checksums of every dependency (direct and transitive) used in the Omega project, ensuring reproducible builds across different machines and time periods.
 
@@ -213,6 +213,6 @@ If the lock file is out of sync with Cargo.toml, Cargo will automatically update
 
 ## Related Files
 
-- **Cargo.toml** - Workspace manifest with dependency declarations
-- **Cargo.toml** (per crate) - Individual crate manifests
+- **backend/Cargo.toml** - Workspace manifest with dependency declarations
+- **Cargo.toml** (per crate, under `backend/crates/`) - Individual crate manifests
 - **.cargo/config.toml** - Cargo configuration (if present)

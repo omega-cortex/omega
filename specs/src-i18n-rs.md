@@ -1,7 +1,7 @@
-# Specification: src/i18n/ (Directory Module)
+# Specification: backend/src/i18n/ (Directory Module)
 
 ## File Path
-`src/i18n/` (6-file directory module: mod.rs, commands.rs, confirmations.rs, format.rs, labels.rs, tests.rs)
+`backend/src/i18n/` (6-file directory module: mod.rs, commands.rs, confirmations.rs, format.rs, labels.rs, tests.rs)
 
 ## Purpose
 Localized strings for bot command responses. All user-facing text in command handlers is internationalized through this module rather than hardcoded in English.

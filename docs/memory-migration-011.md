@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/011_project_learning.sql`
+`backend/crates/omega-memory/migrations/011_project_learning.sql`
 
 ## What This Migration Does
 

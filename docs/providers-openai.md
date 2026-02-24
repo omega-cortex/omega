@@ -1,6 +1,6 @@
 # OpenAI Provider
 
-**File:** `crates/omega-providers/src/openai.rs`
+**File:** `backend/crates/omega-providers/src/openai.rs`
 **Crate:** `omega-providers`
 **Status:** Placeholder -- not yet implemented.
 
@@ -14,7 +14,7 @@ The OpenAI provider file currently contains a single line:
 //! OpenAI-compatible API provider (placeholder).
 ```
 
-There is no struct, no trait implementation, and no executable code. The module is registered in `crates/omega-providers/src/lib.rs` as a private module (`mod openai;`), but nothing is exported from it.
+There is no struct, no trait implementation, and no executable code. The module is registered in `backend/crates/omega-providers/src/lib.rs` as a private module (`mod openai;`), but nothing is exported from it.
 
 Despite the provider code being a stub, the supporting infrastructure already exists:
 
@@ -28,7 +28,7 @@ This means the config layer is ready -- the provider just needs to be built on t
 
 ## What the Provider Must Implement
 
-Every AI backend in Omega implements the `Provider` trait (defined in `crates/omega-core/src/traits.rs`). The trait has four methods:
+Every AI backend in Omega implements the `Provider` trait (defined in `backend/crates/omega-core/src/traits.rs`). The trait has four methods:
 
 ### `fn name(&self) -> &str`
 
@@ -67,7 +67,7 @@ Here is a step-by-step guide for building the OpenAI provider.
 
 ### 1. Add HTTP dependencies
 
-The `omega-providers` crate will need an HTTP client. Add `reqwest` (with JSON support) to `crates/omega-providers/Cargo.toml`:
+The `omega-providers` crate will need an HTTP client. Add `reqwest` (with JSON support) to `backend/crates/omega-providers/Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -126,11 +126,11 @@ This is more natural than the `to_prompt_string()` flattening used by the Claude
 
 ### 5. Make the module public
 
-Change `mod openai;` to `pub mod openai;` in `crates/omega-providers/src/lib.rs`, or add a `pub use` re-export for the struct.
+Change `mod openai;` to `pub mod openai;` in `backend/crates/omega-providers/src/lib.rs`, or add a `pub use` re-export for the struct.
 
 ### 6. Wire it into the gateway
 
-In `src/main.rs` (or wherever the provider is constructed), add a branch that instantiates `OpenAiProvider` when the config's `default` provider is `"openai"` and `provider.openai` is `Some(...)` with `enabled = true`.
+In `backend/src/main.rs` (or wherever the provider is constructed), add a branch that instantiates `OpenAiProvider` when the config's `default` provider is `"openai"` and `provider.openai` is `Some(...)` with `enabled = true`.
 
 ### 7. Add tests
 

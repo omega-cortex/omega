@@ -35,7 +35,7 @@ The project is organized as a 6-crate Rust workspace:
 
 #### Gateway Event Loop
 
-The core processing pipeline in `src/gateway.rs` follows this flow:
+The core processing pipeline in `backend/src/gateway.rs` follows this flow:
 
 ```
 Message → Auth → Sanitize → Memory (context) → Provider → Memory (store) → Audit → Send
@@ -148,7 +148,7 @@ These rules are non-negotiable and must be followed in all code:
 ### Input Validation
 
 3. **Prompt Sanitization**
-   - Implemented in `omega-core/src/sanitize.rs`
+   - Implemented in `backend/crates/omega-core/src/sanitize.rs`
    - Neutralizes injection patterns before reaching provider
    - Protects against prompt injection attacks
    - Rationale: Defense-in-depth; untrusted user input is sanitized
@@ -220,7 +220,7 @@ claude -p --output-format json
 - Other errors: Log and return error message
 
 #### Integration Points
-- `omega-providers/src/lib.rs`: Provider trait and implementations
+- `backend/crates/omega-providers/src/lib.rs`: Provider trait and implementations
 - All responses are JSON-decoded and processed uniformly
 - Model information captured in audit logs
 
@@ -256,13 +256,13 @@ Each provider implements the same `Provider` trait for uniform handling.
 |------|------|
 | Project instructions | `./CLAUDE.md` |
 | Config template | `./config.example.toml` |
-| Core crate | `./crates/omega-core/` |
-| Provider implementations | `./crates/omega-providers/` |
-| Channel integrations | `./crates/omega-channels/` |
-| Memory system | `./crates/omega-memory/` |
-| Gateway | `./src/gateway.rs` |
-| Sanitization | `./crates/omega-core/src/sanitize.rs` |
-| Main entry | `./src/main.rs` |
+| Core crate | `./backend/crates/omega-core/` |
+| Provider implementations | `./backend/crates/omega-providers/` |
+| Channel integrations | `./backend/crates/omega-channels/` |
+| Memory system | `./backend/crates/omega-memory/` |
+| Gateway | `./backend/src/gateway.rs` |
+| Sanitization | `./backend/crates/omega-core/src/sanitize.rs` |
+| Main entry | `./backend/src/main.rs` |
 
 ### Critical Commands
 ```bash
@@ -273,7 +273,7 @@ cargo clippy --workspace && cargo test --workspace && cargo fmt --check
 cargo build --release
 
 # Run locally
-./target/release/omega ask "What is Rust?"
+./backend/target/release/omega ask "What is Rust?"
 ```
 
 ### Security Checklist

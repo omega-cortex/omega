@@ -2,7 +2,7 @@
 
 ## Path
 
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-core/src/sanitize.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-core/src/sanitize.rs`
 
 ## Why Sanitization Matters
 

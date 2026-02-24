@@ -1,10 +1,10 @@
-# Technical Specification: `omega-providers/src/lib.rs`
+# Technical Specification: `backend/crates/omega-providers/src/lib.rs`
 
 ## File
 
 | Field | Value |
 |-------|-------|
-| Path | `crates/omega-providers/src/lib.rs` |
+| Path | `backend/crates/omega-providers/src/lib.rs` |
 | Crate | `omega-providers` |
 | Role | Crate root -- declares modules and controls public API surface |
 

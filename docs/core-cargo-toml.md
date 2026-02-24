@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-core/Cargo.toml`
+`backend/crates/omega-core/Cargo.toml`
 
 ## What is omega-core?
 
@@ -85,10 +85,10 @@ Because all dependencies use workspace inheritance, adding a new dependency to `
    regex = "1"
    ```
 
-2. **Reference it from omega-core** (`crates/omega-core/Cargo.toml`) under `[dependencies]`:
+2. **Reference it from omega-core** (`backend/crates/omega-core/Cargo.toml`) under `[dependencies]`:
 
    ```toml
-   # In crates/omega-core/Cargo.toml
+   # In backend/crates/omega-core/Cargo.toml
    [dependencies]
    regex = { workspace = true }
    ```

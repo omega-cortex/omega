@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Anthropic provider (`crates/omega-providers/src/anthropic.rs`) is one of five AI provider backends in the Omega workspace. It will connect directly to the Anthropic Messages API over HTTP, allowing Omega to use Claude models without relying on the Claude Code CLI.
+The Anthropic provider (`backend/crates/omega-providers/src/anthropic.rs`) is one of five AI provider backends in the Omega workspace. It will connect directly to the Anthropic Messages API over HTTP, allowing Omega to use Claude models without relying on the Claude Code CLI.
 
 **Current status: placeholder.** The file exists but contains only a single doc comment. No code has been written yet. This provider is scheduled for Phase 4.
 
@@ -17,7 +17,7 @@ The default provider in Omega is `claude-code`, which shells out to the locally 
 
 ## Configuration
 
-The config structure already exists in `omega-core/src/config.rs`. Add this section to your `config.toml`:
+The config structure already exists in `backend/crates/omega-core/src/config.rs`. Add this section to your `config.toml`:
 
 ```toml
 [provider]
@@ -37,7 +37,7 @@ model = "claude-sonnet-4-20250514"
 
 ## The `Provider` Trait
 
-Every AI backend in Omega implements the `Provider` trait defined in `omega-core/src/traits.rs`. Here are the four methods the Anthropic provider must satisfy:
+Every AI backend in Omega implements the `Provider` trait defined in `backend/crates/omega-core/src/traits.rs`. Here are the four methods the Anthropic provider must satisfy:
 
 ### `fn name(&self) -> &str`
 
@@ -143,7 +143,7 @@ Follow the pattern established by `ClaudeCodeProvider`:
 
 ### 5. Make the Module Public
 
-In `crates/omega-providers/src/lib.rs`, change:
+In `backend/crates/omega-providers/src/lib.rs`, change:
 
 ```rust
 mod anthropic;
@@ -157,7 +157,7 @@ pub mod anthropic;
 
 ### 6. Wire Into the Gateway
 
-Update the gateway (`src/gateway.rs`) to select this provider when `config.provider.default == "anthropic"` and `config.provider.anthropic` is `Some(...)` with `enabled == true`.
+Update the gateway (`backend/src/gateway.rs`) to select this provider when `config.provider.default == "anthropic"` and `config.provider.anthropic` is `Some(...)` with `enabled == true`.
 
 ### 7. Write Tests
 

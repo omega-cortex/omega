@@ -1,10 +1,10 @@
-# Technical Specification: `omega-skills/src/lib.rs`
+# Technical Specification: `backend/crates/omega-skills/src/lib.rs`
 
 ## File
 
 | Field | Value |
 |-------|-------|
-| **Path** | `crates/omega-skills/src/lib.rs` (re-export orchestrator) |
+| **Path** | `backend/crates/omega-skills/src/lib.rs` (re-export orchestrator) |
 | **Crate** | `omega-skills` |
 | **Role** | Generic skill loader — scans `~/.omega/skills/*/SKILL.md` and exposes them to the system prompt |
 

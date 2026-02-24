@@ -1,7 +1,7 @@
 # Specification: omega-core Error Types
 
 ## Path
-`crates/omega-core/src/error.rs`
+`backend/crates/omega-core/src/error.rs`
 
 ## Purpose
 Defines `OmegaError`, the single top-level error enum for the entire Omega workspace. Every fallible operation across all six crates returns `Result<T, OmegaError>`, giving the system a unified error type that flows from the deepest storage call all the way up to the gateway event loop and CLI commands.
@@ -81,10 +81,10 @@ All other variants (`Provider`, `Channel`, `Config`, `Memory`, `Sandbox`) requir
 `OmegaError` is the error type in every core trait method signature:
 
 ```rust
-// Provider trait (omega-core/src/traits.rs)
+// Provider trait (backend/crates/omega-core/src/traits.rs)
 async fn complete(&self, context: &Context) -> Result<OutgoingMessage, OmegaError>;
 
-// Channel trait (omega-core/src/traits.rs)
+// Channel trait (backend/crates/omega-core/src/traits.rs)
 async fn start(&self) -> Result<mpsc::Receiver<IncomingMessage>, OmegaError>;
 async fn send(&self, message: OutgoingMessage) -> Result<(), OmegaError>;
 async fn send_typing(&self, _target: &str) -> Result<(), OmegaError>;
@@ -104,10 +104,10 @@ omega-memory / omega-channels / omega-providers
 omega-core trait boundary (Result<T, OmegaError>)
     |  (? operator)
     v
-src/gateway.rs event loop
+backend/src/gateway.rs event loop
     |  (logged via tracing, may retry or propagate)
     v
-src/main.rs
+backend/src/main.rs
     |  (converted to anyhow::Error for final display)
     v
 User sees error message
@@ -171,7 +171,7 @@ Approximate usage across the codebase (based on grep):
 
 ## Re-export Path
 
-The error module is declared public in `omega-core/src/lib.rs`:
+The error module is declared public in `backend/crates/omega-core/src/lib.rs`:
 
 ```rust
 pub mod error;
@@ -187,7 +187,7 @@ use omega_core::error::OmegaError;
 
 | Aspect | Detail |
 |--------|--------|
-| File | `crates/omega-core/src/error.rs` |
+| File | `backend/crates/omega-core/src/error.rs` |
 | Type | `enum OmegaError` |
 | Derive macros | `Debug`, `thiserror::Error` |
 | Total variants | 7 |

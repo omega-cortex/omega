@@ -456,8 +456,8 @@ The config file should contain empty string values (`api_key = ""`) for these fi
 
 - **Project README:** See project root for overview and architecture.
 - **CLAUDE.md:** Design rules and constraints.
-- **Provider Implementation:** `omega-providers/src/`
-- **Channel Implementation:** `omega-channels/src/`
-- **Memory Layer:** `omega-memory/src/`
-- **Sandbox Security:** `omega-sandbox/src/` (planned)
+- **Provider Implementation:** `backend/crates/omega-providers/src/`
+- **Channel Implementation:** `backend/crates/omega-channels/src/`
+- **Memory Layer:** `backend/crates/omega-memory/src/`
+- **Sandbox Security:** `backend/crates/omega-sandbox/src/` (planned)
 

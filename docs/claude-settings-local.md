@@ -195,7 +195,7 @@ You: "The gateway doesn't compile. Can you fix it?"
 
 Claude Code:
   1. Analyzes the error
-  2. Modifies src/gateway.rs
+  2. Modifies backend/src/gateway.rs
   3. Runs: cargo build --release (ALLOWED)
   4. Shows you the compilation result
   5. If there are errors, iterates again
@@ -207,7 +207,7 @@ Claude Code:
 You: "Add a self-check command to omega-core."
 
 Claude Code:
-  1. Creates new code in crates/omega-core/
+  1. Creates new code in backend/crates/omega-core/
   2. Runs: cargo build (ALLOWED)
   3. Tests the new code manually OR
   4. Shows you the code for you to test (TESTING NOT ALLOWED)
@@ -220,7 +220,7 @@ Claude Code:
 You: "Write tests for the memory module."
 
 Claude Code:
-  1. Creates tests in crates/omega-memory/src/lib.rs
+  1. Creates tests in backend/crates/omega-memory/src/lib.rs
   2. Asks: "Should I run cargo test to verify?" OR
   3. You run tests yourself (because TESTING NOT ALLOWED)
   4. Shows results or asks for your test output

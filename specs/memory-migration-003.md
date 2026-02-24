@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/003_memory_enhancement.sql`
+`backend/crates/omega-memory/migrations/003_memory_enhancement.sql`
 
 ## Purpose
 

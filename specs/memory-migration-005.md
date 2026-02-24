@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/005_scheduled_tasks.sql`
+`backend/crates/omega-memory/migrations/005_scheduled_tasks.sql`
 
 ## Purpose
 

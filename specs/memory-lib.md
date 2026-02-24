@@ -1,10 +1,10 @@
-# Technical Specification: `omega-memory/src/lib.rs`
+# Technical Specification: `backend/crates/omega-memory/src/lib.rs`
 
 ## File
 
 | Field | Value |
 |-------|-------|
-| Path | `crates/omega-memory/src/lib.rs` |
+| Path | `backend/crates/omega-memory/src/lib.rs` |
 | Crate | `omega-memory` |
 | Role | Crate root -- declares modules and re-exports their primary types |
 
@@ -59,7 +59,7 @@ use omega_memory::audit::AuditLogger;
 
 ### `store` Module
 
-**File:** `crates/omega-memory/src/store.rs`
+**File:** `backend/crates/omega-memory/src/store.rs`
 
 **Module Doc Comment:**
 ```rust
@@ -137,7 +137,7 @@ The `run_migrations` method implements a custom migration tracker:
 
 ### `audit` Module
 
-**File:** `crates/omega-memory/src/audit.rs`
+**File:** `backend/crates/omega-memory/src/audit.rs`
 
 **Module Doc Comment:**
 ```rust

@@ -4,7 +4,7 @@
 
 | Property | Value |
 |----------|-------|
-| **Path** | `crates/omega-providers/src/tools.rs` |
+| **Path** | `backend/crates/omega-providers/src/tools.rs` |
 | **Crate** | `omega-providers` |
 | **Module** | `pub mod tools` |
 | **Status** | Implemented |

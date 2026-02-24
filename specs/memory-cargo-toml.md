@@ -4,7 +4,7 @@
 
 | Field       | Value                                                        |
 |-------------|--------------------------------------------------------------|
-| Path        | `crates/omega-memory/Cargo.toml`                             |
+| Path        | `backend/crates/omega-memory/Cargo.toml`                             |
 | Crate name  | `omega-memory`                                               |
 | Description | Persistent memory system for Omega                           |
 | Role        | Defines the build manifest for the `omega-memory` crate      |
@@ -39,7 +39,7 @@ All dependencies are inherited from `[workspace.dependencies]` with no local ove
 
 | Dependency   | Workspace Ref          | Resolved Path           |
 |--------------|------------------------|-------------------------|
-| `omega-core` | `{ workspace = true }` | `crates/omega-core`     |
+| `omega-core` | `{ workspace = true }` | `backend/crates/omega-core`     |
 
 ### External Dependencies
 

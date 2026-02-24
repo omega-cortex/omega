@@ -1,7 +1,7 @@
-# Specification: omega-core/src/traits.rs
+# Specification: backend/crates/omega-core/src/traits.rs
 
 ## Path
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-core/src/traits.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-core/src/traits.rs`
 
 ## Purpose
 Defines the two foundational trait abstractions for the Omega agent: `Provider` (AI backends) and `Channel` (messaging platforms). Every AI provider and every messaging channel in the system must implement one of these traits, which together form the contract between the gateway event loop and all pluggable components.
@@ -81,7 +81,7 @@ Providers should return `OmegaError::Provider(String)` for all provider-specific
 
 | Struct | Crate | File |
 |--------|-------|------|
-| `ClaudeCodeProvider` | `omega-providers` | `crates/omega-providers/src/claude_code.rs` |
+| `ClaudeCodeProvider` | `omega-providers` | `backend/crates/omega-providers/src/claude_code.rs` |
 
 ### Gateway Usage Pattern
 ```rust
@@ -170,7 +170,7 @@ Channels should return `OmegaError::Channel(String)` for all channel-specific er
 
 | Struct | Crate | File |
 |--------|-------|------|
-| `TelegramChannel` | `omega-channels` | `crates/omega-channels/src/telegram.rs` |
+| `TelegramChannel` | `omega-channels` | `backend/crates/omega-channels/src/telegram.rs` |
 
 ### Gateway Usage Pattern
 ```rust

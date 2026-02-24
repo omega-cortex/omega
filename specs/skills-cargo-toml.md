@@ -3,7 +3,7 @@
 ## File Path
 
 ```
-crates/omega-skills/Cargo.toml
+backend/crates/omega-skills/Cargo.toml
 ```
 
 ## Purpose

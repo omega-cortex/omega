@@ -1,7 +1,7 @@
-# Specification: src/markers.rs
+# Specification: backend/src/markers.rs
 
 ## Purpose
-Centralized marker extraction, parsing, and stripping for the gateway protocol. All system markers emitted by the AI (SCHEDULE:, LANG_SWITCH:, SKILL_IMPROVE:, etc.) are processed here. This module was originally extracted from the monolithic `gateway.rs`. The gateway itself has since been refactored into `src/gateway/` (directory module with 9 files), but markers remain in `src/markers.rs` as a standalone module used by both the gateway and other components.
+Centralized marker extraction, parsing, and stripping for the gateway protocol. All system markers emitted by the AI (SCHEDULE:, LANG_SWITCH:, SKILL_IMPROVE:, etc.) are processed here. This module was originally extracted from the monolithic `gateway.rs`. The gateway itself has since been refactored into `backend/src/gateway/` (directory module with 9 files), but markers remain in `backend/src/markers.rs` as a standalone module used by both the gateway and other components.
 
 ## Functions (40+)
 

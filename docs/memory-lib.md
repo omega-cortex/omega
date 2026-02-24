@@ -1,7 +1,7 @@
 # Developer Guide: omega-memory
 
 ## Path
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-memory/src/lib.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-memory/src/lib.rs`
 
 ## What is omega-memory?
 
@@ -235,7 +235,7 @@ Migrations exist:
 10. **010_outcomes** -- Reward-based learning: outcomes (working memory) and lessons (long-term memory) tables
 
 New migrations can be added by:
-1. Creating a new SQL file in `crates/omega-memory/migrations/` (e.g. `004_your_feature.sql`).
+1. Creating a new SQL file in `backend/crates/omega-memory/migrations/` (e.g. `004_your_feature.sql`).
 2. Adding the migration to the `migrations` array in `Store::run_migrations()`.
 
 ---
@@ -325,7 +325,7 @@ Follow the existing pattern: use `sqlx::query_as` for typed results, map errors 
 
 If you need a new subsystem (e.g. a scheduler store), add it as a sibling module:
 
-1. Create `crates/omega-memory/src/scheduler.rs`.
+1. Create `backend/crates/omega-memory/src/scheduler.rs`.
 2. Declare it in `lib.rs`:
    ```rust
    pub mod scheduler;

@@ -1,7 +1,7 @@
 # Messages in Omega
 
 ## Path
-`crates/omega-core/src/message.rs`
+`backend/crates/omega-core/src/message.rs`
 
 ## Overview
 

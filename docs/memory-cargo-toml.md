@@ -1,6 +1,6 @@
 # omega-memory Cargo.toml -- Developer Guide
 
-This document explains the build manifest for the `omega-memory` crate, which lives at `crates/omega-memory/Cargo.toml`. If you are working with persistent storage, modifying the database schema, or adding new data-related dependencies, this is the right place to start.
+This document explains the build manifest for the `omega-memory` crate, which lives at `backend/crates/omega-memory/Cargo.toml`. If you are working with persistent storage, modifying the database schema, or adding new data-related dependencies, this is the right place to start.
 
 ## What Does omega-memory Do?
 
@@ -55,7 +55,7 @@ repository = "https://github.com/omega-cortex/omega"
 |--------------|--------------------------------------------------------------------------|
 | `omega-core` | Shared types (`Message`, `Config`, error types, conversation boundaries) |
 
-This is the only internal crate that `omega-memory` depends on. It does not depend on `omega-providers` or `omega-channels` -- the gateway in `src/gateway.rs` wires those together at a higher level.
+This is the only internal crate that `omega-memory` depends on. It does not depend on `omega-providers` or `omega-channels` -- the gateway in `backend/src/gateway.rs` wires those together at a higher level.
 
 ### External
 
@@ -116,7 +116,7 @@ my-new-crate = { version = "2.0", features = ["some-feature"] }
 
 ### Step 2: Reference it in the crate
 
-Open `crates/omega-memory/Cargo.toml` and add:
+Open `backend/crates/omega-memory/Cargo.toml` and add:
 
 ```toml
 [dependencies]
@@ -138,7 +138,7 @@ This merges `extra-feature` with whatever features the workspace already declare
 
 ## When You Might Modify This File
 
-Common scenarios where you would touch `crates/omega-memory/Cargo.toml`:
+Common scenarios where you would touch `backend/crates/omega-memory/Cargo.toml`:
 
 - **Adding a new storage backend** -- if you needed Redis or DuckDB alongside SQLite, you would add the corresponding driver crate here.
 - **Adding full-text search** -- a crate like `tantivy` would be added here if you needed full-text search beyond what SQLite's FTS5 provides.

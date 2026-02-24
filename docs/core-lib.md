@@ -1,7 +1,7 @@
 # Developer Guide: omega-core
 
 ## Path
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-core/src/lib.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-core/src/lib.rs`
 
 ## What is omega-core?
 

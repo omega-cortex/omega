@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/004_fts5_recall.sql`
+`backend/crates/omega-memory/migrations/004_fts5_recall.sql`
 
 ## Purpose
 

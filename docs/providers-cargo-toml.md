@@ -9,7 +9,7 @@ This document explains the Cargo manifest for the `omega-providers` crate -- wha
 The file lives at:
 
 ```
-crates/omega-providers/Cargo.toml
+backend/crates/omega-providers/Cargo.toml
 ```
 
 ## How Workspace Inheritance Works
@@ -163,7 +163,7 @@ my-new-crate = { version = "3.0", features = ["something"] }
 
 **Step 2: Reference it from this crate.**
 
-In `crates/omega-providers/Cargo.toml`, add:
+In `backend/crates/omega-providers/Cargo.toml`, add:
 
 ```toml
 [dependencies]

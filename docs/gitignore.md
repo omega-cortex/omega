@@ -12,7 +12,7 @@ Git's `.gitignore` file tells Git which files and directories to ignore when tra
 /target
 ```
 
-This ignores the `target` directory in the repository root. Cargo (Rust's package manager) creates this directory to store:
+This ignores the `target` directory (now under `backend/target/` since the Rust backend moved into `backend/`). Cargo (Rust's package manager) creates this directory to store:
 
 - Compiled binaries
 - Intermediate compilation artifacts
@@ -30,10 +30,10 @@ This ignores the `target` directory in the repository root. Cargo (Rust's packag
 **When it's created:**
 
 ```bash
-cargo build          # Creates /target/debug/
-cargo build --release  # Creates /target/release/
-cargo test           # Creates test artifacts in /target/
-cargo check          # Creates metadata in /target/
+cargo build          # Creates /backend/target/debug/
+cargo build --release  # Creates /backend/target/release/
+cargo test           # Creates test artifacts in /backend/target/
+cargo check          # Creates metadata in /backend/target/
 ```
 
 ### *.db

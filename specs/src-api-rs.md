@@ -1,4 +1,4 @@
-# src/api.rs — HTTP API Server
+# backend/src/api.rs — HTTP API Server
 
 > Lightweight axum HTTP server for SaaS dashboard integration (WhatsApp QR pairing, health checks).
 
@@ -8,7 +8,7 @@ Provides a headless-compatible HTTP API for managing Omega from external dashboa
 
 ## Configuration
 
-`ApiConfig` in `omega-core/src/config.rs`:
+`ApiConfig` in `backend/crates/omega-core/src/config.rs`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

@@ -1,8 +1,8 @@
-# User Guide: Omega Entry Point (src/main.rs)
+# User Guide: Omega Entry Point (backend/src/main.rs)
 
 ## Overview
 
-The `src/main.rs` file is the entry point for the Omega binary. It handles command-line argument parsing, enforces security checks, and orchestrates the startup of the Omega agent. This guide explains how to use Omega and how it starts up internally.
+The `backend/src/main.rs` file is the entry point for the Omega binary. It handles command-line argument parsing, enforces security checks, and orchestrates the startup of the Omega agent. This guide explains how to use Omega and how it starts up internally.
 
 ## What is Omega?
 

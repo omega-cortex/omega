@@ -1,6 +1,6 @@
 # Technical Specification: WhatsApp Channel
 
-**File:** `crates/omega-channels/src/whatsapp.rs`
+**File:** `backend/crates/omega-channels/src/whatsapp.rs`
 **Crate:** `omega-channels`
 **Module:** `whatsapp` (public)
 **Status:** Implemented — pure Rust via `whatsapp-rust` crate
@@ -211,7 +211,7 @@ Text is sanitized from Markdown to WhatsApp-native formatting (`sanitize_for_wha
 
 ## Session Persistence
 
-A custom `SqlxWhatsAppStore` (`crates/omega-channels/src/whatsapp_store.rs`) implements the wacore store traits (`SignalStore`, `AppSyncStore`, `ProtocolStore`, `DeviceStore`). The session database at `{data_dir}/whatsapp_session/whatsapp.db` stores:
+A custom `SqlxWhatsAppStore` (`backend/crates/omega-channels/src/whatsapp_store.rs`) implements the wacore store traits (`SignalStore`, `AppSyncStore`, `ProtocolStore`, `DeviceStore`). The session database at `{data_dir}/whatsapp_session/whatsapp.db` stores:
 - Device identity (serialized with `bincode`, stored as BLOB)
 - Signal protocol keys (identity, prekeys, sessions, sender keys)
 - App state (hash state as JSON, sync mutations as BLOB)

@@ -4,7 +4,7 @@
 
 | Property | Value |
 |----------|-------|
-| **Path** | `crates/omega-providers/src/gemini.rs` |
+| **Path** | `backend/crates/omega-providers/src/gemini.rs` |
 | **Crate** | `omega-providers` |
 | **Module** | `pub mod gemini` |
 | **Status** | Implemented |

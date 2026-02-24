@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-core/Cargo.toml`
+`backend/crates/omega-core/Cargo.toml`
 
 ## Purpose
 

@@ -1,7 +1,7 @@
 # Developer Guide: Audit Logging in Omega
 
 ## Path
-`crates/omega-memory/src/audit.rs`
+`backend/crates/omega-memory/src/audit.rs`
 
 ## Overview
 

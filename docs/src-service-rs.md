@@ -1,4 +1,4 @@
-# src/service.rs — Service Management Documentation
+# backend/src/service.rs — Service Management Documentation
 
 ## Overview
 

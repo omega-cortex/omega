@@ -7,7 +7,7 @@
 ## Crate structure
 
 ```
-crates/omega-channels/
+backend/crates/omega-channels/
   Cargo.toml
   src/
     lib.rs              <-- you are here
@@ -70,7 +70,7 @@ Say you want to add a Discord integration. Here is the step-by-step process:
 
 ### 1. Create the module file
 
-Create `crates/omega-channels/src/discord.rs` with a doc comment:
+Create `backend/crates/omega-channels/src/discord.rs` with a doc comment:
 
 ```rust
 //! Discord channel integration.
@@ -136,11 +136,11 @@ impl Channel for DiscordChannel {
 
 ### 4. Add config support (if needed)
 
-If your channel needs configuration (API tokens, allowed users, etc.), add a config struct in `omega-core/src/config.rs` following the pattern of `TelegramConfig`, then accept it in your constructor.
+If your channel needs configuration (API tokens, allowed users, etc.), add a config struct in `backend/crates/omega-core/src/config.rs` following the pattern of `TelegramConfig`, then accept it in your constructor.
 
 ### 5. Wire it into the gateway
 
-The gateway in `src/gateway.rs` is where channels are instantiated and plugged into the event loop. Add your new channel there, gated on its config being present.
+The gateway in `backend/src/gateway.rs` is where channels are instantiated and plugged into the event loop. Add your new channel there, gated on its config being present.
 
 ## Design notes
 

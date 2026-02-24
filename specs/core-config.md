@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-core/src/config/` (6-file directory module: mod.rs, providers.rs, channels.rs, prompts.rs, defaults.rs, tests.rs)
+`backend/crates/omega-core/src/config/` (6-file directory module: mod.rs, providers.rs, channels.rs, prompts.rs, defaults.rs, tests.rs)
 
 ## Purpose
 

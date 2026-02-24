@@ -173,8 +173,8 @@ To allow additional Bash commands in future development phases, add entries to t
 - **Configuration Files:**
   - `config.toml` (gitignored, application config)
   - `config.example.toml` (template)
-- **Source Code:** `/Users/isudoajl/ownCloud/Projects/omega/src/`
-- **Workspace Crates:** `/Users/isudoajl/ownCloud/Projects/omega/crates/`
+- **Source Code:** `/Users/isudoajl/ownCloud/Projects/omega/backend/src/`
+- **Workspace Crates:** `/Users/isudoajl/ownCloud/Projects/omega/backend/crates/`
 
 ---
 

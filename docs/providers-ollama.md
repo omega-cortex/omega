@@ -6,7 +6,7 @@ The Ollama provider lets Omega use locally-running large language models through
 
 ## Current Status: Placeholder
 
-The file at `crates/omega-providers/src/ollama.rs` is currently a placeholder. It contains only a module-level doc comment:
+The file at `backend/crates/omega-providers/src/ollama.rs` is currently a placeholder. It contains only a module-level doc comment:
 
 ```rust
 //! Ollama local model provider (placeholder).
@@ -142,7 +142,7 @@ Map the `Context` fields to the Ollama chat format:
 
 ### 5. Export the module
 
-In `crates/omega-providers/src/lib.rs`, change:
+In `backend/crates/omega-providers/src/lib.rs`, change:
 
 ```rust
 mod ollama;
@@ -156,7 +156,7 @@ pub mod ollama;
 
 ### 6. Wire it into the gateway
 
-In `src/main.rs` or wherever the provider is instantiated, add a branch for `"ollama"` that creates an `OllamaProvider` from the config and passes it to the gateway.
+In `backend/src/main.rs` or wherever the provider is instantiated, add a branch for `"ollama"` that creates an `OllamaProvider` from the config and passes it to the gateway.
 
 ### 7. Write tests
 
@@ -168,7 +168,7 @@ At minimum:
 
 ## Dependencies
 
-All crate dependencies needed for implementation are already declared in `crates/omega-providers/Cargo.toml`:
+All crate dependencies needed for implementation are already declared in `backend/crates/omega-providers/Cargo.toml`:
 
 | Dependency | Role |
 |------------|------|
@@ -183,7 +183,7 @@ No new dependencies need to be added.
 
 ## Reference: How the Claude Code Provider Does It
 
-The Claude Code provider (`crates/omega-providers/src/claude_code.rs`) is a good reference. It follows the same pattern:
+The Claude Code provider (`backend/crates/omega-providers/src/claude_code.rs`) is a good reference. It follows the same pattern:
 
 1. Struct holds config state (`session_id`, `max_turns`, `allowed_tools`).
 2. `complete()` invokes the Claude CLI as a subprocess, captures stdout, parses JSON.

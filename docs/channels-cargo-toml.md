@@ -1,6 +1,6 @@
 # omega-channels Cargo.toml -- Developer Guide
 
-This document explains the build manifest for the `omega-channels` crate, which lives at `crates/omega-channels/Cargo.toml`. If you are adding a new messaging platform, modifying dependencies, or just trying to understand how the workspace fits together, this is the right place to start.
+This document explains the build manifest for the `omega-channels` crate, which lives at `backend/crates/omega-channels/Cargo.toml`. If you are adding a new messaging platform, modifying dependencies, or just trying to understand how the workspace fits together, this is the right place to start.
 
 ## What Does omega-channels Do?
 
@@ -44,7 +44,7 @@ repository = "https://github.com/omega-cortex/omega"
 |--------------|--------------------------------------------------------------------------|
 | `omega-core` | Shared types (`Message`, `Config`, traits, error types, sanitization)    |
 
-This is the only internal crate that `omega-channels` depends on. It does not depend on `omega-memory` or `omega-providers` directly -- the gateway in `src/gateway.rs` wires those together at a higher level.
+This is the only internal crate that `omega-channels` depends on. It does not depend on `omega-memory` or `omega-providers` directly -- the gateway in `backend/src/gateway.rs` wires those together at a higher level.
 
 ### External
 
@@ -75,7 +75,7 @@ my-new-crate = { version = "3.0", features = ["some-feature"] }
 
 ### Step 2: Reference it in the crate
 
-Open `crates/omega-channels/Cargo.toml` and add:
+Open `backend/crates/omega-channels/Cargo.toml` and add:
 
 ```toml
 [dependencies]
@@ -99,10 +99,10 @@ This merges `extra-feature` with whatever features the workspace already declare
 
 When adding a new channel (e.g., Discord, Slack), you will typically:
 
-1. Create a new module under `crates/omega-channels/src/` (e.g., `discord.rs`).
+1. Create a new module under `backend/crates/omega-channels/src/` (e.g., `discord.rs`).
 2. Implement the `Channel` trait from `omega-core` for your new platform.
 3. Add any platform-specific dependencies following the two-step process above.
-4. Register the new channel in the gateway (`src/gateway.rs`).
+4. Register the new channel in the gateway (`backend/src/gateway.rs`).
 
 The existing Telegram implementation is a good reference for the pattern.
 

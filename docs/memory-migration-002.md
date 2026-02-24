@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/002_audit_log.sql`
+`backend/crates/omega-memory/migrations/002_audit_log.sql`
 
 ## Overview
 
@@ -66,7 +66,7 @@ The `status` column is constrained by a `CHECK` constraint to exactly three valu
 - **`error`** -- The provider was invoked but something went wrong (timeout, API error, malformed response).
 - **`denied`** -- The auth layer rejected the request before it reached any provider. When this happens, `provider_used`, `model`, `processing_ms`, and `output_text` are all `NULL`, and `denial_reason` explains why.
 
-These values correspond to the `AuditStatus` enum in `crates/omega-memory/src/audit.rs`.
+These values correspond to the `AuditStatus` enum in `backend/crates/omega-memory/src/audit.rs`.
 
 ## Why Some Columns Are Nullable
 
@@ -80,7 +80,7 @@ The nullable columns reflect different interaction outcomes:
 
 ## How the Audit Log Is Written
 
-The `AuditLogger` struct in `crates/omega-memory/src/audit.rs` is responsible for all writes. Here is the flow:
+The `AuditLogger` struct in `backend/crates/omega-memory/src/audit.rs` is responsible for all writes. Here is the flow:
 
 ```
 User sends message
@@ -195,7 +195,7 @@ All audit log writes go through `AuditLogger::log()`, which maps SQLite errors t
 If you need to record additional information in the audit log:
 
 1. Create a new migration file (e.g., `004_audit_enhancement.sql`) with an `ALTER TABLE audit_log ADD COLUMN ...` statement. New columns should be nullable or have defaults so existing rows are not affected.
-2. Update the `AuditEntry` struct in `crates/omega-memory/src/audit.rs` with the new field.
+2. Update the `AuditEntry` struct in `backend/crates/omega-memory/src/audit.rs` with the new field.
 3. Update the `INSERT INTO` query in `AuditLogger::log()` to bind the new column.
 4. Update the gateway code that constructs `AuditEntry` to populate the new field.
 5. Run `cargo check --workspace` to verify compilation.

@@ -470,7 +470,7 @@ If self-check fails, the gateway may:
 
 ## For Developers
 
-The self-check module is in `/Users/isudoajl/ownCloud/Projects/omega/src/selfcheck.rs`.
+The self-check module is in `/Users/isudoajl/ownCloud/Projects/omega/backend/src/selfcheck.rs`.
 
 To add a new check:
 

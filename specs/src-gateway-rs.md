@@ -1,12 +1,12 @@
-# Specification: src/gateway/ (Directory Module)
+# Specification: backend/src/gateway/ (Directory Module)
 
 ## File Path
-`src/gateway/` (directory module with 11 files)
+`backend/src/gateway/` (directory module with 11 files)
 
 ## Refactoring History
-- **2026-02-20:** Marker extraction/parsing/stripping functions (40+) extracted into `src/markers.rs`. See `specs/src-markers-rs.md`.
-- **2026-02-20:** Task confirmation logic extracted into `src/task_confirmation.rs`. See `specs/src-task-confirmation-rs.md`.
-- **2026-02-22:** Gateway refactored from a single `src/gateway.rs` (3,449 lines) into a `src/gateway/` directory module with 9 files. All struct fields use `pub(super)` visibility. No changes to `main.rs` or public API.
+- **2026-02-20:** Marker extraction/parsing/stripping functions (40+) extracted into `backend/src/markers.rs`. See `specs/src-markers-rs.md`.
+- **2026-02-20:** Task confirmation logic extracted into `backend/src/task_confirmation.rs`. See `specs/src-task-confirmation-rs.md`.
+- **2026-02-22:** Gateway refactored from a single `backend/src/gateway.rs` (3,449 lines) into a `backend/src/gateway/` directory module with 9 files. All struct fields use `pub(super)` visibility. No changes to `main.rs` or public API.
 - **2026-02-23:** Project-scoped learning: `scheduler_action.rs` extracted from `scheduler.rs` (~310 lines), `heartbeat_helpers.rs` extracted from `heartbeat.rs` (~250 lines). `active_project` threaded through pipeline, routing, and process_markers.
 
 ## Module Structure
@@ -782,7 +782,7 @@ If sandbox:        + sandbox constraint (unchanged)
 
 ## Free Functions (Distributed Across Submodules)
 
-> **Note:** Marker extraction/parsing/stripping functions (`extract_schedule_marker`, `parse_schedule_line`, `strip_schedule_marker`, `extract_heartbeat_markers`, `strip_heartbeat_markers`, `apply_heartbeat_changes`, `extract_lang_switch`, `strip_lang_switch`, `extract_personality`, `strip_personality`, `has_forget_marker`, `strip_forget_marker`, `extract_all_cancel_tasks`, `strip_cancel_task`, `extract_all_update_tasks`, `strip_update_task`, `has_purge_marker`, `strip_purge_marker`, `extract_project_activate`, `has_project_deactivate`, `strip_project_markers`, `read_heartbeat_file`, `HeartbeatAction`, etc.) were extracted into `src/markers.rs` in a prior refactor. See `specs/src-markers-rs.md` for their specifications. They are still documented below for historical completeness but live in `src/markers.rs`.
+> **Note:** Marker extraction/parsing/stripping functions (`extract_schedule_marker`, `parse_schedule_line`, `strip_schedule_marker`, `extract_heartbeat_markers`, `strip_heartbeat_markers`, `apply_heartbeat_changes`, `extract_lang_switch`, `strip_lang_switch`, `extract_personality`, `strip_personality`, `has_forget_marker`, `strip_forget_marker`, `extract_all_cancel_tasks`, `strip_cancel_task`, `extract_all_update_tasks`, `strip_update_task`, `has_purge_marker`, `strip_purge_marker`, `extract_project_activate`, `has_project_deactivate`, `strip_project_markers`, `read_heartbeat_file`, `HeartbeatAction`, etc.) were extracted into `src/markers.rs` in a prior refactor. See `specs/src-markers-rs.md` for their specifications. They are still documented below for historical completeness but live in `backend/src/markers.rs`.
 
 ### `async fn summarize_and_extract(store, provider, conversation_id, summarize_prompt, facts_prompt) -> Result<(), anyhow::Error>` (summarizer.rs)
 **Purpose:** Summarize a conversation and extract facts in a single provider call. Used by `handle_forget()` for background summarization after instant close.

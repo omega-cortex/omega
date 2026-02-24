@@ -1,6 +1,6 @@
 # Claude Code CLI Provider
 
-**File:** `crates/omega-providers/src/claude_code.rs`
+**File:** `backend/crates/omega-providers/src/claude_code.rs`
 
 The Claude Code CLI provider is Omega's default AI backend. It works by shelling out to the `claude` command-line tool that is already installed on your machine, so you do not need to configure any API keys -- it piggybacks on whatever authentication the CLI already has.
 

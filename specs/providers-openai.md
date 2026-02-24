@@ -4,7 +4,7 @@
 
 | Property | Value |
 |----------|-------|
-| **Path** | `crates/omega-providers/src/openai.rs` |
+| **Path** | `backend/crates/omega-providers/src/openai.rs` |
 | **Crate** | `omega-providers` |
 | **Module** | `pub mod openai` |
 | **Status** | Implemented |

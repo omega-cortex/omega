@@ -134,7 +134,7 @@ Core skills live in `skills/` at the repo root and are embedded into the binary 
 | `google-workspace/SKILL.md` | Google Workspace CLI (`gog`) |
 | `playwright-mcp/SKILL.md` | Browser automation via Playwright MCP (`npx`) |
 
-To add a new bundled skill: create the directory with a `SKILL.md` file in `skills/`, then add it to the `BUNDLED_SKILLS` const in `crates/omega-skills/src/lib.rs`.
+To add a new bundled skill: create the directory with a `SKILL.md` file in `skills/`, then add it to the `BUNDLED_SKILLS` const in `backend/crates/omega-skills/src/lib.rs`.
 
 ## Migration
 

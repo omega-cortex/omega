@@ -1,7 +1,7 @@
-# Specification: src/main.rs
+# Specification: backend/src/main.rs
 
 ## File Path
-`/Users/isudoajl/ownCloud/Projects/omega/src/main.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/src/main.rs`
 
 ## Purpose
 The main entry point for the Omega binary. Orchestrates CLI argument parsing, root privilege detection, async runtime initialization, and routes user commands to appropriate handlers (Start, Status, Ask, Init). Implements the top-level command dispatcher and initializes core infrastructure (provider, channels, memory, gateway).
@@ -105,7 +105,7 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
 ---
 
 ### `build_provider(cfg: &config::Config, workspace_path: &std::path::Path) -> anyhow::Result<(Box<dyn Provider>, String, String)>`
-**Location:** `src/provider_builder.rs` (extracted from `main.rs` for clarity).
+**Location:** `backend/src/provider_builder.rs` (extracted from `main.rs` for clarity).
 
 **Purpose:** Factory function to instantiate the configured provider from config, returning the provider and its model pair (fast, complex).
 
@@ -377,7 +377,7 @@ Passes config to memory store (database path, schema version, etc.).
 | `Cli` | Struct | Argument parser definition |
 | `Commands` | Enum | Command variants (Start, Status, Ask, Init) |
 | `main()` | Async Fn | Entry point, orchestrator |
-| `build_provider()` | Fn | Provider factory (in `src/provider_builder.rs`) |
+| `build_provider()` | Fn | Provider factory (in `backend/src/provider_builder.rs`) |
 | Root Guard | Check | Prevents execution as root (unsafe libc call) |
 | Tracing Init | Logger | Structured logging setup |
 | Gateway Loop | Async | Event processor for Start command |

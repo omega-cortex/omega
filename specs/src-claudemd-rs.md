@@ -1,7 +1,7 @@
-# Specification: src/claudemd.rs
+# Specification: backend/src/claudemd.rs
 
 ## File Path
-`src/claudemd.rs`
+`backend/src/claudemd.rs`
 
 ## Purpose
 Workspace CLAUDE.md maintenance — ensures the Claude Code subprocess has persistent project context in its working directory (`~/.omega/workspace/`). Uses a **template-first** approach: a bundled template (`prompts/WORKSPACE_CLAUDE.md`) contains standard operational rules that survive across deployments and 24h refreshes. Dynamic content (skills/projects tables) is appended below a marker line by `claude -p`.
@@ -101,7 +101,7 @@ Both operations use direct subprocess calls to `claude -p` (not the Provider tra
 
 ## Bundled Template
 
-The template is stored at `prompts/WORKSPACE_CLAUDE.md` and bundled into the binary via `include_str!` in `omega-core/src/config.rs`. It contains:
+The template is stored at `prompts/WORKSPACE_CLAUDE.md` and bundled into the binary via `include_str!` in `backend/crates/omega-core/src/config.rs`. It contains:
 
 - `# OMEGA Workspace` — intro
 - `## Directory Structure` — static layout of `~/.omega/` including workspace subdirectories (`builds/`, `inbox/`, `tmp/`)

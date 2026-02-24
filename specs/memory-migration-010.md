@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/010_outcomes.sql`
+`backend/crates/omega-memory/migrations/010_outcomes.sql`
 
 ## Purpose
 

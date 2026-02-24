@@ -1,7 +1,7 @@
-# Specification: omega-core/src/lib.rs
+# Specification: backend/crates/omega-core/src/lib.rs
 
 ## File Path
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-core/src/lib.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-core/src/lib.rs`
 
 ## Purpose
 Crate root for `omega-core`. Declares and re-exports six public submodules that together form the foundational type system, trait interfaces, configuration layer, error handling, message model, prompt sanitization, and conversation context structures used by every other crate in the Omega workspace.
@@ -59,7 +59,7 @@ omega_core
 
 ### `config`
 
-**File:** `crates/omega-core/src/config.rs`
+**File:** `backend/crates/omega-core/src/config.rs`
 
 **Purpose:** Defines the full configuration tree that maps 1:1 to `config.toml`. Provides a `load()` function that reads TOML from disk and falls back to sensible defaults.
 
@@ -141,7 +141,7 @@ All fields except `omega` carry `#[serde(default)]`, meaning they can be entirel
 
 ### `context`
 
-**File:** `crates/omega-core/src/context.rs`
+**File:** `backend/crates/omega-core/src/context.rs`
 
 **Purpose:** Represents the conversation context that is passed to AI providers. Carries a system prompt, conversation history, and the current user message.
 
@@ -186,7 +186,7 @@ Sections are joined by double newlines. The system prompt section is omitted if 
 
 ### `error`
 
-**File:** `crates/omega-core/src/error.rs`
+**File:** `backend/crates/omega-core/src/error.rs`
 
 **Purpose:** Defines the unified error enum used across the entire Omega workspace.
 
@@ -234,7 +234,7 @@ pub enum OmegaError {
 
 ### `message`
 
-**File:** `crates/omega-core/src/message.rs`
+**File:** `backend/crates/omega-core/src/message.rs`
 
 **Purpose:** Defines the message types that flow through the gateway pipeline: incoming messages from channels, outgoing responses to channels, response metadata, and file attachments.
 
@@ -297,7 +297,7 @@ pub enum OmegaError {
 
 ### `sanitize`
 
-**File:** `crates/omega-core/src/sanitize.rs`
+**File:** `backend/crates/omega-core/src/sanitize.rs`
 
 **Purpose:** Prompt injection defense. Neutralizes role impersonation tags, instruction override phrases, and suspicious code blocks before user input reaches the AI provider.
 
@@ -393,7 +393,7 @@ If the text contains triple backticks, checks (case-insensitive) for role tags i
 
 ### `traits`
 
-**File:** `crates/omega-core/src/traits.rs`
+**File:** `backend/crates/omega-core/src/traits.rs`
 
 **Purpose:** Defines the two core async trait interfaces that all providers and channels must implement.
 

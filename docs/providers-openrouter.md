@@ -2,7 +2,7 @@
 
 ## What Is This?
 
-The OpenRouter provider (`crates/omega-providers/src/openrouter.rs`) is intended to let Omega route AI requests through [OpenRouter](https://openrouter.ai), a proxy service that provides a single API endpoint to access models from Anthropic, OpenAI, Meta, Google, Mistral, and many others.
+The OpenRouter provider (`backend/crates/omega-providers/src/openrouter.rs`) is intended to let Omega route AI requests through [OpenRouter](https://openrouter.ai), a proxy service that provides a single API endpoint to access models from Anthropic, OpenAI, Meta, Google, Mistral, and many others.
 
 ## Current Status: Placeholder
 
@@ -105,7 +105,7 @@ Following Omega conventions, never store the actual API key in the config file -
 
 ### 5. Export the Module
 
-Update `crates/omega-providers/src/lib.rs` to make the module public:
+Update `backend/crates/omega-providers/src/lib.rs` to make the module public:
 
 ```rust
 pub mod openrouter;
@@ -134,7 +134,7 @@ At minimum, include a unit test verifying default construction and trait method 
 
 ## Reference Implementation
 
-The `ClaudeCodeProvider` in `crates/omega-providers/src/claude_code.rs` is the only fully implemented provider and serves as the reference. While it uses a subprocess (CLI) rather than HTTP, the pattern for constructing an `OutgoingMessage` with `MessageMetadata` and handling errors is directly applicable.
+The `ClaudeCodeProvider` in `backend/crates/omega-providers/src/claude_code.rs` is the only fully implemented provider and serves as the reference. While it uses a subprocess (CLI) rather than HTTP, the pattern for constructing an `OutgoingMessage` with `MessageMetadata` and handling errors is directly applicable.
 
 ## Crate Design Rules to Follow
 

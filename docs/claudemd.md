@@ -52,7 +52,7 @@ This is a system maintenance operation, not a user message — it bypasses the P
 
 ## File Locations
 
-- **Source:** `src/claudemd.rs`
+- **Source:** `backend/src/claudemd.rs`
 - **Template:** `prompts/WORKSPACE_CLAUDE.md` (bundled into binary via `include_str!`)
 - **Output:** `~/.omega/workspace/CLAUDE.md`
 

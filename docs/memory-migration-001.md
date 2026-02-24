@@ -2,7 +2,7 @@
 
 ## Path
 
-`crates/omega-memory/migrations/001_init.sql`
+`backend/crates/omega-memory/migrations/001_init.sql`
 
 ## Overview
 

@@ -4,7 +4,7 @@
 
 | Field       | Value                                                        |
 |-------------|--------------------------------------------------------------|
-| Path        | `crates/omega-channels/Cargo.toml`                           |
+| Path        | `backend/crates/omega-channels/Cargo.toml`                           |
 | Crate name  | `omega-channels`                                             |
 | Description | Messaging platform integrations for Omega                    |
 | Role        | Defines the build manifest for the `omega-channels` crate    |
@@ -30,7 +30,7 @@ The crate uses `workspace = true` for every dependency and all package metadata 
 
 | Dependency   | Workspace Ref          | Resolved Path           |
 |--------------|------------------------|-------------------------|
-| `omega-core` | `{ workspace = true }` | `crates/omega-core`     |
+| `omega-core` | `{ workspace = true }` | `backend/crates/omega-core`     |
 
 ### External Dependencies
 

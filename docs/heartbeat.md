@@ -195,8 +195,8 @@ The heartbeat is split across two files:
 
 | File | Responsibility |
 |------|---------------|
-| `src/gateway/heartbeat.rs` | Main heartbeat loop, clock alignment, global + per-project execution, prompt assembly (enrichment-first ordering) |
-| `src/gateway/heartbeat_helpers.rs` | Shared helpers: enrichment building, system prompt composition, marker processing, result delivery |
+| `backend/src/gateway/heartbeat.rs` | Main heartbeat loop, clock alignment, global + per-project execution, prompt assembly (enrichment-first ordering) |
+| `backend/src/gateway/heartbeat_helpers.rs` | Shared helpers: enrichment building, system prompt composition, marker processing, result delivery |
 
 The extraction of helpers keeps the main loop readable while concentrating reusable logic (enrichment assembly, Sonnet classification, parallel group execution) in a focused module.
 

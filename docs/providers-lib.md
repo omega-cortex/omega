@@ -9,7 +9,7 @@ Right now, only one provider is fully implemented: **Claude Code CLI**. The othe
 ## Crate Structure
 
 ```
-crates/omega-providers/src/
+backend/crates/omega-providers/src/
   lib.rs            # Crate root -- module declarations only
   claude_code.rs    # Claude Code CLI provider (complete)
   anthropic.rs      # Anthropic API (placeholder)
@@ -67,7 +67,7 @@ Follow these steps to turn one of the placeholder modules into a working provide
 
 ### 1. Create or edit the module file
 
-If you are implementing an existing placeholder (say `anthropic.rs`), open it and replace the single doc comment with your implementation. If you are adding a brand-new backend, create a new file like `my_provider.rs` in the `src/` directory.
+If you are implementing an existing placeholder (say `anthropic.rs`), open it and replace the single doc comment with your implementation. If you are adding a brand-new backend, create a new file like `my_provider.rs` in the `backend/src/` directory.
 
 ### 2. Define your provider struct
 
@@ -132,7 +132,7 @@ pub mod my_provider;
 
 ### 5. Add dependencies if needed
 
-If your provider needs an HTTP client, `reqwest` is already in `Cargo.toml`. For anything else, add it to `crates/omega-providers/Cargo.toml` using workspace dependencies where possible.
+If your provider needs an HTTP client, `reqwest` is already in `Cargo.toml`. For anything else, add it to `backend/crates/omega-providers/Cargo.toml` using workspace dependencies where possible.
 
 ### 6. Write tests
 

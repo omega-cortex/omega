@@ -1,7 +1,7 @@
 # Specification: Migration 013 — Multi-Lesson Support
 
 ## File Path
-`crates/omega-memory/migrations/013_multi_lessons.sql`
+`backend/crates/omega-memory/migrations/013_multi_lessons.sql`
 
 ## Purpose
 Remove the `UNIQUE(sender_id, domain, project)` constraint from the `lessons` table to allow multiple distinct rules per domain per project. Previously, only one rule could exist per (sender, domain, project), forcing the AI to overwrite previous lessons and use HEARTBEAT.md as a scratchpad instead.
@@ -55,4 +55,4 @@ All existing data is preserved. Existing lessons retain their `occurrences`, `cr
 - `process_markers()` calls `store_lesson()` — behavior is enhanced transparently
 
 ## Registration
-Entry `("013_multi_lessons", include_str!("../../migrations/013_multi_lessons.sql"))` in `crates/omega-memory/src/store/mod.rs` migrations array.
+Entry `("013_multi_lessons", include_str!("../../migrations/013_multi_lessons.sql"))` in `backend/crates/omega-memory/src/store/mod.rs` migrations array.

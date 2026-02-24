@@ -1,10 +1,10 @@
-# Technical Specification: omega-sandbox/src/lib.rs
+# Technical Specification: backend/crates/omega-sandbox/src/lib.rs
 
 ## File
 
 | Field | Value |
 |-------|-------|
-| **Path** | `crates/omega-sandbox/src/lib.rs` |
+| **Path** | `backend/crates/omega-sandbox/src/lib.rs` |
 | **Crate** | `omega-sandbox` |
 | **Role** | OS-level system protection for provider subprocesses |
 
@@ -155,12 +155,12 @@ Code-level enforcement via `is_read_blocked()` and `is_write_blocked()` provides
 
 | Integration | Location | Description |
 |-------------|----------|-------------|
-| Root Cargo.toml | `Cargo.toml` | Listed as workspace member and dependency |
-| main.rs | `src/main.rs` | Creates `~/.omega/workspace/`, passes `data_dir` to `build_provider()` |
-| Gateway | `src/gateway.rs` | No sandbox-specific state needed (protection is always on) |
+| Root Cargo.toml | `backend/Cargo.toml` | Listed as workspace member and dependency |
+| main.rs | `backend/src/main.rs` | Creates `~/.omega/workspace/`, passes `data_dir` to `build_provider()` |
+| Gateway | `backend/src/gateway.rs` | No sandbox-specific state needed (protection is always on) |
 | Provider (CLI) | `omega-providers::claude_code` | `ClaudeCodeProvider` calls `omega_sandbox::protected_command()` in `run_cli()` |
 | Provider (HTTP) | `omega-providers::tools` | `ToolExecutor` calls `omega_sandbox::is_write_blocked()` for write/edit/bash tools |
-| Binary | `Cargo.toml` (root) | Declared as a dependency of the binary |
+| Binary | `backend/Cargo.toml` (root) | Declared as a dependency of the binary |
 
 ## Protected Paths
 

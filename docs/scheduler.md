@@ -338,8 +338,8 @@ The scheduler is split across two files for clean separation of concerns:
 
 | File | Responsibility |
 |------|---------------|
-| `src/gateway/scheduler.rs` | Poll loop, reminder delivery, recurring task advancement |
-| `src/gateway/scheduler_action.rs` | Action task execution: provider invocation, context enrichment, outcome handling, retry logic |
+| `backend/src/gateway/scheduler.rs` | Poll loop, reminder delivery, recurring task advancement |
+| `backend/src/gateway/scheduler_action.rs` | Action task execution: provider invocation, context enrichment, outcome handling, retry logic |
 
 The scheduler loop in `scheduler.rs` calls `execute_action_task()` from `scheduler_action.rs` when it encounters a due action task. This extraction keeps the poll loop simple and concentrates the action-specific complexity (provider calls, marker processing, retry handling) in its own module.
 

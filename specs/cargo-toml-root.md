@@ -1,14 +1,14 @@
 # Cargo.toml (Root Workspace)
 
 ## Path
-`Cargo.toml`
+`backend/Cargo.toml`
 
 ## Purpose
 Root workspace manifest file for the Omega project. Defines a Cargo workspace containing 6 crates, establishes shared dependencies with explicit versions, and configures workspace-level settings that apply to all member crates. The root workspace also provides the main binary target (`omega`).
 
 ## Workspace Configuration
 - **Resolver Version:** `2` (modern dependency resolution)
-- **Members:** All crates under `crates/*` (glob pattern)
+- **Members:** All crates under `backend/crates/*` (glob pattern)
 
 ## Workspace-Level Package Settings
 These settings are inherited by all member crates unless explicitly overridden:
@@ -23,22 +23,22 @@ These settings are inherited by all member crates unless explicitly overridden:
 ## Workspace Members
 The following 6 crates are part of this workspace:
 
-1. **`omega-core`** (`crates/omega-core`)
+1. **`omega-core`** (`backend/crates/omega-core`)
    - Core types, traits, configuration structures, error handling, and prompt sanitization
 
-2. **`omega-providers`** (`crates/omega-providers`)
+2. **`omega-providers`** (`backend/crates/omega-providers`)
    - AI backend integrations (Claude Code CLI, Anthropic, OpenAI, Ollama, OpenRouter)
 
-3. **`omega-channels`** (`crates/omega-channels`)
+3. **`omega-channels`** (`backend/crates/omega-channels`)
    - Messaging platform implementations (Telegram, WhatsApp)
 
-4. **`omega-memory`** (`crates/omega-memory`)
+4. **`omega-memory`** (`backend/crates/omega-memory`)
    - SQLite-based storage layer, conversation history, and audit logging
 
-5. **`omega-skills`** (`crates/omega-skills`)
+5. **`omega-skills`** (`backend/crates/omega-skills`)
    - Plugin/skill system (planned phase)
 
-6. **`omega-sandbox`** (`crates/omega-sandbox`)
+6. **`omega-sandbox`** (`backend/crates/omega-sandbox`)
    - Secure command execution environment (planned phase)
 
 ## Workspace Dependencies
@@ -98,7 +98,7 @@ All dependencies are declared at workspace level for consistency and easier vers
 
 ### Binary Target
 - **Binary Name:** `omega`
-- **Entry Point:** `src/main.rs`
+- **Entry Point:** `backend/src/main.rs`
 
 ## Root Package Dependencies
 The root `omega` binary depends on all 6 internal crates and a curated selection of workspace dependencies:

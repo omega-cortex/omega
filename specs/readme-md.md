@@ -32,7 +32,7 @@
 
 ### 3. Quick Start (Lines 15-33)
 - **Content:** Two setup paths
-  - Automated: `cargo build --release` → `./target/release/omega init` → `./target/release/omega start`
+  - Automated: `cargo build --release` → `./backend/target/release/omega init` → `./backend/target/release/omega start`
   - Manual: Copy and edit `config.example.toml` → run binary
 - **Purpose:** Enables users to get started in minimal time
 - **Structure:** Bash code blocks with step-by-step instructions
@@ -153,11 +153,11 @@
 ```bash
 cargo build --release
 ```
-- Compiles optimized binary to `target/release/omega`
+- Compiles optimized binary to `backend/target/release/omega`
 
 ### Automated Setup
 ```bash
-./target/release/omega init
+./backend/target/release/omega init
 ```
 - Interactive wizard for:
   - Generating/configuring bot token
@@ -175,7 +175,7 @@ cp config.example.toml config.toml
 
 ### Run Omega
 ```bash
-./target/release/omega start
+./backend/target/release/omega start
 ```
 - Starts the gateway event loop
 - Connects to Telegram, begins processing messages
@@ -215,7 +215,7 @@ cargo build --release         # Production build
 - `config.example.toml`: Template configuration file
 - `config.toml`: User configuration (gitignored)
 - `com.omega-cortex.omega.plist`: macOS LaunchAgent manifest
-- `target/release/omega`: Compiled binary
+- `backend/target/release/omega`: Compiled binary
 
 ### License
 - **MIT License:** Permissive open-source license (MIT)

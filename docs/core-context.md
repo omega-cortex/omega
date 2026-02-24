@@ -1,7 +1,7 @@
 # Conversation Context
 
 ## Path
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-core/src/context.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-core/src/context.rs`
 
 ## What Is a Context?
 

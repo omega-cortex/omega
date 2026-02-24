@@ -1,7 +1,7 @@
 # Memory Store
 
 ## Path
-`/Users/isudoajl/ownCloud/Projects/omega/crates/omega-memory/src/store.rs`
+`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-memory/src/store.rs`
 
 ## What Is the Memory Store?
 

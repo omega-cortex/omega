@@ -11,7 +11,7 @@ The crate is currently in its early stages (Phase 4 of the project roadmap). It 
 The file lives at:
 
 ```
-crates/omega-skills/Cargo.toml
+backend/crates/omega-skills/Cargo.toml
 ```
 
 ## How Workspace Inheritance Works
@@ -185,7 +185,7 @@ If the dependency already exists in the workspace root (because another crate us
 
 **Step 2: Reference it from this crate.**
 
-In `crates/omega-skills/Cargo.toml`, add:
+In `backend/crates/omega-skills/Cargo.toml`, add:
 
 ```toml
 [dependencies]
