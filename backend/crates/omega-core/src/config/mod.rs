@@ -179,6 +179,7 @@ pub const SYSTEM_FACT_KEYS: &[&str] = &[
     "personality",
     "onboarding_stage",
     "pending_build_request",
+    "pending_discovery",
 ];
 
 /// Expand `~` to home directory.
