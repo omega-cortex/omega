@@ -1,5 +1,16 @@
-//! Multi-phase build orchestrator — decomposes build requests into 5 isolated phases.
+//! Multi-phase build orchestrator — decomposes build requests into 7 isolated phases
+//! using purpose-built agents via `claude --agent <name>`.
+//!
+//! Phase pipeline:
+//! 1. Analyst    — analyze request, produce ProjectBrief
+//! 2. Architect  — design architecture, create specs/
+//! 3. Test Writer — write failing tests (TDD red)
+//! 4. Developer  — implement to pass tests (TDD green)
+//! 5. QA         — validate quality (VERIFICATION: PASS/FAIL)
+//! 6. Reviewer   — audit code (REVIEW: PASS/FAIL)
+//! 7. Delivery   — docs, SKILL.md, build summary
 
+use super::builds_agents::AgentFilesGuard;
 use super::builds_parse::*;
 use super::Gateway;
 use omega_core::{
@@ -16,7 +27,7 @@ use tracing::warn;
 // ---------------------------------------------------------------------------
 
 impl Gateway {
-    /// Main build orchestrator — runs 5 sequential phases for a build request.
+    /// Main build orchestrator — runs 7 sequential agent phases for a build request.
     pub(super) async fn handle_build_request(
         &self,
         incoming: &IncomingMessage,
@@ -31,18 +42,12 @@ impl Gateway {
             .flatten()
             .unwrap_or_else(|| "English".to_string());
 
-        // Phase 1: Clarification
+        // Phase 1: Analyst — analyze build request and produce a brief.
         self.send_text(incoming, &phase_message(&user_lang, 1, "analyzing"))
             .await;
 
         let brief_text = match self
-            .run_build_phase(
-                PHASE_1_PROMPT,
-                &incoming.text,
-                &self.model_complex,
-                Some(vec![]),
-                Some(25),
-            )
+            .run_build_phase("build-analyst", &incoming.text, &self.model_complex, Some(25))
             .await
         {
             Ok(text) => text,
@@ -91,6 +96,22 @@ impl Gateway {
             return;
         }
 
+        // Write agent files to project workspace for --agent discovery.
+        let _agent_guard = match AgentFilesGuard::write(&project_dir).await {
+            Ok(guard) => guard,
+            Err(e) => {
+                if let Some(h) = typing_handle {
+                    h.abort();
+                }
+                self.send_text(
+                    incoming,
+                    &format!("Failed to write agent files: {e}"),
+                )
+                .await;
+                return;
+            }
+        };
+
         self.send_text(
             incoming,
             &format!(
@@ -100,20 +121,15 @@ impl Gateway {
         )
         .await;
 
-        // Phase 2: Architecture
-        let phase2_prompt = PHASE_2_TEMPLATE
-            .replace("{project_dir}", &project_dir_str)
-            .replace("{brief_text}", &brief_text)
-            .replace("{language}", &brief.language)
-            .replace("{project_name}", &brief.name);
+        // Phase 2: Architect — design architecture and create specs.
+        self.send_text(incoming, &phase_message(&user_lang, 2, "designing"))
+            .await;
+
+        let architect_prompt = format!(
+            "Project brief:\n{brief_text}\nBegin architecture design in {project_dir_str}."
+        );
         if let Err(e) = self
-            .run_build_phase(
-                &phase2_prompt,
-                "Begin architecture design.",
-                &self.model_complex,
-                None,
-                None,
-            )
+            .run_build_phase("build-architect", &architect_prompt, &self.model_complex, None)
             .await
         {
             if let Some(h) = typing_handle {
@@ -140,18 +156,39 @@ impl Gateway {
 
         self.send_text(incoming, "Architecture defined.").await;
 
-        // Phase 3: Implementation
-        let phase3_prompt = PHASE_3_TEMPLATE
-            .replace("{project_dir}", &project_dir_str)
-            .replace("{project_name}", &brief.name);
+        // Phase 3: Test Writer — write failing tests (TDD red phase).
+        self.send_text(incoming, &phase_message(&user_lang, 3, "testing"))
+            .await;
+
+        let test_writer_prompt = format!(
+            "Read specs/ in {project_dir_str} and write failing tests. Begin."
+        );
         if let Err(e) = self
-            .run_build_phase(
-                &phase3_prompt,
-                "Begin implementation.",
-                &self.model_fast,
-                None,
-                None,
+            .run_build_phase("build-test-writer", &test_writer_prompt, &self.model_fast, None)
+            .await
+        {
+            if let Some(h) = typing_handle {
+                h.abort();
+            }
+            self.send_text(
+                incoming,
+                &format!("Test writing phase failed: {e}. Partial results at {project_dir_str}"),
             )
+            .await;
+            return;
+        }
+
+        self.send_text(incoming, "Tests written.").await;
+
+        // Phase 4: Developer — implement to pass tests (TDD green phase).
+        self.send_text(incoming, &phase_message(&user_lang, 4, "implementing"))
+            .await;
+
+        let developer_prompt = format!(
+            "Read the tests and specs/ in {project_dir_str}. Implement until all tests pass. Begin."
+        );
+        if let Err(e) = self
+            .run_build_phase("build-developer", &developer_prompt, &self.model_fast, None)
             .await
         {
             if let Some(h) = typing_handle {
@@ -169,18 +206,15 @@ impl Gateway {
         self.send_text(incoming, "Implementation complete \u{2014} verifying...")
             .await;
 
-        // Phase 4: Verification (with one retry loop)
-        let phase4_prompt = PHASE_4_TEMPLATE
-            .replace("{project_dir}", &project_dir_str)
-            .replace("{language}", &brief.language);
+        // Phase 5: QA — validate quality (with one retry loop).
+        self.send_text(incoming, &phase_message(&user_lang, 5, "validating"))
+            .await;
+
+        let qa_prompt = format!(
+            "Validate the project in {project_dir_str}. Run build, lint, tests. Report VERIFICATION: PASS or FAIL."
+        );
         let verification = match self
-            .run_build_phase(
-                &phase4_prompt,
-                "Begin verification.",
-                &self.model_fast,
-                None,
-                None,
-            )
+            .run_build_phase("build-qa", &qa_prompt, &self.model_fast, None)
             .await
         {
             Ok(text) => parse_verification_result(&text),
@@ -192,21 +226,17 @@ impl Gateway {
                 self.send_text(incoming, "All checks passed.").await;
             }
             VerificationResult::Fail(reason) => {
-                // One retry: re-implement then re-verify.
+                // One retry: re-invoke developer with failure reason, then re-run QA.
                 self.send_text(incoming, "Verification found issues \u{2014} fixing...")
                     .await;
 
-                let retry_prompt = PHASE_3_RETRY_TEMPLATE
-                    .replace("{project_dir}", &project_dir_str)
-                    .replace("{failure_reason}", &reason);
+                let retry_developer_prompt = format!(
+                    "Read the tests and specs/ in {project_dir_str}. \
+                     The previous verification found these issues:\n{reason}\n\
+                     Fix the issues and ensure all tests pass. Begin."
+                );
                 if let Err(e) = self
-                    .run_build_phase(
-                        &retry_prompt,
-                        "Fix the verification issues.",
-                        &self.model_fast,
-                        None,
-                        None,
-                    )
+                    .run_build_phase("build-developer", &retry_developer_prompt, &self.model_fast, None)
                     .await
                 {
                     if let Some(h) = typing_handle {
@@ -223,13 +253,7 @@ impl Gateway {
                 }
 
                 let retry_verification = match self
-                    .run_build_phase(
-                        &phase4_prompt,
-                        "Re-verify after fixes.",
-                        &self.model_fast,
-                        None,
-                        None,
-                    )
+                    .run_build_phase("build-qa", &qa_prompt, &self.model_fast, None)
                     .await
                 {
                     Ok(text) => parse_verification_result(&text),
@@ -261,23 +285,34 @@ impl Gateway {
             }
         }
 
-        // Phase 5: Delivery
+        // Phase 6: Reviewer — audit code quality.
+        self.send_text(incoming, &phase_message(&user_lang, 6, "reviewing"))
+            .await;
+
+        let reviewer_prompt = format!(
+            "Review the code in {project_dir_str} for bugs, security, quality. Report REVIEW: PASS or FAIL."
+        );
+        if let Err(e) = self
+            .run_build_phase("build-reviewer", &reviewer_prompt, &self.model_fast, None)
+            .await
+        {
+            // Reviewer failure is non-fatal — continue to delivery with a warning.
+            warn!("Reviewer phase failed: {e}");
+        }
+
+        // Phase 7: Delivery — docs, SKILL.md, build summary.
+        self.send_text(incoming, &phase_message(&user_lang, 7, "delivering"))
+            .await;
+
         let skills_dir = PathBuf::from(shellexpand(&self.data_dir)).join("skills");
         let skills_dir_str = skills_dir.display().to_string();
-        let phase5_prompt = PHASE_5_TEMPLATE
-            .replace("{project_dir}", &project_dir_str)
-            .replace("{skills_dir}", &skills_dir_str)
-            .replace("{project_name}", &brief.name)
-            .replace("{language}", &brief.language);
+        let delivery_prompt = format!(
+            "Create docs and skill file for {} in {project_dir_str}. Skills dir: {skills_dir_str}.",
+            brief.name
+        );
 
         let delivery_text = match self
-            .run_build_phase(
-                &phase5_prompt,
-                "Begin delivery.",
-                &self.model_fast,
-                None,
-                None,
-            )
+            .run_build_phase("build-delivery", &delivery_prompt, &self.model_fast, None)
             .await
         {
             Ok(text) => text,
@@ -336,21 +371,19 @@ impl Gateway {
 
     /// Generic phase runner with retry logic (3 attempts, 2s delay).
     ///
-    /// The working directory is communicated to the AI via the system prompt text
-    /// (not via OS-level cwd). The provider runs in `~/.omega/workspace/` and the
-    /// AI uses the path in the prompt to operate on the correct project directory.
+    /// Each phase gets a fresh Context with `agent_name` set and no session_id.
+    /// The agent file provides the system prompt; only the user message is sent via `-p`.
     async fn run_build_phase(
         &self,
-        system_prompt: &str,
+        agent_name: &str,
         user_message: &str,
         model: &str,
-        allowed_tools: Option<Vec<String>>,
         max_turns: Option<u32>,
     ) -> Result<String, String> {
         let mut ctx = Context::new(user_message);
-        ctx.system_prompt = system_prompt.to_string();
+        ctx.system_prompt = String::new();
+        ctx.agent_name = Some(agent_name.to_string());
         ctx.model = Some(model.to_string());
-        ctx.allowed_tools = allowed_tools;
         if let Some(mt) = max_turns {
             ctx.max_turns = Some(mt);
         }
@@ -359,14 +392,14 @@ impl Gateway {
             match self.provider.complete(&ctx).await {
                 Ok(resp) => return Ok(resp.text),
                 Err(e) => {
-                    warn!("build phase attempt {attempt}/3 failed: {e}");
+                    warn!("build phase '{agent_name}' attempt {attempt}/3 failed: {e}");
                     if attempt < 3 {
                         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     }
                 }
             }
         }
-        Err("phase failed after 3 attempts".to_string())
+        Err(format!("phase '{agent_name}' failed after 3 attempts"))
     }
 
     /// Log an audit entry for a build operation.
