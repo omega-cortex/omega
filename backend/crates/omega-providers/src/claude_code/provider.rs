@@ -65,6 +65,7 @@ impl Provider for ClaudeCodeProvider {
                 effective_model,
                 tools_disabled,
                 context.session_id.as_deref(),
+                context.agent_name.as_deref(),
             )
             .await;
 

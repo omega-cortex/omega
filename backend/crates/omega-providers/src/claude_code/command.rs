@@ -6,10 +6,13 @@ use tokio::process::Command;
 use tracing::debug;
 
 impl ClaudeCodeProvider {
-    /// Run the claude CLI subprocess with a timeout.
+    /// Build the CLI argument list for `run_cli()`.
+    ///
+    /// Extracted as a pure function so argument construction is testable
+    /// without subprocess execution. Returns `Vec<String>` of CLI arguments
+    /// (excluding the binary name).
     #[allow(clippy::too_many_arguments)]
-    pub(super) async fn run_cli(
-        &self,
+    pub(super) fn build_run_cli_args(
         prompt: &str,
         extra_allowed_tools: &[String],
         max_turns: u32,
@@ -17,24 +20,41 @@ impl ClaudeCodeProvider {
         model: &str,
         context_disabled_tools: bool,
         session_id: Option<&str>,
-    ) -> Result<std::process::Output, OmegaError> {
-        let mut cmd = self.base_command();
+        agent_name: Option<&str>,
+    ) -> Vec<String> {
+        let mut args = Vec::new();
 
-        cmd.arg("-p")
-            .arg(prompt)
-            .arg("--output-format")
-            .arg("json")
-            .arg("--max-turns")
-            .arg(max_turns.to_string());
+        // Agent mode: --agent <name> before -p.
+        // When agent_name is set, skip --resume (agent mode does not use sessions).
+        let use_agent = agent_name.map_or(false, |n| !n.is_empty());
+
+        if use_agent {
+            args.push("--agent".to_string());
+            args.push(agent_name.unwrap().to_string());
+        }
+
+        args.push("-p".to_string());
+        args.push(prompt.to_string());
+
+        args.push("--output-format".to_string());
+        args.push("json".to_string());
+
+        args.push("--max-turns".to_string());
+        args.push(max_turns.to_string());
 
         // Model override.
         if !model.is_empty() {
-            cmd.arg("--model").arg(model);
+            args.push("--model".to_string());
+            args.push(model.to_string());
         }
 
         // Session continuity: --resume resumes an existing conversation by session ID.
-        if let Some(sid) = session_id {
-            cmd.arg("--resume").arg(sid);
+        // Skipped when agent_name is set (agent mode does not use sessions).
+        if !use_agent {
+            if let Some(sid) = session_id {
+                args.push("--resume".to_string());
+                args.push(sid.to_string());
+            }
         }
 
         // Tool permissions: In `-p` (non-interactive) mode, Claude Code
@@ -49,23 +69,57 @@ impl ClaudeCodeProvider {
         // - `allowed_tools` non-empty = explicit whitelist → pre-approve
         //   only those tools (plus any MCP patterns).
         if context_disabled_tools {
-            cmd.arg("--allowedTools").arg("");
+            args.push("--allowedTools".to_string());
+            args.push(String::new());
         } else if allowed_tools.is_empty() {
-            cmd.arg("--dangerously-skip-permissions");
+            args.push("--dangerously-skip-permissions".to_string());
             // MCP tool patterns still needed so Claude knows about them.
             for tool in extra_allowed_tools {
-                cmd.arg("--allowedTools").arg(tool);
+                args.push("--allowedTools".to_string());
+                args.push(tool.clone());
             }
         } else {
             for tool in allowed_tools {
-                cmd.arg("--allowedTools").arg(tool);
+                args.push("--allowedTools".to_string());
+                args.push(tool.clone());
             }
             for tool in extra_allowed_tools {
-                cmd.arg("--allowedTools").arg(tool);
+                args.push("--allowedTools".to_string());
+                args.push(tool.clone());
             }
         }
 
-        debug!("executing: claude -p <prompt> --output-format json");
+        args
+    }
+
+    /// Run the claude CLI subprocess with a timeout.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) async fn run_cli(
+        &self,
+        prompt: &str,
+        extra_allowed_tools: &[String],
+        max_turns: u32,
+        allowed_tools: &[String],
+        model: &str,
+        context_disabled_tools: bool,
+        session_id: Option<&str>,
+        agent_name: Option<&str>,
+    ) -> Result<std::process::Output, OmegaError> {
+        let mut cmd = self.base_command();
+
+        let args = Self::build_run_cli_args(
+            prompt,
+            extra_allowed_tools,
+            max_turns,
+            allowed_tools,
+            model,
+            context_disabled_tools,
+            session_id,
+            agent_name,
+        );
+        cmd.args(&args);
+
+        debug!("executing: claude {}", if agent_name.is_some() { "--agent <name> -p <prompt>" } else { "-p <prompt>" });
         self.execute_with_timeout(cmd, "claude CLI").await
     }
 
