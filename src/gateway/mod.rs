@@ -285,9 +285,9 @@ impl Gateway {
 
         {
             let mut active = self.active_senders.lock().await;
-            if active.contains_key(&sender_key) {
+            if let Some(buf) = active.get_mut(&sender_key) {
                 // Sender already has an active call — buffer this message.
-                active.get_mut(&sender_key).unwrap().push(incoming.clone());
+                buf.push(incoming.clone());
                 info!(
                     "buffered message from {} (active call in progress)",
                     sender_key

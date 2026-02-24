@@ -104,12 +104,16 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
 
 ---
 
-### `build_provider(cfg: &config::Config, workspace_path: Option<PathBuf>) -> anyhow::Result<Box<dyn Provider>>`
-**Purpose:** Factory function to instantiate the configured provider from config.
+### `build_provider(cfg: &config::Config, workspace_path: &std::path::Path) -> anyhow::Result<(Box<dyn Provider>, String, String)>`
+**Location:** `src/provider_builder.rs` (extracted from `main.rs` for clarity).
+
+**Purpose:** Factory function to instantiate the configured provider from config, returning the provider and its model pair (fast, complex).
 
 **Parameters:**
 - `cfg: &config::Config` — Parsed configuration object
-- `workspace_path: Option<PathBuf>` — Optional workspace directory path passed to the provider for sandbox confinement
+- `workspace_path: &std::path::Path` — Workspace directory path passed to the provider for sandbox confinement
+
+**Returns:** `(Box<dyn Provider>, String, String)` — The provider instance, model_fast name, and model_complex name. For Claude Code, fast and complex differ (Sonnet vs Opus). For HTTP providers, both are set to the single configured model.
 
 **Returns:**
 - `anyhow::Result<Box<dyn Provider>>` — Trait object or error
@@ -236,11 +240,11 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
    - Resolve the expanded `data_dir` path (e.g., `~/.omega`)
    - Create `{data_dir}/workspace/` directory if it does not exist via `std::fs::create_dir_all()`
    - This directory serves as the sandbox working directory for the provider
-   - Compute `workspace_path` as `Option<PathBuf>` for passing to `build_provider()`
+   - Compute `workspace_path` as `PathBuf` for passing to `build_provider()`
 
 2. **Build provider**
-   - Call `build_provider(&cfg, workspace_path)` to instantiate with optional workspace directory
-   - Wrap in Arc (atomic reference counting) for thread-safe sharing
+   - Call `build_provider(&cfg, &workspace_path)` to instantiate the provider and get `(provider, model_fast, model_complex)`
+   - Wrap provider in Arc (atomic reference counting) for thread-safe sharing
 
 3. **Verify provider availability**
    - Call `provider.is_available().await`
@@ -306,7 +310,8 @@ Start command requires both provider and at least one channel.
 
 ### Arc<dyn Trait> Pattern
 ```rust
-let provider: Arc<dyn omega_core::traits::Provider> = Arc::from(build_provider(&cfg)?);
+let (provider, model_fast, model_complex) = build_provider(&cfg, &workspace_path)?;
+let provider: Arc<dyn omega_core::traits::Provider> = Arc::from(provider);
 let mut channels: HashMap<String, Arc<dyn omega_core::traits::Channel>> = HashMap::new();
 ```
 Enables thread-safe shared ownership across async tasks. Each channel and provider task can clone Arc without copying underlying data.
@@ -372,7 +377,7 @@ Passes config to memory store (database path, schema version, etc.).
 | `Cli` | Struct | Argument parser definition |
 | `Commands` | Enum | Command variants (Start, Status, Ask, Init) |
 | `main()` | Async Fn | Entry point, orchestrator |
-| `build_provider()` | Fn | Provider factory |
+| `build_provider()` | Fn | Provider factory (in `src/provider_builder.rs`) |
 | Root Guard | Check | Prevents execution as root (unsafe libc call) |
 | Tracing Init | Logger | Structured logging setup |
 | Gateway Loop | Async | Event processor for Start command |

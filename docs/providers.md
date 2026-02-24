@@ -11,7 +11,7 @@ Omega supports 6 AI providers. Set `provider.default` in `config.toml` to switch
 | `openai` | Bearer token | HTTP | `gpt-4o` |
 | `anthropic` | x-api-key header | HTTP | `claude-sonnet-4-20250514` |
 | `openrouter` | Bearer token | HTTP | (namespaced, e.g. `anthropic/claude-sonnet-4`) |
-| `gemini` | URL query param | HTTP | `gemini-2.0-flash` |
+| `gemini` | x-goog-api-key header | HTTP | `gemini-2.0-flash` |
 
 ## Claude Code (Default)
 

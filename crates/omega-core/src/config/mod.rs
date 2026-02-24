@@ -168,6 +168,18 @@ impl Default for ApiConfig {
     }
 }
 
+/// System-managed fact keys that only bot commands may write.
+///
+/// Used to filter system facts from user profiles, protect them during `/purge`,
+/// and reject them in `is_valid_fact()` validation.
+pub const SYSTEM_FACT_KEYS: &[&str] = &[
+    "welcomed",
+    "preferred_language",
+    "active_project",
+    "personality",
+    "onboarding_stage",
+];
+
 /// Expand `~` to home directory.
 pub fn shellexpand(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/") {

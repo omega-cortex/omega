@@ -8,14 +8,7 @@ use omega_core::{
     message::IncomingMessage,
 };
 
-/// System fact keys filtered out of the user profile.
-const SYSTEM_FACT_KEYS: &[&str] = &[
-    "welcomed",
-    "preferred_language",
-    "active_project",
-    "personality",
-    "onboarding_stage",
-];
+use omega_core::config::SYSTEM_FACT_KEYS;
 
 /// Identity fact keys — shown first in the user profile.
 const IDENTITY_KEYS: &[&str] = &["name", "preferred_name", "pronouns"];

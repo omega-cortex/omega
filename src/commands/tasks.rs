@@ -74,14 +74,7 @@ pub(super) async fn handle_forget(
     }
 }
 
-/// System fact keys preserved by /purge.
-const SYSTEM_FACT_KEYS: &[&str] = &[
-    "welcomed",
-    "preferred_language",
-    "active_project",
-    "personality",
-    "onboarding_stage",
-];
+use omega_core::config::SYSTEM_FACT_KEYS;
 
 /// Handle /purge — delete all non-system facts, giving the user a clean slate.
 pub(super) async fn handle_purge(store: &Store, sender_id: &str, lang: &str) -> String {

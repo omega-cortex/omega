@@ -160,14 +160,7 @@ pub(super) fn kw_match(msg_lower: &str, keywords: &[&str]) -> bool {
     keywords.iter().any(|kw| msg_lower.contains(kw))
 }
 
-/// System-managed fact keys that only bot commands may write.
-pub(super) const SYSTEM_FACT_KEYS: &[&str] = &[
-    "welcomed",
-    "preferred_language",
-    "active_project",
-    "personality",
-    "onboarding_stage",
-];
+pub(super) use omega_core::config::SYSTEM_FACT_KEYS;
 
 /// Validate a fact key/value before storing. Rejects junk patterns.
 pub(super) fn is_valid_fact(key: &str, value: &str) -> bool {

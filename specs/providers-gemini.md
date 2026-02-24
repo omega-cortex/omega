@@ -11,7 +11,7 @@
 
 ## Purpose
 
-Calls the Google Gemini `generateContent` endpoint. Authentication via URL query parameter.
+Calls the Google Gemini `generateContent` endpoint. Authentication via `x-goog-api-key` HTTP header.
 
 ## Struct: `GeminiProvider`
 
@@ -33,14 +33,14 @@ pub fn from_config(api_key: String, model: String, workspace_path: Option<PathBu
 |--------|----------|
 | `name()` | Returns `"gemini"` |
 | `requires_api_key()` | Returns `true` |
-| `complete()` | POST `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}` |
-| `is_available()` | GET `.../models?key={key}` → checks for 200 |
+| `complete()` | POST `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` with `x-goog-api-key` header |
+| `is_available()` | GET `.../models` with `x-goog-api-key` header → checks for 200 |
 
 ## API Details
 
 ### Authentication
 
-API key passed as URL query parameter `?key={api_key}` (not in headers).
+API key passed as `x-goog-api-key` HTTP header (not in URL query parameters). This avoids leaking the key in server logs and URL referrers.
 
 ### Role Mapping
 

@@ -275,7 +275,7 @@ Each file implements the `Provider` trait for a different AI service:
 | `openai.rs` | OpenAI API | HTTP to ChatCompletions (Bearer token, also works with any OpenAI-compatible endpoint) |
 | `ollama.rs` | Ollama | Local HTTP to `{base_url}/api/chat` (no API key) |
 | `openrouter.rs` | OpenRouter | Reuses OpenAI types, `openrouter.ai/api/v1` endpoint, namespaced models |
-| `gemini.rs` | Gemini | HTTP to `generativelanguage.googleapis.com/v1beta` (URL query param auth, assistant->model role mapping) |
+| `gemini.rs` | Gemini | HTTP to `generativelanguage.googleapis.com/v1beta` (x-goog-api-key header auth, assistant->model role mapping) |
 
 Claude Code CLI is the default zero-config provider. It inherits the user's local Claude authentication, so there's nothing to set up.
 

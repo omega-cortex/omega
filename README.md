@@ -114,7 +114,7 @@ All markers are extracted, processed, and stripped before the response reaches t
 | `openai` | HTTP | Bearer token | Works with any OpenAI-compatible endpoint |
 | `ollama` | HTTP | None | Local models (llama3.1, mistral, etc.) |
 | `openrouter` | HTTP | Bearer token | Access 100+ models via single API |
-| `gemini` | HTTP | URL query param | Google Gemini API |
+| `gemini` | HTTP | x-goog-api-key header | Google Gemini API |
 
 All HTTP providers include an agentic tool-execution loop (bash, read, write, edit) and MCP client support.
 

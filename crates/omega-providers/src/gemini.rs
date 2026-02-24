@@ -1,6 +1,6 @@
 //! Google Gemini API provider with tool-execution loop.
 //!
-//! Calls the Gemini `generateContent` endpoint. Auth via URL query param.
+//! Calls the Gemini `generateContent` endpoint. Auth via `x-goog-api-key` header.
 //! Uses `functionCall` / `functionResponse` parts for tool calling.
 
 use async_trait::async_trait;
@@ -210,15 +210,13 @@ impl Provider for GeminiProvider {
             tools: None,
         };
 
-        let url = format!(
-            "{GEMINI_BASE_URL}/models/{effective_model}:generateContent?key={}",
-            self.api_key
-        );
+        let url = format!("{GEMINI_BASE_URL}/models/{effective_model}:generateContent");
         debug!("gemini: POST models/{effective_model}:generateContent (no tools)");
 
         let resp = self
             .client
             .post(&url)
+            .header("x-goog-api-key", &self.api_key)
             .json(&body)
             .send()
             .await
@@ -259,8 +257,14 @@ impl Provider for GeminiProvider {
             warn!("gemini: no API key configured");
             return false;
         }
-        let url = format!("{GEMINI_BASE_URL}/models?key={}", self.api_key);
-        match self.client.get(&url).send().await {
+        let url = format!("{GEMINI_BASE_URL}/models");
+        match self
+            .client
+            .get(&url)
+            .header("x-goog-api-key", &self.api_key)
+            .send()
+            .await
+        {
             Ok(resp) => resp.status().is_success(),
             Err(e) => {
                 warn!("gemini not available: {e}");
@@ -313,15 +317,13 @@ impl GeminiProvider {
                 tools: tools.clone(),
             };
 
-            let url = format!(
-                "{GEMINI_BASE_URL}/models/{model}:generateContent?key={}",
-                self.api_key
-            );
+            let url = format!("{GEMINI_BASE_URL}/models/{model}:generateContent");
             debug!("gemini: POST models/{model}:generateContent turn={turn}");
 
             let resp = self
                 .client
                 .post(&url)
+                .header("x-goog-api-key", &self.api_key)
                 .json(&body)
                 .send()
                 .await

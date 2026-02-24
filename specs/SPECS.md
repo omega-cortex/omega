@@ -8,19 +8,16 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 
 ## Specification Files
 
-### Milestone 1: Root / Workspace
-- [workspace.md](workspace.md) — Cargo workspace, dependencies, config, gitignore, license, and Claude integration
-
 ### Milestone 2: Binary (`src/`)
-- [binary-main.md](binary-main.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap
+- [src-main-rs.md](src-main-rs.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap
 - [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`src/gateway/`) — 12-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, scheduler_action, heartbeat, heartbeat_helpers, summarizer, keywords, tests
 - [src-markers-rs.md](src-markers-rs.md) — Marker extraction, parsing, stripping (40+ functions extracted from gateway)
 - [src-task-confirmation-rs.md](src-task-confirmation-rs.md) — Task scheduling confirmation (anti-hallucination, duplicate detection, localized confirmation messages)
-- [binary-commands.md](binary-commands.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, purge, help)
+- [src-commands-rs.md](src-commands-rs.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, purge, help)
 - [src-init-rs.md](src-init-rs.md) — Setup wizard (interactive + non-interactive modes), config generation
 - [src-init-wizard-rs.md](src-init-wizard-rs.md) — **New** — Interactive-only init helpers (browser detection, Anthropic auth, WhatsApp QR, Google OAuth)
-- [binary-selfcheck.md](binary-selfcheck.md) — Startup health checks
-- [binary-service.md](binary-service.md) — OS-aware service management (macOS LaunchAgent / Linux systemd)
+- [src-selfcheck-rs.md](src-selfcheck-rs.md) — Startup health checks
+- [src-service-rs.md](src-service-rs.md) — OS-aware service management (macOS LaunchAgent / Linux systemd)
 - [src-claudemd-rs.md](src-claudemd-rs.md) — Workspace CLAUDE.md maintenance (init + periodic refresh via claude CLI subprocess)
 - [src-api-rs.md](src-api-rs.md) — HTTP API server (axum, health check, WhatsApp QR pairing for SaaS dashboards)
 
@@ -40,7 +37,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [providers-openai.md](providers-openai.md) — OpenAI-compatible provider (HTTP, Bearer auth, exports shared types)
 - [providers-openrouter.md](providers-openrouter.md) — OpenRouter proxy provider (reuses OpenAI types)
 - [providers-anthropic.md](providers-anthropic.md) — Anthropic Messages API provider (HTTP, x-api-key header)
-- [providers-gemini.md](providers-gemini.md) — Google Gemini API provider (HTTP, URL query param auth)
+- [providers-gemini.md](providers-gemini.md) — Google Gemini API provider (HTTP, x-goog-api-key header auth)
 - [providers-mcp-client.md](providers-mcp-client.md) — MCP client over stdio (JSON-RPC 2.0, tool discovery, tool calling)
 - [providers-tools.md](providers-tools.md) — Shared tool executor (bash/read/write/edit + MCP routing + sandbox enforcement)
 
@@ -53,7 +50,6 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [memory-lib.md](memory-lib.md) — Memory crate overview
 - [memory-store.md](memory-store.md) — SQLite persistent store, conversations, facts, context building
 - [memory-audit.md](memory-audit.md) — Audit logging system
-- [memory-migrations.md](memory-migrations.md) — Database schema and migration system
 - [memory-migration-004.md](memory-migration-004.md) — FTS5 cross-conversation recall migration
 - [memory-migration-005.md](memory-migration-005.md) — Scheduled tasks table migration
 - [memory-migration-006.md](memory-migration-006.md) — Limitations table (historical — originally for self-introspection, now used by SKILL_IMPROVE)
