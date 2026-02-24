@@ -225,6 +225,21 @@ impl Gateway {
                 self.handle_build_request(&build_incoming, typing_handle)
                     .await;
                 return;
+            } else if is_build_cancelled(&clean_incoming.text) {
+                info!("[{}] build explicitly CANCELLED by user", incoming.channel);
+                let user_lang = self
+                    .memory
+                    .get_fact(&incoming.sender_id, "preferred_language")
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "English".to_string());
+                if let Some(h) = typing_handle {
+                    h.abort();
+                }
+                self.send_text(&incoming, build_cancelled_message(&user_lang))
+                    .await;
+                return;
             } else {
                 info!(
                     "[{}] build NOT confirmed — proceeding with normal pipeline",

@@ -262,6 +262,69 @@ pub(super) fn is_build_confirmed(msg: &str) -> bool {
     BUILD_CONFIRM_KW.iter().any(|kw| normalized == *kw)
 }
 
+/// Explicit cancellation words — immediately close the confirmation window.
+pub(super) const BUILD_CANCEL_KW: &[&str] = &[
+    // English
+    "no",
+    "nah",
+    "nope",
+    "n",
+    "cancel",
+    "stop",
+    "nevermind",
+    "never mind",
+    // Spanish
+    "no",
+    "cancelar",
+    "olvídalo",
+    "olvidalo",
+    // Portuguese
+    "não",
+    "nao",
+    "cancelar",
+    "esquece",
+    // French
+    "non",
+    "annuler",
+    "laisse tomber",
+    // German
+    "nein",
+    "abbrechen",
+    "lass es",
+    // Italian
+    "no",
+    "annulla",
+    "lascia stare",
+    // Dutch
+    "nee",
+    "annuleer",
+    "laat maar",
+    // Russian
+    "нет",
+    "отмена",
+    "не надо",
+];
+
+/// Check if the message is an explicit build cancellation.
+pub(super) fn is_build_cancelled(msg: &str) -> bool {
+    let normalized = msg.trim().to_lowercase();
+    BUILD_CANCEL_KW.iter().any(|kw| normalized == *kw)
+}
+
+/// Localized cancellation confirmation.
+pub(super) fn build_cancelled_message(lang: &str) -> &'static str {
+    match lang {
+        "Spanish" => "Construcción cancelada.",
+        "Portuguese" => "Construção cancelada.",
+        "French" => "Construction annulée.",
+        "German" => "Build abgebrochen.",
+        "Italian" => "Costruzione annullata.",
+        "Dutch" => "Build geannuleerd.",
+        "Russian" => "Сборка отменена.",
+        _ => "Build cancelled.",
+    }
+}
+
 /// Maximum seconds a pending build request stays valid. After this, the user
 /// must re-trigger the build keyword.
 pub(super) const BUILD_CONFIRM_TTL_SECS: i64 = 120;
@@ -642,6 +705,62 @@ mod tests {
         let ru = build_confirm_message("Russian", "создай скрейпер");
         assert!(ru.contains("запрос на сборку"));
         assert!(ru.contains("*да*"));
+    }
+
+    #[test]
+    fn test_build_cancel_all_languages() {
+        // English
+        assert!(is_build_cancelled("no"));
+        assert!(is_build_cancelled("No")); // case insensitive
+        assert!(is_build_cancelled("  nope  ")); // trimmed
+        assert!(is_build_cancelled("cancel"));
+        assert!(is_build_cancelled("nevermind"));
+        assert!(is_build_cancelled("never mind"));
+        // Spanish
+        assert!(is_build_cancelled("cancelar"));
+        assert!(is_build_cancelled("olvídalo"));
+        assert!(is_build_cancelled("olvidalo"));
+        // Portuguese
+        assert!(is_build_cancelled("não"));
+        assert!(is_build_cancelled("nao"));
+        assert!(is_build_cancelled("esquece"));
+        // French
+        assert!(is_build_cancelled("non"));
+        assert!(is_build_cancelled("annuler"));
+        assert!(is_build_cancelled("laisse tomber"));
+        // German
+        assert!(is_build_cancelled("nein"));
+        assert!(is_build_cancelled("abbrechen"));
+        // Italian
+        assert!(is_build_cancelled("annulla"));
+        assert!(is_build_cancelled("lascia stare"));
+        // Dutch
+        assert!(is_build_cancelled("nee"));
+        assert!(is_build_cancelled("laat maar"));
+        // Russian
+        assert!(is_build_cancelled("нет"));
+        assert!(is_build_cancelled("отмена"));
+        assert!(is_build_cancelled("не надо"));
+    }
+
+    #[test]
+    fn test_build_cancel_rejects_non_cancellations() {
+        assert!(!is_build_cancelled("yes"));
+        assert!(!is_build_cancelled("no thanks but maybe later"));
+        assert!(!is_build_cancelled("build me a tool"));
+        assert!(!is_build_cancelled(""));
+    }
+
+    #[test]
+    fn test_build_cancelled_message_all_languages() {
+        assert!(build_cancelled_message("English").contains("cancelled"));
+        assert!(build_cancelled_message("Spanish").contains("cancelada"));
+        assert!(build_cancelled_message("Portuguese").contains("cancelada"));
+        assert!(build_cancelled_message("French").contains("annulée"));
+        assert!(build_cancelled_message("German").contains("abgebrochen"));
+        assert!(build_cancelled_message("Italian").contains("annullata"));
+        assert!(build_cancelled_message("Dutch").contains("geannuleerd"));
+        assert!(build_cancelled_message("Russian").contains("отменена"));
     }
 
     #[test]
