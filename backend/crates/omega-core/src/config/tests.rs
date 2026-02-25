@@ -474,3 +474,19 @@ fn test_patch_heartbeat_interval_preserves_comments() {
 
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+// ===================================================================
+// REQ-BDP-010 (Must): SYSTEM_FACT_KEYS contains "pending_discovery"
+// ===================================================================
+
+// Requirement: REQ-BDP-010 (Must)
+// Acceptance: "pending_discovery" is in SYSTEM_FACT_KEYS so users cannot overwrite it
+#[test]
+fn test_system_fact_keys_contains_pending_discovery() {
+    assert!(
+        SYSTEM_FACT_KEYS.contains(&"pending_discovery"),
+        "SYSTEM_FACT_KEYS must contain 'pending_discovery' to protect it from user writes. \
+         Current keys: {:?}",
+        SYSTEM_FACT_KEYS
+    );
+}

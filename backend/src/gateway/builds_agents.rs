@@ -5,7 +5,7 @@
 //! the build workspace's `.claude/agents/` directory at runtime.
 //!
 //! Implementation contract (defined by tests below):
-//! - 7 agent constants: BUILD_ANALYST_AGENT through BUILD_DELIVERY_AGENT
+//! - 8 agent constants: BUILD_DISCOVERY_AGENT through BUILD_DELIVERY_AGENT
 //! - BUILD_AGENTS: &[(&str, &str)] mapping names to content
 //! - AgentFilesGuard: RAII struct that writes on creation, removes on drop
 //!

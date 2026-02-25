@@ -8,17 +8,37 @@ description: Add a feature to an existing project. Accepts optional --scope to l
 The user wants to add functionality to existing code.
 Optional: `--scope="area"` to limit which part of the codebase is analyzed.
 
+## Step 0: Discovery (conditional)
+**Evaluate whether discovery is needed.** Invoke the `discovery` subagent if the feature description is vague or underspecified — for example:
+- "add a dashboard" (what kind? for whom? showing what?)
+- "we need notifications" (what triggers them? how are they delivered?)
+- "improve the user experience" (which part? what's wrong with it?)
+
+**Skip discovery if** the feature is specific and well-scoped:
+- "add CSV export to the contacts list page"
+- "add OAuth2 login with Google"
+- "add rate limiting to the /api/search endpoint at 100 req/min"
+
+If invoking discovery:
+1. The discovery agent scans the project structure to understand what exists
+2. It has a conversation with the user to clarify the feature concept
+3. It produces the Idea Brief at `docs/.workflow/idea-brief.md`
+4. The Analyst then uses the Idea Brief as input
+
+If skipping discovery, proceed directly to Step 1.
+
 ## Step 1: Analyst
 Invoke the `analyst` subagent. It MUST:
-1. Read `specs/SPECS.md` index (not all files)
-2. If `--scope` provided, read only that area's specs and code
-3. If no `--scope`, determine minimal scope from the task description
-4. Flag any drift between code and specs/docs
-5. Perform impact analysis — what existing code/behavior is affected
-6. Ask questions considering the current architecture
-7. Generate requirements with IDs, MoSCoW priorities, acceptance criteria, and user stories
-8. Build the traceability matrix
-9. Explicitly state the scope in the requirements document
+1. Read `docs/.workflow/idea-brief.md` if it exists (from discovery phase)
+2. Read `specs/SPECS.md` index (not all files)
+3. If `--scope` provided, read only that area's specs and code
+4. If no `--scope`, determine minimal scope from the task description
+5. Flag any drift between code and specs/docs
+6. Perform impact analysis — what existing code/behavior is affected
+7. Ask questions considering the current architecture
+8. Generate requirements with IDs, MoSCoW priorities, acceptance criteria, and user stories
+9. Build the traceability matrix
+10. Explicitly state the scope in the requirements document
 
 Save output to `specs/[domain]-requirements.md` and update `specs/SPECS.md`.
 

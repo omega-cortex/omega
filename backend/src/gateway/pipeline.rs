@@ -280,7 +280,24 @@ impl Gateway {
                 // Write agent files and run discovery agent.
                 let workspace_dir =
                     PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
-                let _agent_guard = AgentFilesGuard::write(&workspace_dir).await;
+                let _agent_guard = match AgentFilesGuard::write(&workspace_dir).await {
+                    Ok(guard) => guard,
+                    Err(e) => {
+                        warn!("Failed to write agent files for discovery: {e}");
+                        // Clean up discovery state and fall through.
+                        let _ = self
+                            .memory
+                            .delete_fact(&incoming.sender_id, "pending_discovery")
+                            .await;
+                        let _ = tokio::fs::remove_file(&disc_file).await;
+                        if let Some(h) = typing_handle {
+                            h.abort();
+                        }
+                        self.send_text(&incoming, "Discovery failed (agent setup error).")
+                            .await;
+                        return;
+                    }
+                };
 
                 let result = self
                     .run_build_phase(
@@ -322,16 +339,12 @@ impl Gateway {
                                 };
                                 let _ = tokio::fs::write(&disc_file, &updated).await;
 
-                                // Send questions to user.
-                                let msg = if next_round <= 1 {
-                                    discovery_intro_message(&user_lang, &questions)
-                                } else {
-                                    discovery_followup_message(
-                                        &user_lang,
-                                        &questions,
-                                        next_round as u8,
-                                    )
-                                };
+                                // Send follow-up questions (next_round >= 2 in continuation path).
+                                let msg = discovery_followup_message(
+                                    &user_lang,
+                                    &questions,
+                                    next_round,
+                                );
                                 if let Some(h) = typing_handle {
                                     h.abort();
                                 }
@@ -505,7 +518,30 @@ impl Gateway {
             // Write agent files for discovery.
             let workspace_dir =
                 PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
-            let _agent_guard = AgentFilesGuard::write(&workspace_dir).await;
+            let _agent_guard = match AgentFilesGuard::write(&workspace_dir).await {
+                Ok(guard) => guard,
+                Err(e) => {
+                    // Fall back to direct confirmation if agent files fail.
+                    warn!("Failed to write agent files for discovery: {e}");
+                    let stamped =
+                        format!("{}|{}", chrono::Utc::now().timestamp(), incoming.text);
+                    let _ = self
+                        .memory
+                        .store_fact(
+                            &incoming.sender_id,
+                            "pending_build_request",
+                            &stamped,
+                        )
+                        .await;
+                    let confirm_msg =
+                        build_confirm_message(&user_lang, &incoming.text);
+                    if let Some(h) = typing_handle {
+                        h.abort();
+                    }
+                    self.send_text(&incoming, &confirm_msg).await;
+                    return;
+                }
+            };
 
             // Run first discovery round with raw request.
             let agent_prompt = format!(
@@ -556,7 +592,8 @@ impl Gateway {
                             // Request was vague — start multi-round discovery session.
                             let disc_file =
                                 discovery_file_path(&self.data_dir, &incoming.sender_id);
-                            let discovery_dir = disc_file.parent().unwrap();
+                            let discovery_dir =
+                                disc_file.parent().expect("discovery path always has parent");
                             let _ = tokio::fs::create_dir_all(discovery_dir).await;
 
                             // Create discovery file with round 1 content.
