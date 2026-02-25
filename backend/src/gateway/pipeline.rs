@@ -255,10 +255,8 @@ impl Gateway {
                 let current_round = parse_discovery_round(&discovery_context);
 
                 // Append user's answer to the file.
-                discovery_context.push_str(&format!(
-                    "\n### User Response\n{}\n",
-                    clean_incoming.text
-                ));
+                discovery_context
+                    .push_str(&format!("\n### User Response\n{}\n", clean_incoming.text));
 
                 let is_final_round = current_round >= 3;
                 let next_round = current_round + 1;
@@ -278,8 +276,7 @@ impl Gateway {
                 };
 
                 // Write agent files and run discovery agent.
-                let workspace_dir =
-                    PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
+                let workspace_dir = PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
                 let _agent_guard = match AgentFilesGuard::write(&workspace_dir).await {
                     Ok(guard) => guard,
                     Err(e) => {
@@ -340,11 +337,8 @@ impl Gateway {
                                 let _ = tokio::fs::write(&disc_file, &updated).await;
 
                                 // Send follow-up questions (next_round >= 2 in continuation path).
-                                let msg = discovery_followup_message(
-                                    &user_lang,
-                                    &questions,
-                                    next_round,
-                                );
+                                let msg =
+                                    discovery_followup_message(&user_lang, &questions, next_round);
                                 if let Some(h) = typing_handle {
                                     h.abort();
                                 }
@@ -360,11 +354,8 @@ impl Gateway {
                                 let _ = tokio::fs::remove_file(&disc_file).await;
 
                                 // Store enriched brief as pending_build_request.
-                                let stamped = format!(
-                                    "{}|{}",
-                                    chrono::Utc::now().timestamp(),
-                                    brief
-                                );
+                                let stamped =
+                                    format!("{}|{}", chrono::Utc::now().timestamp(), brief);
                                 let _ = self
                                     .memory
                                     .store_fact(
@@ -422,9 +413,8 @@ impl Gateway {
                 .await;
 
             // Parse "timestamp|request_text" and check TTL.
-            let (stored_ts, stored_request) = stored_value
-                .split_once('|')
-                .unwrap_or(("0", &stored_value));
+            let (stored_ts, stored_request) =
+                stored_value.split_once('|').unwrap_or(("0", &stored_value));
             let created_at: i64 = stored_ts.parse().unwrap_or(0);
             let now = chrono::Utc::now().timestamp();
             let expired = (now - created_at) > BUILD_CONFIRM_TTL_SECS;
@@ -516,25 +506,18 @@ impl Gateway {
                 .unwrap_or_else(|| "English".to_string());
 
             // Write agent files for discovery.
-            let workspace_dir =
-                PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
+            let workspace_dir = PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
             let _agent_guard = match AgentFilesGuard::write(&workspace_dir).await {
                 Ok(guard) => guard,
                 Err(e) => {
                     // Fall back to direct confirmation if agent files fail.
                     warn!("Failed to write agent files for discovery: {e}");
-                    let stamped =
-                        format!("{}|{}", chrono::Utc::now().timestamp(), incoming.text);
+                    let stamped = format!("{}|{}", chrono::Utc::now().timestamp(), incoming.text);
                     let _ = self
                         .memory
-                        .store_fact(
-                            &incoming.sender_id,
-                            "pending_build_request",
-                            &stamped,
-                        )
+                        .store_fact(&incoming.sender_id, "pending_build_request", &stamped)
                         .await;
-                    let confirm_msg =
-                        build_confirm_message(&user_lang, &incoming.text);
+                    let confirm_msg = build_confirm_message(&user_lang, &incoming.text);
                     if let Some(h) = typing_handle {
                         h.abort();
                     }
@@ -567,18 +550,10 @@ impl Gateway {
                     match parsed {
                         DiscoveryOutput::Complete(brief) => {
                             // Request was specific — skip multi-round, go straight to confirmation.
-                            let stamped = format!(
-                                "{}|{}",
-                                chrono::Utc::now().timestamp(),
-                                brief
-                            );
+                            let stamped = format!("{}|{}", chrono::Utc::now().timestamp(), brief);
                             let _ = self
                                 .memory
-                                .store_fact(
-                                    &incoming.sender_id,
-                                    "pending_build_request",
-                                    &stamped,
-                                )
+                                .store_fact(&incoming.sender_id, "pending_build_request", &stamped)
                                 .await;
                             let preview = truncate_brief_preview(&brief, 300);
                             let msg = discovery_complete_message(&user_lang, &preview);
@@ -592,8 +567,9 @@ impl Gateway {
                             // Request was vague — start multi-round discovery session.
                             let disc_file =
                                 discovery_file_path(&self.data_dir, &incoming.sender_id);
-                            let discovery_dir =
-                                disc_file.parent().expect("discovery path always has parent");
+                            let discovery_dir = disc_file
+                                .parent()
+                                .expect("discovery path always has parent");
                             let _ = tokio::fs::create_dir_all(discovery_dir).await;
 
                             // Create discovery file with round 1 content.
@@ -618,11 +594,7 @@ impl Gateway {
                             );
                             let _ = self
                                 .memory
-                                .store_fact(
-                                    &incoming.sender_id,
-                                    "pending_discovery",
-                                    &stamped,
-                                )
+                                .store_fact(&incoming.sender_id, "pending_discovery", &stamped)
                                 .await;
 
                             // Send questions to user.
@@ -637,18 +609,11 @@ impl Gateway {
                 }
                 Err(e) => {
                     // Discovery failed — fall back to old behavior (direct confirmation).
-                    warn!(
-                        "Discovery agent failed, falling back to direct confirmation: {e}"
-                    );
-                    let stamped =
-                        format!("{}|{}", chrono::Utc::now().timestamp(), incoming.text);
+                    warn!("Discovery agent failed, falling back to direct confirmation: {e}");
+                    let stamped = format!("{}|{}", chrono::Utc::now().timestamp(), incoming.text);
                     let _ = self
                         .memory
-                        .store_fact(
-                            &incoming.sender_id,
-                            "pending_build_request",
-                            &stamped,
-                        )
+                        .store_fact(&incoming.sender_id, "pending_build_request", &stamped)
                         .await;
                     let msg = build_confirm_message(&user_lang, &incoming.text);
                     if let Some(h) = typing_handle {

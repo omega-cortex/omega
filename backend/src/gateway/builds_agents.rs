@@ -475,13 +475,34 @@ mod tests {
     // Acceptance: no .md files shipped on disk; content accessible via constants
     #[test]
     fn test_build_agent_constants_are_non_empty() {
-        assert!(!BUILD_ANALYST_AGENT.is_empty(), "BUILD_ANALYST_AGENT must not be empty");
-        assert!(!BUILD_ARCHITECT_AGENT.is_empty(), "BUILD_ARCHITECT_AGENT must not be empty");
-        assert!(!BUILD_TEST_WRITER_AGENT.is_empty(), "BUILD_TEST_WRITER_AGENT must not be empty");
-        assert!(!BUILD_DEVELOPER_AGENT.is_empty(), "BUILD_DEVELOPER_AGENT must not be empty");
-        assert!(!BUILD_QA_AGENT.is_empty(), "BUILD_QA_AGENT must not be empty");
-        assert!(!BUILD_REVIEWER_AGENT.is_empty(), "BUILD_REVIEWER_AGENT must not be empty");
-        assert!(!BUILD_DELIVERY_AGENT.is_empty(), "BUILD_DELIVERY_AGENT must not be empty");
+        assert!(
+            !BUILD_ANALYST_AGENT.is_empty(),
+            "BUILD_ANALYST_AGENT must not be empty"
+        );
+        assert!(
+            !BUILD_ARCHITECT_AGENT.is_empty(),
+            "BUILD_ARCHITECT_AGENT must not be empty"
+        );
+        assert!(
+            !BUILD_TEST_WRITER_AGENT.is_empty(),
+            "BUILD_TEST_WRITER_AGENT must not be empty"
+        );
+        assert!(
+            !BUILD_DEVELOPER_AGENT.is_empty(),
+            "BUILD_DEVELOPER_AGENT must not be empty"
+        );
+        assert!(
+            !BUILD_QA_AGENT.is_empty(),
+            "BUILD_QA_AGENT must not be empty"
+        );
+        assert!(
+            !BUILD_REVIEWER_AGENT.is_empty(),
+            "BUILD_REVIEWER_AGENT must not be empty"
+        );
+        assert!(
+            !BUILD_DELIVERY_AGENT.is_empty(),
+            "BUILD_DELIVERY_AGENT must not be empty"
+        );
     }
 
     // Requirement: REQ-BAP-002 (Must)
@@ -506,7 +527,13 @@ mod tests {
     // Acceptance: each agent frontmatter contains required keys
     #[test]
     fn test_build_agents_frontmatter_required_keys() {
-        let required_keys = ["name:", "description:", "tools:", "model:", "permissionMode:"];
+        let required_keys = [
+            "name:",
+            "description:",
+            "tools:",
+            "model:",
+            "permissionMode:",
+        ];
         for (agent_name, content) in BUILD_AGENTS {
             // Extract frontmatter (between first --- and second ---).
             let after_open = &content[3..];
@@ -654,10 +681,7 @@ mod tests {
             "Analyst should not have Edit tool"
         );
         // Should have Read.
-        assert!(
-            tools_line.contains("Read"),
-            "Analyst must have Read tool"
-        );
+        assert!(tools_line.contains("Read"), "Analyst must have Read tool");
     }
 
     // Requirement: REQ-BAP-021 (Should)
@@ -815,7 +839,10 @@ mod tests {
 
         {
             let _guard = AgentFilesGuard::write(&tmp).await.unwrap();
-            assert!(agents_dir.exists(), "agents/ must exist while guard is alive");
+            assert!(
+                agents_dir.exists(),
+                "agents/ must exist while guard is alive"
+            );
             // Guard goes out of scope here — Drop should clean up.
         }
 
@@ -1020,7 +1047,8 @@ mod tests {
     fn test_developer_agent_500_line_limit() {
         let content = BUILD_DEVELOPER_AGENT;
         assert!(
-            content.contains("500") || content.contains("file limit")
+            content.contains("500")
+                || content.contains("file limit")
                 || content.contains("line limit"),
             "Developer agent should enforce 500-line file limit"
         );

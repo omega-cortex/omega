@@ -13,11 +13,7 @@
 use super::builds_agents::AgentFilesGuard;
 use super::builds_parse::*;
 use super::Gateway;
-use omega_core::{
-    config::shellexpand,
-    context::Context,
-    message::IncomingMessage,
-};
+use omega_core::{config::shellexpand, context::Context, message::IncomingMessage};
 use omega_memory::audit::{AuditEntry, AuditStatus};
 use std::path::PathBuf;
 use tracing::warn;
@@ -52,11 +48,8 @@ impl Gateway {
                 if let Some(h) = typing_handle {
                     h.abort();
                 }
-                self.send_text(
-                    incoming,
-                    &format!("Failed to write agent files: {e}"),
-                )
-                .await;
+                self.send_text(incoming, &format!("Failed to write agent files: {e}"))
+                    .await;
                 return;
             }
         };
@@ -66,7 +59,12 @@ impl Gateway {
             .await;
 
         let brief_text = match self
-            .run_build_phase("build-analyst", &incoming.text, &self.model_complex, Some(25))
+            .run_build_phase(
+                "build-analyst",
+                &incoming.text,
+                &self.model_complex,
+                Some(25),
+            )
             .await
         {
             Ok(text) => text,
@@ -134,7 +132,12 @@ impl Gateway {
             "Project brief:\n{brief_text}\nBegin architecture design in {project_dir_str}."
         );
         if let Err(e) = self
-            .run_build_phase("build-architect", &architect_prompt, &self.model_complex, None)
+            .run_build_phase(
+                "build-architect",
+                &architect_prompt,
+                &self.model_complex,
+                None,
+            )
             .await
         {
             if let Some(h) = typing_handle {
@@ -165,11 +168,15 @@ impl Gateway {
         self.send_text(incoming, &phase_message(&user_lang, 3, "testing"))
             .await;
 
-        let test_writer_prompt = format!(
-            "Read specs/ in {project_dir_str} and write failing tests. Begin."
-        );
+        let test_writer_prompt =
+            format!("Read specs/ in {project_dir_str} and write failing tests. Begin.");
         if let Err(e) = self
-            .run_build_phase("build-test-writer", &test_writer_prompt, &self.model_fast, None)
+            .run_build_phase(
+                "build-test-writer",
+                &test_writer_prompt,
+                &self.model_complex,
+                None,
+            )
             .await
         {
             if let Some(h) = typing_handle {
@@ -193,7 +200,12 @@ impl Gateway {
             "Read the tests and specs/ in {project_dir_str}. Implement until all tests pass. Begin."
         );
         if let Err(e) = self
-            .run_build_phase("build-developer", &developer_prompt, &self.model_fast, None)
+            .run_build_phase(
+                "build-developer",
+                &developer_prompt,
+                &self.model_complex,
+                None,
+            )
             .await
         {
             if let Some(h) = typing_handle {
@@ -201,9 +213,7 @@ impl Gateway {
             }
             self.send_text(
                 incoming,
-                &format!(
-                    "Implementation phase failed: {e}. Partial results at {project_dir_str}"
-                ),
+                &format!("Implementation phase failed: {e}. Partial results at {project_dir_str}"),
             )
             .await;
             return;
@@ -219,7 +229,7 @@ impl Gateway {
             "Validate the project in {project_dir_str}. Run build, lint, tests. Report VERIFICATION: PASS or FAIL."
         );
         let verification = match self
-            .run_build_phase("build-qa", &qa_prompt, &self.model_fast, None)
+            .run_build_phase("build-qa", &qa_prompt, &self.model_complex, None)
             .await
         {
             Ok(text) => parse_verification_result(&text),
@@ -241,7 +251,12 @@ impl Gateway {
                      Fix the issues and ensure all tests pass. Begin."
                 );
                 if let Err(e) = self
-                    .run_build_phase("build-developer", &retry_developer_prompt, &self.model_fast, None)
+                    .run_build_phase(
+                        "build-developer",
+                        &retry_developer_prompt,
+                        &self.model_complex,
+                        None,
+                    )
                     .await
                 {
                     if let Some(h) = typing_handle {
@@ -249,16 +264,14 @@ impl Gateway {
                     }
                     self.send_text(
                         incoming,
-                        &format!(
-                            "Failed to fix issues: {e}. Partial results at {project_dir_str}"
-                        ),
+                        &format!("Failed to fix issues: {e}. Partial results at {project_dir_str}"),
                     )
                     .await;
                     return;
                 }
 
                 let retry_verification = match self
-                    .run_build_phase("build-qa", &qa_prompt, &self.model_fast, None)
+                    .run_build_phase("build-qa", &qa_prompt, &self.model_complex, None)
                     .await
                 {
                     Ok(text) => parse_verification_result(&text),
@@ -298,7 +311,12 @@ impl Gateway {
             "Review the code in {project_dir_str} for bugs, security, quality. Report REVIEW: PASS or FAIL."
         );
         if let Err(e) = self
-            .run_build_phase("build-reviewer", &reviewer_prompt, &self.model_fast, None)
+            .run_build_phase(
+                "build-reviewer",
+                &reviewer_prompt,
+                &self.model_complex,
+                None,
+            )
             .await
         {
             // Reviewer failure is non-fatal — continue to delivery with a warning.
@@ -317,7 +335,12 @@ impl Gateway {
         );
 
         let delivery_text = match self
-            .run_build_phase("build-delivery", &delivery_prompt, &self.model_fast, None)
+            .run_build_phase(
+                "build-delivery",
+                &delivery_prompt,
+                &self.model_complex,
+                None,
+            )
             .await
         {
             Ok(text) => text,

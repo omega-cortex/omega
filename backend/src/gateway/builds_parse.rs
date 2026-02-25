@@ -67,7 +67,7 @@ fn strip_markdown(line: &str) -> String {
 pub(super) fn parse_project_brief(text: &str) -> Option<ProjectBrief> {
     let get_field = |key: &str| -> Option<String> {
         text.lines()
-            .map(|line| strip_markdown(line))
+            .map(strip_markdown)
             .find(|line| line.starts_with(&format!("{key}:")))
             .map(|line| line[key.len() + 1..].trim().to_string())
     };
@@ -93,7 +93,7 @@ pub(super) fn parse_project_brief(text: &str) -> Option<ProjectBrief> {
 
     let components: Vec<String> = text
         .lines()
-        .map(|line| strip_markdown(line))
+        .map(strip_markdown)
         .skip_while(|line| !line.starts_with("COMPONENTS:"))
         .skip(1)
         .take_while(|line| line.starts_with("- "))
@@ -158,7 +158,7 @@ pub(super) fn parse_build_summary(text: &str) -> Option<BuildSummary> {
 /// | 6     | Reviewer       | Reviewing code          |
 /// | 7     | Delivery       | Preparing delivery      |
 pub(super) fn phase_message(lang: &str, phase: u8, action: &str) -> String {
-    match lang {
+    let msg = match lang {
         "Spanish" => match phase {
             1 => "Analizando requisitos...".to_string(),
             2 => "Dise\u{f1}ando arquitectura...".to_string(),
@@ -240,7 +240,8 @@ pub(super) fn phase_message(lang: &str, phase: u8, action: &str) -> String {
             7 => "Preparing delivery...".to_string(),
             _ => format!("Phase {phase}: {action}..."),
         },
-    }
+    };
+    format!("\u{2699}\u{fe0f} {msg}")
 }
 
 /// Parse discovery agent output into questions or a completed brief.
@@ -310,7 +311,13 @@ pub(super) fn discovery_file_path(data_dir: &str, sender_id: &str) -> PathBuf {
     // Sanitize sender_id for filesystem safety.
     let safe_id: String = sender_id
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     PathBuf::from(shellexpand(data_dir))
         .join("workspace")
@@ -545,7 +552,10 @@ mod tests {
         // parse as a brief, not as a build summary.
         let text = "PROJECT_NAME: my-tool\nSCOPE: Does stuff\nBUILD_COMPLETE";
         let brief = parse_project_brief(text);
-        assert!(brief.is_some(), "Brief should still parse even with BUILD_COMPLETE present");
+        assert!(
+            brief.is_some(),
+            "Brief should still parse even with BUILD_COMPLETE present"
+        );
     }
 
     // Requirement: REQ-BAP-010 (Must)
@@ -623,7 +633,10 @@ mod tests {
         let text = "BUILD_COMPLETE\nPROJECT: my-app";
         let summary = parse_build_summary(text).unwrap();
         assert_eq!(summary.project, "my-app");
-        assert!(summary.location.is_empty(), "Missing field should default to empty");
+        assert!(
+            summary.location.is_empty(),
+            "Missing field should default to empty"
+        );
         assert!(summary.language.is_empty());
         assert!(summary.summary.is_empty());
         assert!(summary.usage.is_empty());
@@ -649,7 +662,10 @@ mod tests {
         // Names without / \ .. or leading . are accepted by the parser.
         let text = "PROJECT_NAME: my-app-v2.0\nSCOPE: test";
         let brief = parse_project_brief(text);
-        assert!(brief.is_some(), "Name with dots (not leading) should be accepted");
+        assert!(
+            brief.is_some(),
+            "Name with dots (not leading) should be accepted"
+        );
         assert_eq!(brief.unwrap().name, "my-app-v2.0");
     }
 
@@ -682,8 +698,10 @@ mod tests {
         // Phase 2: Architect — needs custom message about architecture/design
         let msg2 = phase_message("English", 2, "");
         assert!(
-            msg2.contains("architecture") || msg2.contains("Architecture")
-                || msg2.contains("design") || msg2.contains("Design"),
+            msg2.contains("architecture")
+                || msg2.contains("Architecture")
+                || msg2.contains("design")
+                || msg2.contains("Design"),
             "Phase 2 must have custom English message about architecture: got '{msg2}'"
         );
         // Phase 3: Test Writer — needs custom message about tests
@@ -695,32 +713,43 @@ mod tests {
         // Phase 4: Developer — needs custom message about implementation
         let msg4 = phase_message("English", 4, "");
         assert!(
-            msg4.contains("implement") || msg4.contains("Implement")
-                || msg4.contains("build") || msg4.contains("Build")
-                || msg4.contains("cod") || msg4.contains("Cod"),
+            msg4.contains("implement")
+                || msg4.contains("Implement")
+                || msg4.contains("build")
+                || msg4.contains("Build")
+                || msg4.contains("cod")
+                || msg4.contains("Cod"),
             "Phase 4 must have custom English message about implementation: got '{msg4}'"
         );
         // Phase 5: QA — needs custom message about verification/quality
         let msg5 = phase_message("English", 5, "");
         assert!(
-            msg5.contains("verif") || msg5.contains("Verif")
-                || msg5.contains("quality") || msg5.contains("Quality")
-                || msg5.contains("check") || msg5.contains("Check")
-                || msg5.contains("test") || msg5.contains("Test"),
+            msg5.contains("verif")
+                || msg5.contains("Verif")
+                || msg5.contains("quality")
+                || msg5.contains("Quality")
+                || msg5.contains("check")
+                || msg5.contains("Check")
+                || msg5.contains("test")
+                || msg5.contains("Test"),
             "Phase 5 must have custom English message about QA: got '{msg5}'"
         );
         // Phase 6: Reviewer — needs custom message about review
         let msg6 = phase_message("English", 6, "");
         assert!(
-            msg6.contains("review") || msg6.contains("Review")
-                || msg6.contains("audit") || msg6.contains("Audit"),
+            msg6.contains("review")
+                || msg6.contains("Review")
+                || msg6.contains("audit")
+                || msg6.contains("Audit"),
             "Phase 6 must have custom English message about review: got '{msg6}'"
         );
         // Phase 7: Delivery — needs custom message about delivery
         let msg7 = phase_message("English", 7, "");
         assert!(
-            msg7.contains("deliver") || msg7.contains("Deliver")
-                || msg7.contains("Preparing") || msg7.contains("delivery"),
+            msg7.contains("deliver")
+                || msg7.contains("Deliver")
+                || msg7.contains("Preparing")
+                || msg7.contains("delivery"),
             "Phase 7 must have custom English message about delivery: got '{msg7}'"
         );
     }
@@ -730,8 +759,14 @@ mod tests {
     #[test]
     fn test_phase_message_7_phases_all_languages_non_empty() {
         let languages = [
-            "English", "Spanish", "Portuguese", "French",
-            "German", "Italian", "Dutch", "Russian",
+            "English",
+            "Spanish",
+            "Portuguese",
+            "French",
+            "German",
+            "Italian",
+            "Dutch",
+            "Russian",
         ];
         for lang in &languages {
             for phase in 1..=7 {
@@ -797,8 +832,10 @@ mod tests {
         // Use EMPTY action to ensure the function has its own custom message.
         let msg = phase_message("English", 7, "");
         assert!(
-            msg.contains("deliver") || msg.contains("Deliver")
-                || msg.contains("Preparing") || msg.contains("delivery"),
+            msg.contains("deliver")
+                || msg.contains("Deliver")
+                || msg.contains("Preparing")
+                || msg.contains("delivery"),
             "Phase 7 (delivery) must have a custom English message: got '{msg}'"
         );
     }
@@ -963,7 +1000,8 @@ mod tests {
     // Edge case: No ROUND header — defaults to 1
     #[test]
     fn test_parse_discovery_round_missing_header() {
-        let content = "# Discovery Session\n\nCREATED: 1700000000\nORIGINAL_REQUEST: build me a CRM";
+        let content =
+            "# Discovery Session\n\nCREATED: 1700000000\nORIGINAL_REQUEST: build me a CRM";
         assert_eq!(
             parse_discovery_round(content),
             1,
@@ -1040,7 +1078,11 @@ mod tests {
             "Unicode text over limit should be truncated"
         );
         // 5 emoji chars + "..." (3 chars) = 8 chars total
-        assert_eq!(result.chars().count(), 8, "Should truncate by char count, not byte count");
+        assert_eq!(
+            result.chars().count(),
+            8,
+            "Should truncate by char count, not byte count"
+        );
     }
 
     // ===================================================================

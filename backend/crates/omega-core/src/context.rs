@@ -439,10 +439,7 @@ mod tests {
         );
         assert!(json.contains("build-analyst"));
         let deserialized: Context = serde_json::from_str(&json).unwrap();
-        assert_eq!(
-            deserialized.agent_name,
-            Some("build-analyst".to_string())
-        );
+        assert_eq!(deserialized.agent_name, Some("build-analyst".to_string()));
     }
 
     // Requirement: REQ-BAP-003 (Must)

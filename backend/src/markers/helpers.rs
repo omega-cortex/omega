@@ -100,7 +100,7 @@ pub fn next_active_start_utc(start: &str) -> String {
     let local_dt = Local
         .from_local_datetime(&candidate)
         .earliest()
-        .unwrap_or_else(|| now.into());
+        .unwrap_or(now);
     local_dt
         .with_timezone(&chrono::Utc)
         .format("%Y-%m-%d %H:%M:%S")

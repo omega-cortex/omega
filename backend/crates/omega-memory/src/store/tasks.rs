@@ -335,14 +335,12 @@ impl Store {
 
     /// Defer a pending task to a new due_at time (by exact ID).
     pub async fn defer_task(&self, id: &str, new_due_at: &str) -> Result<(), OmegaError> {
-        sqlx::query(
-            "UPDATE scheduled_tasks SET due_at = ? WHERE id = ? AND status = 'pending'",
-        )
-        .bind(new_due_at)
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| OmegaError::Memory(format!("defer task failed: {e}")))?;
+        sqlx::query("UPDATE scheduled_tasks SET due_at = ? WHERE id = ? AND status = 'pending'")
+            .bind(new_due_at)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| OmegaError::Memory(format!("defer task failed: {e}")))?;
         Ok(())
     }
 }

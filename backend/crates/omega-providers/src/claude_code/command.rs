@@ -26,7 +26,7 @@ impl ClaudeCodeProvider {
 
         // Agent mode: --agent <name> before -p.
         // When agent_name is set, skip --resume (agent mode does not use sessions).
-        let use_agent = agent_name.map_or(false, |n| !n.is_empty());
+        let use_agent = agent_name.is_some_and(|n| !n.is_empty());
 
         if use_agent {
             args.push("--agent".to_string());
@@ -118,7 +118,14 @@ impl ClaudeCodeProvider {
         );
         cmd.args(&args);
 
-        debug!("executing: claude {}", if agent_name.is_some() { "--agent <name> -p <prompt>" } else { "-p <prompt>" });
+        debug!(
+            "executing: claude {}",
+            if agent_name.is_some() {
+                "--agent <name> -p <prompt>"
+            } else {
+                "-p <prompt>"
+            }
+        );
         self.execute_with_timeout(cmd, "claude CLI").await
     }
 

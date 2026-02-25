@@ -151,21 +151,24 @@ fn test_cleanup_mcp_settings_nonexistent() {
 #[test]
 fn test_build_run_cli_args_no_agent_name() {
     let args = ClaudeCodeProvider::build_run_cli_args(
-        "hello world",          // prompt
-        &[],                    // extra_allowed_tools
-        100,                    // max_turns
-        &[],                    // allowed_tools
-        "claude-sonnet-4-6",    // model
-        false,                  // context_disabled_tools
-        None,                   // session_id
-        None,                   // agent_name (None = current behavior)
+        "hello world",       // prompt
+        &[],                 // extra_allowed_tools
+        100,                 // max_turns
+        &[],                 // allowed_tools
+        "claude-sonnet-4-6", // model
+        false,               // context_disabled_tools
+        None,                // session_id
+        None,                // agent_name (None = current behavior)
     );
     assert!(
         !args.contains(&"--agent".to_string()),
         "Without agent_name, --agent flag must NOT be present"
     );
     // Verify -p is present with the prompt.
-    let p_idx = args.iter().position(|a| a == "-p").expect("-p flag must be present");
+    let p_idx = args
+        .iter()
+        .position(|a| a == "-p")
+        .expect("-p flag must be present");
     assert_eq!(args[p_idx + 1], "hello world", "prompt must follow -p");
     // Verify --output-format json is present.
     assert!(args.contains(&"--output-format".to_string()));
@@ -183,14 +186,14 @@ fn test_build_run_cli_args_no_agent_name() {
 #[test]
 fn test_build_run_cli_args_with_agent_name() {
     let args = ClaudeCodeProvider::build_run_cli_args(
-        "Build me a task tracker.",    // prompt (just user message)
-        &[],                           // extra_allowed_tools
-        100,                           // max_turns
-        &[],                           // allowed_tools
-        "claude-opus-4-6",             // model
-        false,                         // context_disabled_tools
-        None,                          // session_id
-        Some("build-analyst"),         // agent_name
+        "Build me a task tracker.", // prompt (just user message)
+        &[],                        // extra_allowed_tools
+        100,                        // max_turns
+        &[],                        // allowed_tools
+        "claude-opus-4-6",          // model
+        false,                      // context_disabled_tools
+        None,                       // session_id
+        Some("build-analyst"),      // agent_name
     );
     // --agent must be present with the correct name.
     let agent_idx = args
@@ -198,13 +201,18 @@ fn test_build_run_cli_args_with_agent_name() {
         .position(|a| a == "--agent")
         .expect("--agent flag must be present when agent_name is Some");
     assert_eq!(
-        args[agent_idx + 1], "build-analyst",
+        args[agent_idx + 1],
+        "build-analyst",
         "--agent must be followed by the agent name"
     );
     // -p must still be present with the user message.
-    let p_idx = args.iter().position(|a| a == "-p").expect("-p flag must be present");
+    let p_idx = args
+        .iter()
+        .position(|a| a == "-p")
+        .expect("-p flag must be present");
     assert_eq!(
-        args[p_idx + 1], "Build me a task tracker.",
+        args[p_idx + 1],
+        "Build me a task tracker.",
         "prompt must follow -p"
     );
 }
@@ -245,8 +253,8 @@ fn test_build_run_cli_args_agent_with_skip_permissions() {
         "Begin.",
         &[],
         100,
-        &[],                  // empty allowed_tools => bypass permissions
-        "",                   // empty model
+        &[], // empty allowed_tools => bypass permissions
+        "",  // empty model
         false,
         None,
         Some("build-developer"),
@@ -280,7 +288,8 @@ fn test_build_run_cli_args_agent_with_max_turns() {
         .position(|a| a == "--max-turns")
         .expect("--max-turns must be present");
     assert_eq!(
-        args[mt_idx + 1], "25",
+        args[mt_idx + 1],
+        "25",
         "--max-turns must have correct value"
     );
 }
@@ -297,7 +306,7 @@ fn test_build_run_cli_args_agent_name_empty_string() {
         "",
         false,
         None,
-        Some(""),   // empty agent name
+        Some(""), // empty agent name
     );
     // Empty agent name should NOT produce --agent flag.
     assert!(
@@ -318,8 +327,8 @@ fn test_build_run_cli_args_agent_name_with_session_id() {
         &[],
         "",
         false,
-        Some("sess-123"),       // session_id
-        Some("build-qa"),       // agent_name
+        Some("sess-123"), // session_id
+        Some("build-qa"), // agent_name
     );
     // --agent should be present (agent_name takes priority for builds).
     assert!(
@@ -351,7 +360,8 @@ fn test_build_run_cli_args_agent_name_path_traversal() {
     );
     let agent_idx = args.iter().position(|a| a == "--agent").unwrap();
     assert_eq!(
-        args[agent_idx + 1], "../../../etc/passwd",
+        args[agent_idx + 1],
+        "../../../etc/passwd",
         "agent_name is passed through as-is (validation is elsewhere)"
     );
 }
@@ -393,14 +403,15 @@ fn test_build_run_cli_args_disabled_tools() {
         5,
         &[],
         "",
-        true,      // context_disabled_tools
+        true, // context_disabled_tools
         None,
         None,
     );
     // Should have --allowedTools with empty string.
     let at_idx = args.iter().position(|a| a == "--allowedTools").unwrap();
     assert_eq!(
-        args[at_idx + 1], "",
+        args[at_idx + 1],
+        "",
         "Disabled tools should pass empty --allowedTools"
     );
 }
