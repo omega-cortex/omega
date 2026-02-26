@@ -24,6 +24,10 @@ pub struct IncomingMessage {
     /// Whether this message comes from a group chat.
     #[serde(default)]
     pub is_group: bool,
+    /// Origin identifier for webhook-injected messages.
+    /// None for channel-originated messages, Some("source_name") for webhooks.
+    #[serde(default)]
+    pub source: Option<String>,
 }
 
 /// An outgoing message to send back through a channel.

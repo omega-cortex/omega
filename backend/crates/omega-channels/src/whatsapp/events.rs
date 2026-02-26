@@ -177,6 +177,7 @@ pub(super) async fn handle_whatsapp_message(
         attachments,
         reply_target: Some(chat_jid),
         is_group: false,
+        source: None,
     };
 
     if tx.send(incoming).await.is_err() {

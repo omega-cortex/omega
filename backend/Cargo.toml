@@ -68,7 +68,9 @@ cliclack = "0.3"
 console = "0.15"
 axum = "0.8"
 base64 = "0.22"
+uuid = { workspace = true }
 
 [dev-dependencies]
 tower = "0.5"
 http-body-util = "0.1"
+async-trait = { workspace = true }

@@ -37,6 +37,7 @@ impl AuditStatus {
 }
 
 /// Audit logger backed by SQLite.
+#[derive(Clone)]
 pub struct AuditLogger {
     pool: SqlitePool,
 }

@@ -353,6 +353,19 @@ Gateway                          SQLite                Provider (Claude Code CLI
 
 ---
 
+## Webhook Inbound Path
+
+The HTTP API server (`api.rs`) exposes `POST /api/webhook` for external tools. Two modes:
+
+- **Direct mode**: Builds an `OutgoingMessage` (same pattern as scheduler reminders) and calls `channel.send()`. Returns 200 immediately. Audited in the handler.
+- **AI mode**: Builds a synthetic `IncomingMessage` with the real channel name and a valid `sender_id` (from `allowed_users`), then sends it through the gateway's `mpsc` channel via `tx.send()`. Returns 202. The message enters the standard pipeline (Phase 2 onward) and the AI response is delivered to the messaging channel.
+
+The `tx` sender clone is passed to `api::serve()` before `drop(tx)` in `gateway/mod.rs`, ensuring the main loop still exits cleanly when all channels close.
+
+See [webhook.md](webhook.md) for the full API contract, curl examples, and integration guide.
+
+---
+
 ## Background Loops
 
 Four independent loops run alongside message processing:

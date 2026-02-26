@@ -218,6 +218,7 @@ impl Channel for TelegramChannel {
                         attachments,
                         reply_target: Some(msg.chat.id.to_string()),
                         is_group: false,
+                        source: None,
                     };
 
                     if tx.send(incoming).await.is_err() {

@@ -152,6 +152,29 @@ impl Gateway {
             info!("Channel started: {name}");
         }
 
+        // Spawn HTTP API server (BEFORE drop(tx) so we can clone the sender).
+        let api_handle = if self.api_config.enabled {
+            let api_cfg = self.api_config.clone();
+            let api_channels = self.channels.clone();
+            let api_uptime = self.uptime;
+            let api_tx = tx.clone();
+            let api_audit = AuditLogger::new(self.memory.pool().clone());
+            let api_channel_config = self.channel_config.clone();
+            Some(tokio::spawn(async move {
+                crate::api::serve(
+                    api_cfg,
+                    api_channels,
+                    api_uptime,
+                    api_tx,
+                    api_audit,
+                    api_channel_config,
+                )
+                .await;
+            }))
+        } else {
+            None
+        };
+
         drop(tx);
 
         // Spawn background summarization task.
@@ -241,18 +264,6 @@ impl Gateway {
             let dd = PathBuf::from(shellexpand(&self.data_dir));
             Some(tokio::spawn(async move {
                 crate::claudemd::claudemd_loop(ws, dd, 24).await;
-            }))
-        } else {
-            None
-        };
-
-        // Spawn HTTP API server.
-        let api_handle = if self.api_config.enabled {
-            let api_cfg = self.api_config.clone();
-            let api_channels = self.channels.clone();
-            let api_uptime = self.uptime;
-            Some(tokio::spawn(async move {
-                crate::api::serve(api_cfg, api_channels, api_uptime).await;
             }))
         } else {
             None

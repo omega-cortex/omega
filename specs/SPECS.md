@@ -86,6 +86,10 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [sandbox-lib.md](sandbox-lib.md) — Blocklist-based system protection (always-on, blocks writes to OS dirs + memory.db)
 - [sandbox-cargo-toml.md](sandbox-cargo-toml.md) — Sandbox crate Cargo.toml
 
+### Features
+- [webhook-requirements.md](webhook-requirements.md) — Inbound webhook endpoint for external tool integration (direct + AI delivery modes)
+- [webhook-architecture.md](webhook-architecture.md) — Architecture design for inbound webhook (handler, gateway plumbing, source tracking, failure modes, security model)
+
 ### Improvements
 - [improvements/builds-routing-improvement.md](improvements/builds-routing-improvement.md) — [SUPERSEDED] Multi-phase builds pipeline replacing single-shot build execution
 - [improvements/build-agent-pipeline-improvement.md](improvements/build-agent-pipeline-improvement.md) — Replace 5-phase hardcoded prompts with 7-phase agent pipeline using `--agent` flag and embedded agent definitions
@@ -133,6 +137,9 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 
 ```
 Message → Auth → Sanitize → Memory (context + project-scoped outcomes/lessons) → Provider (protected_command) → process_markers (SCHEDULE/SCHEDULE_ACTION/CANCEL_TASK/UPDATE_TASK/HEARTBEAT/SKILL_IMPROVE/REWARD/LESSON/..., active_project threading) → Memory (store) → Audit → Send → Task confirmation
+
+Webhook (direct): POST /api/webhook → check_auth → resolve channel/target → OutgoingMessage → channel.send() → audit → 200
+Webhook (ai):     POST /api/webhook → check_auth → resolve channel/target → IncomingMessage → tx.send() → 202 → (enters Message flow above)
 
 Background:
   Scheduler: poll due_tasks → channel.send(reminder) → complete_task

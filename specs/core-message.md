@@ -39,6 +39,9 @@ pub struct IncomingMessage {
     /// Whether this message comes from a group chat.
     #[serde(default)]
     pub is_group: bool,
+    /// Origin identifier for webhook-injected messages.
+    #[serde(default)]
+    pub source: Option<String>,
 }
 ```
 
@@ -58,6 +61,7 @@ pub struct IncomingMessage {
 | `attachments` | `Vec<Attachment>` | Yes (empty default) | List of file attachments. Currently channels send `Vec::new()` as attachment handling is not yet implemented. |
 | `reply_target` | `Option<String>` | No | Platform-specific routing target for sending the response back. For Telegram, this is the `chat_id` as a string. Annotated with `#[serde(default)]` to default to `None` during deserialization. |
 | `is_group` | `bool` | Yes (default `false`) | Whether this message comes from a group chat (e.g., Telegram group/supergroup). Set by the channel during message construction. Used by the gateway to inject group-chat rules and suppress `SILENT` responses. Annotated with `#[serde(default)]` to default to `false`. |
+| `source` | `Option<String>` | No (default `None`) | Origin identifier for webhook-injected messages. `None` for channel-originated messages, `Some("source_name")` for webhook messages (e.g., `"todo-app"`). Used for audit traceability. Annotated with `#[serde(default)]`. |
 
 **Serde Annotations:**
 - `reply_target` uses `#[serde(default)]` to handle missing field during deserialization.
