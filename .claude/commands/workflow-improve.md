@@ -9,6 +9,37 @@ The user wants to improve code that already works — refactoring, performance o
 This is NOT for adding new features or fixing bugs. The behavior should stay the same; the implementation gets better.
 Optional: `--scope="area"` to limit which part of the codebase is analyzed.
 
+**Note: This workflow does NOT invoke the Architect.** The architecture already exists — only the implementation changes.
+
+## Existing Code Validation
+Before starting, verify there is code to improve:
+1. Check for source code files in the project. If none exist, this workflow is inapplicable — inform the user.
+2. If `specs/SPECS.md` does not exist, proceed but note: "No specs found. Improvement analysis will be based solely on codebase reading."
+
+## Fail-Safe Controls
+
+### Iteration Limits
+- **QA ↔ Developer iterations (Steps 4-5):** Maximum **3 iterations**. If QA still finds behavioral changes or broken flows after 3 rounds, STOP and report to user: "QA iteration limit reached (3/3). Remaining issues: [list]. Requires human decision."
+- **Reviewer ↔ Developer iterations (Steps 6-7):** Maximum **2 iterations**. If the reviewer still finds issues after 2 rounds, STOP and report to user: "Review iteration limit reached (2/2). Remaining issues: [list]. Requires human decision."
+
+### Inter-Step Output Validation
+Before invoking each agent, verify the previous agent produced its expected output:
+- Before Test Writer (Step 2): verify `specs/improvements/*-improvement.md` exists
+- Before Developer (Step 3): verify test files exist (new regression tests or confirmation that existing tests suffice)
+- Before QA (Step 4): verify code changes exist
+- Before Reviewer (Step 6): verify QA report exists in `docs/qa/`
+
+**If any expected output is missing, STOP the chain** and report: "CHAIN HALTED at Step [N]: Expected output from [agent] not found. [What's missing]."
+
+### Error Recovery
+If any agent fails mid-chain:
+1. Save the chain state to `docs/.workflow/chain-state.md` with:
+   - Which steps completed successfully (and their output files)
+   - Which step failed and why
+   - What remains to be done
+2. Report to user with the chain state
+3. The user can resume by re-invoking the failed step's agent manually
+
 ## Step 1: Analyst (improvement-focused)
 Invoke the `analyst` subagent. It MUST:
 1. Read `specs/SPECS.md` index (not all files)
@@ -80,5 +111,8 @@ If the reviewer finds issues:
 - Repeat until approved
 
 ## Step 8: Versioning
-Once approved, create the final commit and version tag.
-Clean up `docs/.workflow/` temporary files.
+Once approved, create the final commit with `refactor:` or `perf:` prefix and version tag.
+Do NOT clean up `docs/.workflow/` yet — the post-commit audit needs prior reports.
+
+Then invoke the post-commit audit:
+`/workflow:post-commit-audit --scope="[same --scope as this workflow, or the scope the Analyst determined in Step 1]"`

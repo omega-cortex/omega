@@ -9,6 +9,32 @@ The user wants to create something new from scratch. Execute the full chain.
 
 **This is a greenfield project.** There may be no existing code, no `specs/`, and no `docs/`. Each agent must handle this gracefully — creating structure instead of reading it.
 
+## Fail-Safe Controls
+
+### Iteration Limits
+- **QA ↔ Developer iterations (Steps 6-7):** Maximum **3 iterations**. If QA still finds blocking issues after 3 rounds, STOP and report to user: "QA iteration limit reached (3/3). Remaining issues: [list]. Requires human decision on how to proceed."
+- **Reviewer ↔ Developer iterations (Steps 8-9):** Maximum **2 iterations**. If the reviewer still finds critical issues after 2 rounds, STOP and report to user: "Review iteration limit reached (2/2). Remaining issues: [list]. Requires human decision."
+
+### Inter-Step Output Validation
+Before invoking each agent, verify the previous agent produced its expected output:
+- Before Analyst (Step 2): verify `docs/.workflow/idea-brief.md` exists
+- Before Architect (Step 3): verify `specs/*-requirements.md` exists
+- Before Test Writer (Step 4): verify `specs/*-architecture.md` exists
+- Before Developer (Step 5): verify test files exist
+- Before QA (Step 6): verify source code files exist
+- Before Reviewer (Step 8): verify QA report exists in `docs/qa/`
+
+**If any expected output is missing, STOP the chain** and report: "CHAIN HALTED at Step [N]: Expected output from [agent] not found. [What's missing]. Previous agent may have failed silently."
+
+### Error Recovery
+If any agent fails mid-chain:
+1. Save the chain state to `docs/.workflow/chain-state.md` with:
+   - Which steps completed successfully (and their output files)
+   - Which step failed and why
+   - What remains to be done
+2. Report to user with the chain state
+3. The user can resume by re-invoking the failed step's agent manually
+
 ## Step 1: Discovery
 Invoke the `discovery` subagent with the user's raw idea.
 The discovery agent is the ONLY agent that has extended back-and-forth conversation with the user.
@@ -99,5 +125,8 @@ If the reviewer finds critical issues:
 - Repeat until approved
 
 ## Step 10: Versioning
-Once approved, create the final commit and version tag.
-Clean up `docs/.workflow/` temporary files.
+Once approved, create the final commit with `feat:` prefix and version tag.
+Do NOT clean up `docs/.workflow/` yet — the post-commit audit needs prior reports.
+
+Then invoke the post-commit audit:
+`/workflow:post-commit-audit --scope="[same --scope as this workflow, or the scope the Analyst determined in Step 1]"`

@@ -8,6 +8,37 @@ description: Add a feature to an existing project. Accepts optional --scope to l
 The user wants to add functionality to existing code.
 Optional: `--scope="area"` to limit which part of the codebase is analyzed.
 
+## Existing Project Validation
+Before starting the chain, verify this is an existing project:
+1. Check for source code files in the project. If none exist, suggest `/workflow:new` instead.
+2. If `specs/SPECS.md` does not exist, **don't fail** — proceed but note: "No specs/SPECS.md found. The analyst will work from code and user description only. Specs will be created as part of this workflow."
+
+## Fail-Safe Controls
+
+### Iteration Limits
+- **QA ↔ Developer iterations (Steps 5-6):** Maximum **3 iterations**. If QA still finds blocking issues after 3 rounds, STOP and report to user: "QA iteration limit reached (3/3). Remaining issues: [list]. Requires human decision on how to proceed."
+- **Reviewer ↔ Developer iterations (Steps 7-8):** Maximum **2 iterations**. If the reviewer still finds critical issues after 2 rounds, STOP and report to user: "Review iteration limit reached (2/2). Remaining issues: [list]. Requires human decision."
+
+### Inter-Step Output Validation
+Before invoking each agent, verify the previous agent produced its expected output:
+- Before Analyst (Step 1): if discovery ran, verify `docs/.workflow/idea-brief.md` exists
+- Before Architect (Step 2): verify `specs/*-requirements.md` exists
+- Before Test Writer (Step 3): verify `specs/*-architecture.md` exists
+- Before Developer (Step 4): verify test files exist
+- Before QA (Step 5): verify source code changes exist
+- Before Reviewer (Step 7): verify QA report exists in `docs/qa/`
+
+**If any expected output is missing, STOP the chain** and report: "CHAIN HALTED at Step [N]: Expected output from [agent] not found. [What's missing]. Previous agent may have failed silently."
+
+### Error Recovery
+If any agent fails mid-chain:
+1. Save the chain state to `docs/.workflow/chain-state.md` with:
+   - Which steps completed successfully (and their output files)
+   - Which step failed and why
+   - What remains to be done
+2. Report to user with the chain state
+3. The user can resume by re-invoking the failed step's agent manually
+
 ## Step 0: Discovery (conditional)
 **Evaluate whether discovery is needed.** Invoke the `discovery` subagent if the feature description is vague or underspecified — for example:
 - "add a dashboard" (what kind? for whom? showing what?)
@@ -93,5 +124,8 @@ If the reviewer finds critical issues:
 - Repeat until approved
 
 ## Step 9: Versioning
-Once approved, create the final commit and version tag.
-Clean up `docs/.workflow/` temporary files.
+Once approved, create the final commit with `feat:` prefix and version tag.
+Do NOT clean up `docs/.workflow/` yet — the post-commit audit needs prior reports.
+
+Then invoke the post-commit audit:
+`/workflow:post-commit-audit --scope="[same --scope as this workflow, or the scope the Analyst determined in Step 1]"`

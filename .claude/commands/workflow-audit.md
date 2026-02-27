@@ -8,9 +8,15 @@ description: Audit existing code without modifying it. Accepts optional --scope 
 Invoke ONLY the `reviewer` subagent in full audit mode.
 Optional: `--scope="milestone or module"` to audit a specific area.
 
+## Prerequisite Fallback
+If `specs/SPECS.md` does not exist:
+- **Don't fail.** Proceed with a code-only audit.
+- Note in the audit report: "No specs/SPECS.md found. Audit is based on codebase analysis only. Specs drift checks were skipped."
+- The reviewer should still check for the existence of docs and report their absence as a finding.
+
 ## Without scope (full audit)
 The reviewer MUST work in chunks to avoid context limits:
-1. Read `specs/SPECS.md` to get the list of milestones/domains
+1. Read `specs/SPECS.md` to get the list of milestones/domains (if it exists; if not, derive structure from directory layout)
 2. For each milestone:
    a. Review the code for that milestone
    b. Review corresponding specs and docs
