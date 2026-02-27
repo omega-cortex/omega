@@ -6,9 +6,15 @@
 //! 2. Architect  — design architecture, create specs/
 //! 3. Test Writer — write failing tests (TDD red)
 //! 4. Developer  — implement to pass tests (TDD green)
-//! 5. QA         — validate quality (VERIFICATION: PASS/FAIL)
-//! 6. Reviewer   — audit code (REVIEW: PASS/FAIL)
+//! 5. QA         — validate quality (up to 3 iterations, fatal)
+//! 6. Reviewer   — audit code (up to 2 iterations, fatal)
 //! 7. Delivery   — docs, SKILL.md, build summary
+//!
+//! Safety controls:
+//! - Inter-step validation before phases 3, 4, 5
+//! - QA loop: 3 iterations (QA → developer fix → re-QA)
+//! - Review loop: 2 iterations (review → developer fix → re-review)
+//! - Chain state persisted on failure for recovery inspection
 
 use super::builds_agents::AgentFilesGuard;
 use super::builds_parse::*;
@@ -165,6 +171,22 @@ impl Gateway {
         self.send_text(incoming, "Architecture defined.").await;
 
         // Phase 3: Test Writer — write failing tests (TDD red phase).
+        if let Some(err) = Gateway::validate_phase_output(&project_dir, "test-writer") {
+            if let Some(h) = typing_handle {
+                h.abort();
+            }
+            self.send_text(incoming, &err).await;
+            let cs = Self::chain_state(
+                &brief.name,
+                &project_dir_str,
+                &["analyst", "architect"],
+                "test-writer (validation)",
+                err,
+            );
+            Gateway::save_chain_state(&project_dir, &cs).await;
+            return;
+        }
+
         self.send_text(incoming, &phase_message(&user_lang, 3, "testing"))
             .await;
 
@@ -193,6 +215,22 @@ impl Gateway {
         self.send_text(incoming, "Tests written.").await;
 
         // Phase 4: Developer — implement to pass tests (TDD green phase).
+        if let Some(err) = Gateway::validate_phase_output(&project_dir, "developer") {
+            if let Some(h) = typing_handle {
+                h.abort();
+            }
+            self.send_text(incoming, &err).await;
+            let cs = Self::chain_state(
+                &brief.name,
+                &project_dir_str,
+                &["analyst", "architect", "test-writer"],
+                "developer (validation)",
+                err,
+            );
+            Gateway::save_chain_state(&project_dir, &cs).await;
+            return;
+        }
+
         self.send_text(incoming, &phase_message(&user_lang, 4, "implementing"))
             .await;
 
@@ -221,106 +259,84 @@ impl Gateway {
         self.send_text(incoming, "Implementation complete \u{2014} verifying...")
             .await;
 
-        // Phase 5: QA — validate quality (with one retry loop).
+        // Phase 5: QA — validate quality (up to 3 iterations).
+        if let Some(err) = Gateway::validate_phase_output(&project_dir, "qa") {
+            if let Some(h) = typing_handle {
+                h.abort();
+            }
+            self.send_text(incoming, &err).await;
+            let cs = Self::chain_state(
+                &brief.name,
+                &project_dir_str,
+                &["analyst", "architect", "test-writer", "developer"],
+                "qa (validation)",
+                err,
+            );
+            Gateway::save_chain_state(&project_dir, &cs).await;
+            return;
+        }
+
         self.send_text(incoming, &phase_message(&user_lang, 5, "validating"))
             .await;
 
-        let qa_prompt = format!(
-            "Validate the project in {project_dir_str}. Run build, lint, tests. Report VERIFICATION: PASS or FAIL."
-        );
-        let verification = match self
-            .run_build_phase("build-qa", &qa_prompt, &self.model_complex, None)
+        match self
+            .run_qa_loop(incoming, &project_dir_str, &user_lang)
             .await
         {
-            Ok(text) => parse_verification_result(&text),
-            Err(e) => VerificationResult::Fail(e),
-        };
-
-        match verification {
-            VerificationResult::Pass => {
-                self.send_text(incoming, "All checks passed.").await;
-            }
-            VerificationResult::Fail(reason) => {
-                // One retry: re-invoke developer with failure reason, then re-run QA.
-                self.send_text(incoming, "Verification found issues \u{2014} fixing...")
+            Ok(()) => {}
+            Err(reason) => {
+                if let Some(h) = typing_handle {
+                    h.abort();
+                }
+                self.send_text(
+                    incoming,
+                    &qa_exhausted_message(&user_lang, &reason, &project_dir_str),
+                )
+                .await;
+                self.audit_build(incoming, &brief.name, "failed", &reason)
                     .await;
-
-                let retry_developer_prompt = format!(
-                    "Read the tests and specs/ in {project_dir_str}. \
-                     The previous verification found these issues:\n{reason}\n\
-                     Fix the issues and ensure all tests pass. Begin."
+                let cs = Self::chain_state(
+                    &brief.name,
+                    &project_dir_str,
+                    &["analyst", "architect", "test-writer", "developer"],
+                    "qa",
+                    reason,
                 );
-                if let Err(e) = self
-                    .run_build_phase(
-                        "build-developer",
-                        &retry_developer_prompt,
-                        &self.model_complex,
-                        None,
-                    )
-                    .await
-                {
-                    if let Some(h) = typing_handle {
-                        h.abort();
-                    }
-                    self.send_text(
-                        incoming,
-                        &format!("Failed to fix issues: {e}. Partial results at {project_dir_str}"),
-                    )
-                    .await;
-                    return;
-                }
-
-                let retry_verification = match self
-                    .run_build_phase("build-qa", &qa_prompt, &self.model_complex, None)
-                    .await
-                {
-                    Ok(text) => parse_verification_result(&text),
-                    Err(e) => VerificationResult::Fail(e),
-                };
-
-                match retry_verification {
-                    VerificationResult::Pass => {
-                        self.send_text(incoming, "All checks passed after fixes.")
-                            .await;
-                    }
-                    VerificationResult::Fail(reason) => {
-                        if let Some(h) = typing_handle {
-                            h.abort();
-                        }
-                        self.send_text(
-                            incoming,
-                            &format!(
-                                "Build verification failed after retry: {reason}\n\
-                                 Partial results at `{project_dir_str}`"
-                            ),
-                        )
-                        .await;
-                        self.audit_build(incoming, &brief.name, "failed", &reason)
-                            .await;
-                        return;
-                    }
-                }
+                Gateway::save_chain_state(&project_dir, &cs).await;
+                return;
             }
         }
 
-        // Phase 6: Reviewer — audit code quality.
+        // Phase 6: Reviewer — code review (up to 2 iterations, fatal).
         self.send_text(incoming, &phase_message(&user_lang, 6, "reviewing"))
             .await;
 
-        let reviewer_prompt = format!(
-            "Review the code in {project_dir_str} for bugs, security, quality. Report REVIEW: PASS or FAIL."
-        );
-        if let Err(e) = self
-            .run_build_phase(
-                "build-reviewer",
-                &reviewer_prompt,
-                &self.model_complex,
-                None,
-            )
+        match self
+            .run_review_loop(incoming, &project_dir_str, &user_lang)
             .await
         {
-            // Reviewer failure is non-fatal — continue to delivery with a warning.
-            warn!("Reviewer phase failed: {e}");
+            Ok(()) => {}
+            Err(reason) => {
+                if let Some(h) = typing_handle {
+                    h.abort();
+                }
+                self.send_text(
+                    incoming,
+                    &review_exhausted_message(&user_lang, &reason, &project_dir_str),
+                )
+                .await;
+                self.audit_build(incoming, &brief.name, "failed", &reason)
+                    .await;
+                let cs = Self::chain_state(
+                    &brief.name,
+                    &project_dir_str,
+                    &["analyst", "architect", "test-writer", "developer", "qa"],
+                    "reviewer",
+                    reason,
+                );
+                Gateway::save_chain_state(&project_dir, &cs).await;
+                return;
+            }
         }
 
         // Phase 7: Delivery — docs, SKILL.md, build summary.
@@ -395,6 +411,23 @@ impl Gateway {
         }
         self.send_text(incoming, &final_msg).await;
         self.audit_build(incoming, &brief.name, "success", "").await;
+    }
+
+    /// Build a `ChainState` for the current project at a given failure point.
+    fn chain_state(
+        name: &str,
+        dir: &str,
+        completed: &[&str],
+        failed: &str,
+        reason: String,
+    ) -> ChainState {
+        ChainState {
+            project_name: name.to_string(),
+            project_dir: dir.to_string(),
+            completed_phases: completed.iter().map(|s| (*s).to_string()).collect(),
+            failed_phase: Some(failed.to_string()),
+            failure_reason: Some(reason),
+        }
     }
 
     /// Generic phase runner with retry logic (3 attempts, 2s delay).

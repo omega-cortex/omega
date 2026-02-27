@@ -1,7 +1,7 @@
 # Specification: backend/src/gateway/ (Directory Module)
 
 ## File Path
-`backend/src/gateway/` (directory module with 14 files)
+`backend/src/gateway/` (directory module with 15 files)
 
 ## Refactoring History
 - **2026-02-20:** Marker extraction/parsing/stripping functions (40+) extracted into `backend/src/markers.rs`. See `specs/src-markers-rs.md`.
@@ -22,9 +22,10 @@
 | `heartbeat_helpers.rs` | ~289 | `process_heartbeat_markers()`, `build_enrichment()`, `build_system_prompt()`, `send_heartbeat_result()` |
 | `pipeline.rs` | ~455 | `handle_message()`, `build_system_prompt()`, resolves `active_project`, routes builds to `handle_build_request()` and all other messages to `handle_direct_response()` |
 | `routing.rs` | ~436 | `classify_and_route()` (dead code), `execute_steps()` (dead code), `handle_direct_response()`, passes `active_project` to `process_markers()` |
-| `builds.rs` | ~433 | 7-phase agent build orchestrator: `handle_build_request()` (analyst → architect → test-writer → developer → QA → reviewer → delivery), `run_build_phase()` (agent-based with `--agent` flag), `audit_build()`. QA retry loop (1 cycle). Per-phase retry (3 attempts, 2s). |
-| `builds_parse.rs` | ~384 | Pure parsing functions for builds: `parse_project_brief()`, `parse_verification_result()`, `parse_build_summary()`, `phase_message()` (7 phases, 8 languages), data structures (`ProjectBrief`, `VerificationResult`, `BuildSummary`), tests |
-| `builds_agents.rs` | ~270 | Embedded build agent definitions (7 agents compiled into binary), `AgentFilesGuard` RAII lifecycle (writes temp `.claude/agents/` files, cleans up on Drop), `BUILD_AGENTS` name-to-content mapping |
+| `builds.rs` | ~483 | 7-phase agent build orchestrator: `handle_build_request()` (analyst → architect → test-writer → developer → QA → reviewer → delivery), `run_build_phase()` (agent-based with `--agent` flag), `audit_build()`, `chain_state()` helper. Inter-step validation before phases 3/4/5. Delegates QA/review loops to `builds_loop.rs`. |
+| `builds_loop.rs` | ~240 | Build pipeline iteration loops: `run_qa_loop()` (3 iterations), `run_review_loop()` (2 iterations, fatal), `validate_phase_output()` (pre-phase checks), `save_chain_state()` (writes `docs/.workflow/chain-state.md` on failure), `has_files_matching()` (recursive file search) |
+| `builds_parse.rs` | ~395 | Pure parsing functions for builds: `parse_project_brief()`, `parse_verification_result()`, `parse_review_result()`, `parse_build_summary()`, `phase_message()` (7 phases, 8 languages), 6 i18n functions (QA/review pass/retry/exhausted), data structures (`ProjectBrief`, `VerificationResult`, `ReviewResult`, `BuildSummary`, `ChainState`), tests |
+| `builds_agents.rs` | ~300 | Embedded build agent definitions (8 agents: discovery + 7 pipeline, compiled into binary), `AgentFilesGuard` RAII lifecycle (writes temp `.claude/agents/` files, cleans up on Drop), `BUILD_AGENTS` name-to-content mapping. QA and Reviewer use model: opus. Analyst includes MoSCoW. Architect includes failure modes. |
 | `auth.rs` | ~167 | `check_auth()`, `handle_whatsapp_qr()` |
 | `process_markers.rs` | ~504 | `process_markers(incoming, text, active_project)`, `process_purge_facts()`, `process_improvement_markers()`, `send_task_confirmation()` |
 

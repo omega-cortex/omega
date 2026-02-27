@@ -39,6 +39,22 @@ pub(super) struct BuildSummary {
     pub(super) skill: Option<String>,
 }
 
+/// Result of Phase 6 (Review).
+pub(super) enum ReviewResult {
+    Pass,
+    Fail(String),
+}
+
+/// Snapshot of build pipeline progress — written to `docs/.workflow/chain-state.md`
+/// on failure so the user can resume or inspect partial results.
+pub(super) struct ChainState {
+    pub(super) project_name: String,
+    pub(super) project_dir: String,
+    pub(super) completed_phases: Vec<String>,
+    pub(super) failed_phase: Option<String>,
+    pub(super) failure_reason: Option<String>,
+}
+
 /// Result of discovery agent invocation.
 pub(super) enum DiscoveryOutput {
     /// Agent needs more information — contains question text for the user.
@@ -121,6 +137,30 @@ pub(super) fn parse_verification_result(text: &str) -> VerificationResult {
     } else {
         // No marker found — treat as failure to avoid silently passing a broken build.
         VerificationResult::Fail("No verification marker found in response".to_string())
+    }
+}
+
+/// Parse Phase 6 reviewer output into a pass/fail result.
+pub(super) fn parse_review_result(text: &str) -> ReviewResult {
+    if text.contains("REVIEW: PASS") {
+        ReviewResult::Pass
+    } else if text.contains("REVIEW: FAIL") {
+        // Collect all lines after the REVIEW: FAIL marker as findings.
+        let findings: String = text
+            .lines()
+            .skip_while(|l| !l.contains("REVIEW: FAIL"))
+            .skip(1) // skip the REVIEW: FAIL line itself
+            .filter(|l| !l.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if findings.is_empty() {
+            ReviewResult::Fail("Review failed (no findings provided)".to_string())
+        } else {
+            ReviewResult::Fail(findings)
+        }
+    } else {
+        // No marker — treat as failure to avoid silently passing a broken review.
+        ReviewResult::Fail("No review marker found in response".to_string())
     }
 }
 
@@ -242,6 +282,124 @@ pub(super) fn phase_message(lang: &str, phase: u8, action: &str) -> String {
         },
     };
     format!("\u{2699}\u{fe0f} {msg}")
+}
+
+/// Localized QA pass message, includes attempt count when > 1.
+pub(super) fn qa_pass_message(lang: &str, attempt: u32) -> String {
+    let suffix = if attempt > 1 {
+        format!(" (attempt {attempt})")
+    } else {
+        String::new()
+    };
+    let base = match lang {
+        "Spanish" => "Todas las verificaciones pasaron",
+        "Portuguese" => "Todas as verificações passaram",
+        "French" => "Toutes les vérifications réussies",
+        "German" => "Alle Prüfungen bestanden",
+        "Italian" => "Tutte le verifiche superate",
+        "Dutch" => "Alle controles geslaagd",
+        "Russian" => "Все проверки пройдены",
+        _ => "All checks passed",
+    };
+    format!("{base}{suffix}.")
+}
+
+/// Localized QA retry message — sent when verification finds issues and developer is re-invoked.
+pub(super) fn qa_retry_message(lang: &str, attempt: u32, reason: &str) -> String {
+    match lang {
+        "Spanish" => {
+            format!("Verificación {attempt}/3 encontró problemas — corrigiendo...\n{reason}")
+        }
+        "Portuguese" => {
+            format!("Verificação {attempt}/3 encontrou problemas — corrigindo...\n{reason}")
+        }
+        "French" => {
+            format!("Vérification {attempt}/3 a trouvé des problèmes — correction...\n{reason}")
+        }
+        "German" => {
+            format!("Prüfung {attempt}/3 hat Probleme gefunden — wird behoben...\n{reason}")
+        }
+        "Italian" => format!("Verifica {attempt}/3 ha trovato problemi — correzione...\n{reason}"),
+        "Dutch" => format!("Controle {attempt}/3 vond problemen — wordt opgelost...\n{reason}"),
+        "Russian" => format!("Проверка {attempt}/3 обнаружила проблемы — исправляю...\n{reason}"),
+        _ => format!("Verification {attempt}/3 found issues — fixing...\n{reason}"),
+    }
+}
+
+/// Localized QA exhausted message — sent when all 3 QA iterations fail.
+pub(super) fn qa_exhausted_message(lang: &str, reason: &str, dir: &str) -> String {
+    match lang {
+        "Spanish" => format!("La verificación falló después de 3 intentos: {reason}\nResultados parciales en `{dir}`"),
+        "Portuguese" => format!("A verificação falhou após 3 tentativas: {reason}\nResultados parciais em `{dir}`"),
+        "French" => format!("La vérification a échoué après 3 tentatives : {reason}\nRésultats partiels dans `{dir}`"),
+        "German" => format!("Verifizierung nach 3 Versuchen fehlgeschlagen: {reason}\nTeilergebnisse in `{dir}`"),
+        "Italian" => format!("La verifica è fallita dopo 3 tentativi: {reason}\nRisultati parziali in `{dir}`"),
+        "Dutch" => format!("Verificatie mislukt na 3 pogingen: {reason}\nGedeeltelijke resultaten in `{dir}`"),
+        "Russian" => format!("Проверка не пройдена после 3 попыток: {reason}\nЧастичные результаты в `{dir}`"),
+        _ => format!("Build verification failed after 3 iterations: {reason}\nPartial results at `{dir}`"),
+    }
+}
+
+/// Localized review pass message.
+pub(super) fn review_pass_message(lang: &str, attempt: u32) -> String {
+    let suffix = if attempt > 1 {
+        format!(" (attempt {attempt})")
+    } else {
+        String::new()
+    };
+    let base = match lang {
+        "Spanish" => "Revisión de código aprobada",
+        "Portuguese" => "Revisão de código aprovada",
+        "French" => "Revue de code réussie",
+        "German" => "Code-Review bestanden",
+        "Italian" => "Revisione del codice superata",
+        "Dutch" => "Code review geslaagd",
+        "Russian" => "Обзор кода пройден",
+        _ => "Code review passed",
+    };
+    format!("{base}{suffix}.")
+}
+
+/// Localized review retry message — sent when review finds issues and developer is re-invoked.
+pub(super) fn review_retry_message(lang: &str, reason: &str) -> String {
+    match lang {
+        "Spanish" => format!("La revisión encontró problemas — corrigiendo...\n{reason}"),
+        "Portuguese" => format!("A revisão encontrou problemas — corrigindo...\n{reason}"),
+        "French" => format!("La revue a trouvé des problèmes — correction...\n{reason}"),
+        "German" => format!("Review hat Probleme gefunden — wird behoben...\n{reason}"),
+        "Italian" => format!("La revisione ha trovato problemi — correzione...\n{reason}"),
+        "Dutch" => format!("Review vond problemen — wordt opgelost...\n{reason}"),
+        "Russian" => format!("Обзор обнаружил проблемы — исправляю...\n{reason}"),
+        _ => format!("Review found issues — fixing...\n{reason}"),
+    }
+}
+
+/// Localized review exhausted message — sent when both review iterations fail.
+pub(super) fn review_exhausted_message(lang: &str, reason: &str, dir: &str) -> String {
+    match lang {
+        "Spanish" => format!(
+            "La revisión falló después de 2 intentos: {reason}\nResultados parciales en `{dir}`"
+        ),
+        "Portuguese" => {
+            format!("A revisão falhou após 2 tentativas: {reason}\nResultados parciais em `{dir}`")
+        }
+        "French" => format!(
+            "La revue a échoué après 2 tentatives : {reason}\nRésultats partiels dans `{dir}`"
+        ),
+        "German" => format!(
+            "Code-Review nach 2 Versuchen fehlgeschlagen: {reason}\nTeilergebnisse in `{dir}`"
+        ),
+        "Italian" => format!(
+            "La revisione è fallita dopo 2 tentativi: {reason}\nRisultati parziali in `{dir}`"
+        ),
+        "Dutch" => {
+            format!("Review mislukt na 2 pogingen: {reason}\nGedeeltelijke resultaten in `{dir}`")
+        }
+        "Russian" => {
+            format!("Обзор не пройден после 2 попыток: {reason}\nЧастичные результаты в `{dir}`")
+        }
+        _ => format!("Code review failed after 2 iterations: {reason}\nPartial results at `{dir}`"),
+    }
 }
 
 /// Parse discovery agent output into questions or a completed brief.
@@ -1129,5 +1287,176 @@ mod tests {
             !filename.contains('\\'),
             "Filename must not contain '\\', got: '{filename}'"
         );
+    }
+
+    // ===================================================================
+    // Review result parsing
+    // ===================================================================
+
+    #[test]
+    fn test_parse_review_result_pass() {
+        let text = "All code looks good.\n\nREVIEW: PASS";
+        assert!(matches!(parse_review_result(text), ReviewResult::Pass));
+    }
+
+    #[test]
+    fn test_parse_review_result_fail_with_findings() {
+        let text = "REVIEW: FAIL\n- security: SQL injection in query.rs\n- bug: off-by-one in pagination.rs";
+        match parse_review_result(text) {
+            ReviewResult::Fail(findings) => {
+                assert!(findings.contains("SQL injection"));
+                assert!(findings.contains("off-by-one"));
+            }
+            _ => panic!("expected Fail"),
+        }
+    }
+
+    #[test]
+    fn test_parse_review_result_fail_no_findings() {
+        let text = "REVIEW: FAIL";
+        match parse_review_result(text) {
+            ReviewResult::Fail(reason) => assert!(reason.contains("no findings")),
+            _ => panic!("expected Fail"),
+        }
+    }
+
+    #[test]
+    fn test_parse_review_result_no_marker() {
+        let text = "The code looks fine but I didn't use the marker format.";
+        match parse_review_result(text) {
+            ReviewResult::Fail(reason) => assert!(reason.contains("No review marker")),
+            _ => panic!("expected Fail"),
+        }
+    }
+
+    #[test]
+    fn test_parse_review_result_empty_input() {
+        match parse_review_result("") {
+            ReviewResult::Fail(reason) => assert!(reason.contains("No review marker")),
+            _ => panic!("expected Fail"),
+        }
+    }
+
+    // ===================================================================
+    // QA i18n messages
+    // ===================================================================
+
+    #[test]
+    fn test_qa_pass_message_first_attempt() {
+        let msg = qa_pass_message("English", 1);
+        assert!(msg.contains("All checks passed"));
+        assert!(!msg.contains("attempt"));
+    }
+
+    #[test]
+    fn test_qa_pass_message_retry_attempt() {
+        let msg = qa_pass_message("English", 2);
+        assert!(msg.contains("All checks passed"));
+        assert!(msg.contains("attempt 2"));
+    }
+
+    #[test]
+    fn test_qa_pass_message_all_languages() {
+        let languages = [
+            "English",
+            "Spanish",
+            "Portuguese",
+            "French",
+            "German",
+            "Italian",
+            "Dutch",
+            "Russian",
+        ];
+        for lang in &languages {
+            let msg = qa_pass_message(lang, 1);
+            assert!(
+                !msg.is_empty(),
+                "qa_pass_message for {lang} must not be empty"
+            );
+        }
+    }
+
+    #[test]
+    fn test_qa_retry_message_english() {
+        let msg = qa_retry_message("English", 1, "tests failing");
+        assert!(msg.contains("1/3"));
+        assert!(msg.contains("tests failing"));
+    }
+
+    #[test]
+    fn test_qa_exhausted_message_english() {
+        let msg = qa_exhausted_message("English", "3 tests failing", "/tmp/build");
+        assert!(msg.contains("3 iterations"));
+        assert!(msg.contains("/tmp/build"));
+    }
+
+    // ===================================================================
+    // Review i18n messages
+    // ===================================================================
+
+    #[test]
+    fn test_review_pass_message_first_attempt() {
+        let msg = review_pass_message("English", 1);
+        assert!(msg.contains("Code review passed"));
+        assert!(!msg.contains("attempt"));
+    }
+
+    #[test]
+    fn test_review_pass_message_retry_attempt() {
+        let msg = review_pass_message("English", 2);
+        assert!(msg.contains("attempt 2"));
+    }
+
+    #[test]
+    fn test_review_pass_message_all_languages() {
+        let languages = [
+            "English",
+            "Spanish",
+            "Portuguese",
+            "French",
+            "German",
+            "Italian",
+            "Dutch",
+            "Russian",
+        ];
+        for lang in &languages {
+            let msg = review_pass_message(lang, 1);
+            assert!(
+                !msg.is_empty(),
+                "review_pass_message for {lang} must not be empty"
+            );
+        }
+    }
+
+    #[test]
+    fn test_review_retry_message_english() {
+        let msg = review_retry_message("English", "security issue found");
+        assert!(msg.contains("Review found issues"));
+        assert!(msg.contains("security issue found"));
+    }
+
+    #[test]
+    fn test_review_exhausted_message_english() {
+        let msg = review_exhausted_message("English", "bugs remain", "/tmp/build");
+        assert!(msg.contains("2 iterations"));
+        assert!(msg.contains("/tmp/build"));
+    }
+
+    // ===================================================================
+    // ChainState construction
+    // ===================================================================
+
+    #[test]
+    fn test_chain_state_construction() {
+        let state = ChainState {
+            project_name: "test-project".to_string(),
+            project_dir: "/tmp/builds/test-project".to_string(),
+            completed_phases: vec!["analyst".to_string(), "architect".to_string()],
+            failed_phase: Some("qa".to_string()),
+            failure_reason: Some("tests failing".to_string()),
+        };
+        assert_eq!(state.project_name, "test-project");
+        assert_eq!(state.completed_phases.len(), 2);
+        assert_eq!(state.failed_phase.as_deref(), Some("qa"));
     }
 }

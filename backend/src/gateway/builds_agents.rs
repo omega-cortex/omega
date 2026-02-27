@@ -54,7 +54,11 @@ COMPONENTS:
 - <component 2>
 - <component 3>
 
-After the COMPONENTS list, write a detailed requirements section with numbered requirements (REQ-001, REQ-002, etc.) each with acceptance criteria.
+After the COMPONENTS list, write a detailed requirements section with numbered requirements (REQ-001, REQ-002, etc.) each with:
+- A MoSCoW priority prefix: [Must], [Should], [Could], or [Won't]
+- Testable acceptance criteria
+
+Example: REQ-001 [Must]: User can fetch current BTC price — AC: CLI returns price within 5s
 
 ## Example Output
 
@@ -105,9 +109,13 @@ Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable def
 
 - Write specs/ files that the test-writer can reference
 - Every module in architecture.md must map to at least one requirement
-- Include failure modes and edge cases in specs
 - Keep the architecture simple — avoid over-engineering
 - Use standard project layouts for the chosen language
+
+For each module in specs/architecture.md, include:
+1. Failure modes — what can fail and how the system recovers
+2. Security boundaries — what inputs come from untrusted sources
+3. Performance constraints if applicable
 ";
 
 pub(super) const BUILD_TEST_WRITER_AGENT: &str = "\
@@ -176,7 +184,7 @@ pub(super) const BUILD_QA_AGENT: &str = "\
 name: build-qa
 description: Validates project quality by running build, lint, and tests
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: fast
+model: opus
 permissionMode: bypassPermissions
 ---
 
@@ -190,7 +198,9 @@ Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable def
 2. Run the linter if configured
 3. Run the full test suite
 4. Check that all acceptance criteria from specs/requirements.md are met
-5. Report results in the required format
+5. Perform exploratory testing beyond the test suite — try edge cases, invalid inputs, boundary conditions
+6. Write a QA report to docs/qa-report.md with findings, coverage gaps, and risk assessment
+7. Report results in the required format
 
 ## Output Format
 
@@ -203,21 +213,22 @@ VERIFICATION: PASS
 
 Or:
 VERIFICATION: FAIL
-3 tests failing in module auth: test_login_invalid, test_token_expired, test_refresh_missing
+REASON: 3 tests failing in module auth: test_login_invalid, test_token_expired, test_refresh_missing
 
 ## Rules
 
 - Run actual commands, do not simulate results
 - Report ALL failures, not just the first one
 - Be specific about which tests or checks failed
+- Always include a REASON: line after VERIFICATION: FAIL
 ";
 
 pub(super) const BUILD_REVIEWER_AGENT: &str = "\
 ---
 name: build-reviewer
 description: Reviews code for bugs, security issues, and quality
-tools: Read, Grep, Glob, Bash
-model: fast
+tools: Read, Write, Grep, Glob, Bash
+model: opus
 permissionMode: bypassPermissions
 maxTurns: 50
 ---
@@ -232,8 +243,9 @@ Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable def
 2. Check for security vulnerabilities (injection, auth bypass, etc.)
 3. Check for performance issues (N+1 queries, unbounded allocations, etc.)
 4. Verify code follows project conventions
-5. Check that specs/ and docs/ are consistent with the code
-6. Report results in the required format
+5. Check that specs/ and docs/ are consistent with the code — flag any drift
+6. Write a review report to docs/review-report.md with categorized findings
+7. Report results in the required format
 
 ## Output Format
 
@@ -253,7 +265,7 @@ REVIEW: FAIL
 
 - Be thorough but pragmatic — this is a build, not a production audit
 - Focus on correctness and security over style
-- Do NOT modify any files — you are read-only
+- You MAY write the review report file, but do NOT modify source code
 ";
 
 pub(super) const BUILD_DELIVERY_AGENT: &str = "\
@@ -685,9 +697,9 @@ mod tests {
     }
 
     // Requirement: REQ-BAP-021 (Should)
-    // Acceptance: Reviewer has restricted tools (Read, Grep, Glob, Bash)
+    // Acceptance: Reviewer has tools (Read, Write, Grep, Glob, Bash) — needs Write for report
     #[test]
-    fn test_reviewer_agent_restricted_tools() {
+    fn test_reviewer_agent_tools() {
         let after_open = &BUILD_REVIEWER_AGENT[3..];
         let close_idx = after_open.find("\n---").unwrap();
         let frontmatter = &after_open[..close_idx];
@@ -695,17 +707,17 @@ mod tests {
             .lines()
             .find(|l| l.starts_with("tools:"))
             .expect("Reviewer must have tools: in frontmatter");
-        // Reviewer should NOT have Write or Edit tools.
-        assert!(
-            !tools_line.contains("Write"),
-            "Reviewer should not have Write tool"
-        );
+        // Reviewer should NOT have Edit tool (cannot modify source code).
         assert!(
             !tools_line.contains("Edit"),
             "Reviewer should not have Edit tool"
         );
-        // Should have Read and Bash.
+        // Should have Read, Write (for report), and Bash.
         assert!(tools_line.contains("Read"), "Reviewer must have Read tool");
+        assert!(
+            tools_line.contains("Write"),
+            "Reviewer must have Write tool for report"
+        );
         assert!(tools_line.contains("Bash"), "Reviewer must have Bash tool");
     }
 
@@ -1266,5 +1278,91 @@ mod tests {
 
         drop(guard);
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // ===================================================================
+    // Safety control agent upgrades
+    // ===================================================================
+
+    /// Helper: extract model value from agent frontmatter.
+    fn extract_model(content: &str) -> &str {
+        let after_open = &content[3..];
+        let close_idx = after_open.find("\n---").unwrap();
+        let frontmatter = &after_open[..close_idx];
+        let model_line = frontmatter
+            .lines()
+            .find(|l| l.starts_with("model:"))
+            .expect("Agent must have model: in frontmatter");
+        model_line["model:".len()..].trim()
+    }
+
+    #[test]
+    fn test_qa_agent_model_opus() {
+        assert_eq!(
+            extract_model(BUILD_QA_AGENT),
+            "opus",
+            "QA agent must use model: opus for deep reasoning"
+        );
+    }
+
+    #[test]
+    fn test_reviewer_agent_model_opus() {
+        assert_eq!(
+            extract_model(BUILD_REVIEWER_AGENT),
+            "opus",
+            "Reviewer agent must use model: opus for deep reasoning"
+        );
+    }
+
+    #[test]
+    fn test_analyst_agent_moscow() {
+        let content = BUILD_ANALYST_AGENT;
+        assert!(
+            content.contains("[Must]")
+                && content.contains("[Should]")
+                && content.contains("[Could]"),
+            "Analyst agent must instruct MoSCoW prioritization with [Must], [Should], [Could]"
+        );
+    }
+
+    #[test]
+    fn test_architect_agent_failure_modes() {
+        let content = BUILD_ARCHITECT_AGENT;
+        assert!(
+            content.to_lowercase().contains("failure mode"),
+            "Architect agent must instruct documenting failure modes"
+        );
+        assert!(
+            content.to_lowercase().contains("security boundar"),
+            "Architect agent must instruct documenting security boundaries"
+        );
+    }
+
+    #[test]
+    fn test_qa_agent_report_output() {
+        let content = BUILD_QA_AGENT;
+        assert!(
+            content.contains("qa-report.md"),
+            "QA agent must write a report to qa-report.md"
+        );
+    }
+
+    #[test]
+    fn test_reviewer_agent_report_output() {
+        let content = BUILD_REVIEWER_AGENT;
+        assert!(
+            content.contains("review-report.md"),
+            "Reviewer agent must write a report to review-report.md"
+        );
+    }
+
+    #[test]
+    fn test_reviewer_agent_specs_docs_drift() {
+        let content = BUILD_REVIEWER_AGENT;
+        assert!(
+            content.to_lowercase().contains("drift")
+                || (content.contains("specs/") && content.contains("docs/")),
+            "Reviewer agent must check for specs/docs drift"
+        );
     }
 }

@@ -6,6 +6,7 @@
 mod auth;
 mod builds;
 mod builds_agents;
+mod builds_loop;
 mod builds_parse;
 mod heartbeat;
 mod heartbeat_helpers;
