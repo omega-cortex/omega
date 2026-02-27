@@ -46,6 +46,15 @@ tar -xzf doli-VERSION-*.tar.gz
 sudo cp doli-VERSION-*/doli-node doli-VERSION-*/doli /usr/local/bin/
 ```
 
+**Build from source:**
+```bash
+git clone https://github.com/e-weil/doli.git && cd doli
+cargo build --release
+sudo cp target/release/doli-node target/release/doli /usr/local/bin/
+```
+
+> **`--release` is MANDATORY.** Debug builds (`cargo build` without `--release`) are ~10x slower for VDF computation, causing block production timeouts, sync failures, and fork divergence. Debug binaries are ~17MB vs ~8MB for release. If your binary is larger than 10MB, you have a debug build.
+
 Verify: `doli --version && doli-node --version`
 
 Data directories: `~/.doli/mainnet/`, `~/.doli/testnet/`, `~/.doli/devnet/`.
@@ -82,7 +91,7 @@ doli-node run --data-dir /path
 | Option | Description | Default |
 |--------|-------------|---------|
 | `-w, --wallet <PATH>` | Wallet file path | `~/.doli/wallet.json` |
-| `-r, --rpc <URL>` | Node RPC endpoint | `http://127.0.0.1:8545` |
+| `-r, --rpc <URL>` | Node RPC endpoint | `http://seed1.doli.network:8545` (mainnet) or `http://127.0.0.1:8545` (local) |
 
 ## Wallet
 
@@ -155,6 +164,7 @@ doli history --limit 20              # custom limit
 ```bash
 doli export ~/backup/wallet.json     # backup wallet
 doli import ~/backup/wallet.json     # restore wallet
+doli restore                         # recover wallet from 24-word seed phrase (interactive)
 ```
 
 ### Sign & verify messages
@@ -338,13 +348,24 @@ tail -f ~/.doli/mainnet/node.log                                    # logs
 
 ## Troubleshooting
 
+**Debug build (wrong binary):**
+Binary is ~17MB instead of ~8MB, VDF timeouts, sync failures, fork divergence.
+```bash
+ls -lh $(which doli-node)   # should be ~8-9MB, not 15-20MB
+cargo build --release        # fix: rebuild with --release
+```
+
 **Node not producing blocks:**
 1. `doli producer status` — verify active
 2. Check process has `--producer` flag: `pgrep -la doli-node`
 3. Check peer count > 0: `doli chain`
 4. Check clock sync: `date -u` vs `ntpdate -q pool.ntp.org`
 
-**No peers:** Open P2P port (30303), verify bootstrap node.
+**No peers / only 1 peer:** Open P2P port (30303/tcp) in firewall. The node needs 3+ peers for snap sync. With <3 peers, it falls back to header-first sync after 60 seconds (slower but works). Check `doli chain` for peer count.
+
+**Self-dial (127.0.0.1 in peers):** Fixed in v1.0.5. Update to latest release. Caused by DHT propagating loopback addresses from bootstrap nodes.
+
+**Stuck at height 0 ("waiting for peers for snap sync"):** Fixed in v1.0.5. Nodes no longer wait forever for 3 peers — they fall back to header-first sync after 60s. Update to latest release.
 
 **RocksDB LOCK error:** Another `doli-node` process is running. Kill it first — never delete the LOCK file.
 
