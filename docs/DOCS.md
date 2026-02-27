@@ -9,7 +9,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 ## Documentation Files
 
 ### Architecture
-- [architecture.md](architecture.md) — End-to-end message flow (Telegram → Gateway → Claude Code → response), concurrency model, session persistence, background loops, efficiency summary
+- [architecture.md](architecture.md) — End-to-end message flow (Telegram → Gateway → Claude Code → response), concurrency model, session persistence, multi-agent pipeline architecture (sequential chain, file-mediated handoffs, bounded corrective loops, self-healing audit), background loops, efficiency summary
 
 ### Binary (`backend/src/`)
 - [src-main-rs.md](src-main-rs.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap

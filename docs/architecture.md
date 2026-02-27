@@ -408,6 +408,116 @@ Key rule: **project lessons don't leak into general context, but general lessons
 
 ---
 
+## Multi-Agent Pipeline Architecture
+
+Omega uses a **sequential agent pipeline with bounded corrective loops and file-mediated handoffs** — a pattern applied in two contexts:
+
+| Context | Where | Agents | Trigger |
+|---------|-------|--------|---------|
+| **Runtime builds** | `gateway/builds.rs` | 7 phases via Claude Code CLI `--agent` | User says "build me X" |
+| **Dev-time workflows** | `.claude/commands/workflow-*.md` | Up to 10 steps via Claude Code subagents | Developer runs `/workflow:feature`, etc. |
+
+Both use the same underlying pattern. The only difference is the execution environment: runtime builds run inside the OMEGA process (Rust orchestrator), dev-time workflows run inside Claude Code's agent system (markdown command files).
+
+### Pattern: Sequential Agent Chain
+
+Each agent in the chain is a **specialist with a single responsibility**. Agents execute in strict order — the output of one becomes the input of the next:
+
+```
+Analyst → Architect → Test Writer → Developer → QA → Reviewer → Delivery
+```
+
+No agent knows about the others. No agent calls another agent directly. The **orchestrator** (builds.rs or the workflow command) is the only component that knows the full sequence.
+
+### Communication: File-Mediated Handoffs
+
+Agents do not share memory, state, or context windows. All inter-agent communication happens through **files on disk**:
+
+```
+┌──────────┐    writes specs/    ┌───────────┐    reads specs/     ┌─────────────┐
+│ Analyst  │ ──────────────────→ │ Architect │ ──────────────────→ │ Test Writer │
+└──────────┘    requirements     └───────────┘    writes specs/     └─────────────┘
+                                                  architecture           │
+                                                                         │ reads specs/
+                                                                         │ writes tests/
+                                                                         ▼
+┌──────────┐    reads code/      ┌───────────┐    reads tests/     ┌───────────┐
+│ Reviewer │ ←────────────────── │    QA     │ ←────────────────── │ Developer │
+└──────────┘    writes reviews/  └───────────┘    writes qa/       └───────────┘
+                                                                    reads tests/
+                                                                    writes code/
+```
+
+**Why files, not in-memory state:**
+- Each agent gets a **fresh context window** — no accumulated token bloat
+- Artifacts are **inspectable** — you can read what any agent produced at any step
+- The chain is **resumable** — if step 4 fails, re-run from step 4 with the same files
+- **No coupling** — swap an agent's implementation without touching others
+
+### Bounded Corrective Loops
+
+The pipeline is not purely linear. Two agents have **retry loops** where a verifier can send work back to the implementer:
+
+```
+Developer ←──fix──→ QA        (max 3 iterations)
+Developer ←──fix──→ Reviewer  (max 2 iterations)
+```
+
+Every loop has a **hard iteration cap**. If the cap is reached, the chain **stops and escalates to the user** rather than spinning indefinitely. This prevents:
+- Infinite loops from contradictory requirements
+- Cost explosion from agents disagreeing
+- Silent failures from agents that "agree to disagree"
+
+### Self-Healing Post-Commit Audit
+
+After the main chain commits, a **bounded audit loop** automatically verifies the result:
+
+```
+[Main chain commits]
+        │
+        ▼
+Reviewer (scoped audit) ──→ AUDIT-VERDICT: clean ──→ DONE
+        │
+        └──→ AUDIT-VERDICT: requires-fix
+                    │
+                    ▼
+            Analyst → Developer → QA (reduced fix cycle)
+                    │
+                    └──→ Re-audit (round 2, max 2 rounds)
+```
+
+The audit loop uses a **machine-parseable verdict** (`AUDIT-VERDICT: clean` or `AUDIT-VERDICT: requires-fix`) to branch deterministically — no ambiguous natural language parsing.
+
+### Why Choreography, Not Orchestration
+
+The orchestrator does **not** make dynamic routing decisions mid-chain. It runs a fixed sequence. This is **choreography** (each agent knows what artifact to read/write) rather than **orchestration** (a central brain deciding who runs next based on runtime state).
+
+The only dynamic behavior is the corrective loops, and even those follow a fixed pattern (verifier rejects → implementer retries → verifier re-checks).
+
+**Why this matters:**
+- The pipeline is **predictable** — same inputs always produce the same agent sequence
+- **Debugging** is straightforward — check which file artifact is wrong, that's the agent that failed
+- **Cost is bounded** — you can calculate worst-case agent calls before the chain starts
+
+### Runtime vs Dev-Time Comparison
+
+| Aspect | Runtime (builds.rs) | Dev-Time (workflow commands) |
+|--------|---------------------|------------------------------|
+| Orchestrator | Rust code (`handle_build_request()`) | Markdown command file |
+| Agent invocation | `claude --agent <name>` subprocess | Claude Code subagent system |
+| Agent definitions | Embedded constants (`builds_agents.rs`) | `.claude/agents/*.md` files |
+| Artifact location | `~/.omega/workspace/builds/<name>/` | `specs/`, `docs/`, source code |
+| QA retry cap | 3 iterations (fatal) | 3 iterations (escalate) |
+| Reviewer retry cap | 2 iterations (fatal) | 2 iterations (escalate) |
+| Post-commit audit | Not applicable (runtime) | 2 rounds max, auto-fix cycle |
+| User interaction | Progress messages via Telegram/WhatsApp | Terminal output |
+
+### Agent RAII Guard (Runtime Only)
+
+Runtime builds use an **RAII guard** (`AgentFilesGuard`) that writes 8 agent `.md` files to `~/.omega/workspace/.claude/agents/` before the first phase and **automatically deletes them on drop**. This ensures agent definitions don't leak between builds or persist after failures.
+
+---
+
 ## Efficiency Summary
 
 | Optimization | Savings |
