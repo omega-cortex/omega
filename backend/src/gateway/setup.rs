@@ -33,14 +33,13 @@ pub(super) fn parse_setup_round(content: &str) -> u8 {
 }
 
 /// Parse Brain output to determine if it's questions or a proposal.
-#[allow(dead_code)]
 pub(super) enum SetupOutput {
     /// Brain needs more information -- contains question text.
     Questions(String),
     /// Brain is ready -- contains the full proposal text.
     Proposal(String),
     /// Brain is in execution mode -- contains markers and status.
-    Executed(String),
+    Executed(#[allow(dead_code)] String),
 }
 
 /// Parse raw Brain output into a SetupOutput variant.
@@ -88,7 +87,7 @@ impl Gateway {
             let ts_str = val.split('|').next().unwrap_or("0");
             let created_at: i64 = ts_str.parse().unwrap_or(0);
             let now = chrono::Utc::now().timestamp();
-            let ttl = SETUP_TTL_SECS as i64;
+            let ttl = SETUP_TTL_SECS;
             if (now - created_at) <= ttl {
                 if let Some(h) = typing_handle {
                     h.abort();
@@ -166,8 +165,9 @@ impl Gateway {
                     SetupOutput::Questions(questions) => {
                         // Create context file with round 1.
                         let ctx_path = setup_context_path(&self.data_dir, &incoming.sender_id);
-                        let ctx_dir = ctx_path.parent().unwrap();
-                        let _ = tokio::fs::create_dir_all(ctx_dir).await;
+                        if let Some(ctx_dir) = ctx_path.parent() {
+                            let _ = tokio::fs::create_dir_all(ctx_dir).await;
+                        }
                         let file_content = format!(
                             "ROUND: 1\nDESCRIPTION: {description}\n\nQUESTIONS:\n{questions}"
                         );
@@ -203,8 +203,9 @@ impl Gateway {
 
                         // Store full proposal in context file.
                         let ctx_path = setup_context_path(&self.data_dir, &incoming.sender_id);
-                        let ctx_dir = ctx_path.parent().unwrap();
-                        let _ = tokio::fs::create_dir_all(ctx_dir).await;
+                        if let Some(ctx_dir) = ctx_path.parent() {
+                            let _ = tokio::fs::create_dir_all(ctx_dir).await;
+                        }
                         let _ = tokio::fs::write(&ctx_path, &proposal).await;
 
                         // Store pending_setup fact (round = "proposal").
@@ -256,284 +257,8 @@ impl Gateway {
             .await;
     }
 
-    /// Handle a follow-up message during an active setup session.
-    pub(super) async fn handle_setup_response(
-        &self,
-        incoming: &IncomingMessage,
-        setup_value: &str,
-        typing_handle: Option<tokio::task::JoinHandle<()>>,
-    ) {
-        let user_lang = self
-            .memory
-            .get_fact(&incoming.sender_id, "preferred_language")
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| "English".to_string());
-
-        // Parse pending_setup value: "timestamp|sender_id|round".
-        let parts: Vec<&str> = setup_value.split('|').collect();
-        let stored_ts: i64 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
-        let now = chrono::Utc::now().timestamp();
-        let ttl = SETUP_TTL_SECS as i64;
-
-        // Check TTL.
-        if (now - stored_ts) > ttl {
-            self.cleanup_setup_session(&incoming.sender_id).await;
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            self.send_text(incoming, setup_expired_message(&user_lang))
-                .await;
-            return;
-        }
-
-        // Check for cancellation.
-        if is_build_cancelled(&incoming.text) {
-            self.cleanup_setup_session(&incoming.sender_id).await;
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            self.send_text(incoming, setup_cancelled_message(&user_lang))
-                .await;
-            return;
-        }
-
-        // Read context file to determine phase.
-        let ctx_path = setup_context_path(&self.data_dir, &incoming.sender_id);
-        let context = tokio::fs::read_to_string(&ctx_path)
-            .await
-            .unwrap_or_default();
-
-        let omega_dir = PathBuf::from(shellexpand(&self.data_dir));
-
-        if context.contains("SETUP_PROPOSAL") {
-            // CONFIRMATION PHASE.
-            if is_build_confirmed(&incoming.text) {
-                // Execute the approved setup.
-                match self.execute_setup(incoming, &context).await {
-                    Ok(mut output) => {
-                        // Process markers from Brain output.
-                        let active_project: Option<String> = self
-                            .memory
-                            .get_fact(&incoming.sender_id, "active_project")
-                            .await
-                            .ok()
-                            .flatten();
-                        self.process_markers(incoming, &mut output, active_project.as_deref())
-                            .await;
-
-                        // Extract project name from markers or context.
-                        let project_name = output
-                            .lines()
-                            .find(|l| l.starts_with("PROJECT_ACTIVATE:"))
-                            .and_then(|l| l.strip_prefix("PROJECT_ACTIVATE:"))
-                            .map(|s| s.trim().to_string())
-                            .unwrap_or_else(|| "project".to_string());
-
-                        self.cleanup_setup_session(&incoming.sender_id).await;
-                        if let Some(h) = typing_handle {
-                            h.abort();
-                        }
-                        let msg = setup_complete_message(&user_lang, &project_name);
-                        self.send_text(incoming, &msg).await;
-                        self.audit_setup(incoming, &project_name, "complete", "Setup completed")
-                            .await;
-                    }
-                    Err(e) => {
-                        self.cleanup_setup_session(&incoming.sender_id).await;
-                        if let Some(h) = typing_handle {
-                            h.abort();
-                        }
-                        self.send_text(incoming, &format!("Setup execution failed: {e}"))
-                            .await;
-                    }
-                }
-            } else {
-                // Modification request -- append to context, run Brain again.
-                let updated_context = format!("{context}\n\nUSER MODIFICATION:\n{}", incoming.text);
-                let _ = tokio::fs::write(&ctx_path, &updated_context).await;
-
-                let prompt = format!(
-                    "The user wants modifications to the proposed setup.\n\n\
-                     Previous context and proposal:\n{updated_context}\n\n\
-                     Update the proposal based on the user's feedback. \
-                     Output SETUP_PROPOSAL with the updated plan."
-                );
-
-                let _agent_guard =
-                    match AgentFilesGuard::write_single(&omega_dir, "omega-brain", BRAIN_AGENT)
-                        .await
-                    {
-                        Ok(g) => g,
-                        Err(e) => {
-                            warn!("Failed to write Brain agent: {e}");
-                            if let Some(h) = typing_handle {
-                                h.abort();
-                            }
-                            return;
-                        }
-                    };
-
-                match self
-                    .run_build_phase("omega-brain", &prompt, &self.model_complex, Some(30))
-                    .await
-                {
-                    Ok(output) => {
-                        if let SetupOutput::Proposal(proposal) = parse_setup_output(&output) {
-                            let preview = proposal
-                                .split("SETUP_EXECUTE")
-                                .next()
-                                .unwrap_or(&proposal)
-                                .replace("SETUP_PROPOSAL", "")
-                                .trim()
-                                .to_string();
-                            let _ = tokio::fs::write(&ctx_path, &proposal).await;
-                            let msg = setup_proposal_message(&user_lang, &preview);
-                            if let Some(h) = typing_handle {
-                                h.abort();
-                            }
-                            self.send_text(incoming, &msg).await;
-                        } else {
-                            if let Some(h) = typing_handle {
-                                h.abort();
-                            }
-                            self.send_text(
-                                incoming,
-                                "I couldn't update the proposal. Reply *yes* to proceed or describe your changes.",
-                            )
-                            .await;
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Brain modification failed: {e}");
-                        if let Some(h) = typing_handle {
-                            h.abort();
-                        }
-                        self.send_text(
-                            incoming,
-                            "Failed to process modification. Reply *yes* to proceed with the original plan or *no* to cancel.",
-                        )
-                        .await;
-                    }
-                }
-            }
-        } else {
-            // QUESTIONING PHASE -- append answer, run next round.
-            let current_round = parse_setup_round(&context);
-            let next_round = current_round + 1;
-
-            let updated_context = format!(
-                "ROUND: {next_round}\n{}\n\nUSER ANSWER (round {current_round}):\n{}",
-                context
-                    .lines()
-                    .skip_while(|l| l.starts_with("ROUND:"))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-                incoming.text
-            );
-            let _ = tokio::fs::write(&ctx_path, &updated_context).await;
-
-            let final_round = next_round >= 3;
-            let prompt = if final_round {
-                format!(
-                    "FINAL ROUND. You MUST produce SETUP_PROPOSAL now.\n\n\
-                     Accumulated context:\n{updated_context}"
-                )
-            } else {
-                format!(
-                    "Setup round {next_round}. Continue the setup conversation.\n\n\
-                     Accumulated context:\n{updated_context}\n\n\
-                     If you have enough information, output SETUP_PROPOSAL.\n\
-                     Otherwise, output SETUP_QUESTIONS (2-4 questions max)."
-                )
-            };
-
-            let _agent_guard =
-                match AgentFilesGuard::write_single(&omega_dir, "omega-brain", BRAIN_AGENT).await {
-                    Ok(g) => g,
-                    Err(e) => {
-                        warn!("Failed to write Brain agent: {e}");
-                        if let Some(h) = typing_handle {
-                            h.abort();
-                        }
-                        return;
-                    }
-                };
-
-            // Update pending_setup with new round.
-            let stamped = format!(
-                "{}|{}|{next_round}",
-                chrono::Utc::now().timestamp(),
-                incoming.sender_id
-            );
-            let _ = self
-                .memory
-                .store_fact(&incoming.sender_id, "pending_setup", &stamped)
-                .await;
-
-            match self
-                .run_build_phase("omega-brain", &prompt, &self.model_complex, Some(30))
-                .await
-            {
-                Ok(output) => match parse_setup_output(&output) {
-                    SetupOutput::Questions(questions) => {
-                        let file_content = format!("{updated_context}\n\nQUESTIONS:\n{questions}");
-                        let _ = tokio::fs::write(&ctx_path, &file_content).await;
-                        let msg = setup_followup_message(&user_lang, &questions, next_round);
-                        if let Some(h) = typing_handle {
-                            h.abort();
-                        }
-                        self.send_text(incoming, &msg).await;
-                    }
-                    SetupOutput::Proposal(proposal) => {
-                        let preview = proposal
-                            .split("SETUP_EXECUTE")
-                            .next()
-                            .unwrap_or(&proposal)
-                            .replace("SETUP_PROPOSAL", "")
-                            .trim()
-                            .to_string();
-                        let _ = tokio::fs::write(&ctx_path, &proposal).await;
-
-                        let stamped = format!(
-                            "{}|{}|proposal",
-                            chrono::Utc::now().timestamp(),
-                            incoming.sender_id
-                        );
-                        let _ = self
-                            .memory
-                            .store_fact(&incoming.sender_id, "pending_setup", &stamped)
-                            .await;
-
-                        let msg = setup_proposal_message(&user_lang, &preview);
-                        if let Some(h) = typing_handle {
-                            h.abort();
-                        }
-                        self.send_text(incoming, &msg).await;
-                    }
-                    SetupOutput::Executed(_) => {
-                        warn!("Brain returned Executed in questioning mode");
-                        if let Some(h) = typing_handle {
-                            h.abort();
-                        }
-                    }
-                },
-                Err(e) => {
-                    warn!("Brain follow-up failed: {e}");
-                    self.cleanup_setup_session(&incoming.sender_id).await;
-                    if let Some(h) = typing_handle {
-                        h.abort();
-                    }
-                    self.send_text(incoming, "Setup failed. Please try again with /setup.")
-                        .await;
-                }
-            }
-        }
-    }
-
     /// Execute the approved setup: run Brain in execution mode.
-    async fn execute_setup(
+    pub(super) async fn execute_setup(
         &self,
         _incoming: &IncomingMessage,
         proposal_context: &str,
@@ -553,14 +278,14 @@ impl Gateway {
     }
 
     /// Clean up session state (fact + context file).
-    async fn cleanup_setup_session(&self, sender_id: &str) {
+    pub(super) async fn cleanup_setup_session(&self, sender_id: &str) {
         let _ = self.memory.delete_fact(sender_id, "pending_setup").await;
         let ctx_file = setup_context_path(&self.data_dir, sender_id);
         let _ = tokio::fs::remove_file(&ctx_file).await;
     }
 
     /// Log an audit entry for a setup operation.
-    async fn audit_setup(
+    pub(super) async fn audit_setup(
         &self,
         incoming: &IncomingMessage,
         project: &str,
@@ -578,7 +303,7 @@ impl Gateway {
                 provider_used: Some(self.provider.name().to_string()),
                 model: None,
                 processing_ms: None,
-                status: if status == "complete" {
+                status: if status == "complete" || status == "started" {
                     AuditStatus::Ok
                 } else {
                     AuditStatus::Error

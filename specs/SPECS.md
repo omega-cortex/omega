@@ -20,7 +20,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 
 ### Milestone 2: Binary (`backend/src/`)
 - [src-main-rs.md](src-main-rs.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap
-- [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`backend/src/gateway/`) — 18-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, scheduler_action, heartbeat, heartbeat_helpers, summarizer, keywords, builds, builds_loop, builds_parse, builds_agents, builds_topology, builds_i18n, setup
+- [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`backend/src/gateway/`) — 19-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, scheduler_action, heartbeat, heartbeat_helpers, summarizer, keywords, builds, builds_loop, builds_parse, builds_agents, builds_topology, builds_i18n, setup, setup_response
 - [src-markers-rs.md](src-markers-rs.md) — Marker extraction, parsing, stripping (40+ functions extracted from gateway)
 - [src-task-confirmation-rs.md](src-task-confirmation-rs.md) — Task scheduling confirmation (anti-hallucination, duplicate detection, localized confirmation messages)
 - [src-commands-rs.md](src-commands-rs.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, purge, help)
@@ -91,6 +91,8 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [webhook-architecture.md](webhook-architecture.md) — Architecture design for inbound webhook (handler, gateway plumbing, source tracking, failure modes, security model)
 - [omega-brain-requirements.md](omega-brain-requirements.md) — OMEGA Brain self-configuration agent: `/setup` command, multi-round session, ROLE.md + HEARTBEAT.md + schedule creation via existing primitives
 - [omega-brain-architecture.md](omega-brain-architecture.md) — Architecture design for OMEGA Brain: setup.rs orchestrator, pipeline integration, session state machine, agent definition, write_single lifecycle, localized messages, failure modes, security model
+- [omega-init-visual-requirements.md](omega-init-visual-requirements.md) — OMEGA Init Wizard Visual Identity: branded chrome for init.rs + init_wizard.rs, init_style.rs helper module, dark/technical aesthetic using console::Style
+- [omega-init-visual-architecture.md](omega-init-visual-architecture.md) — Architecture design for Init Visual Identity: init_style.rs module layout, cyan color palette, gutter-bar visual language, 10 helper functions, integration pattern, visual coexistence with cliclack widgets
 
 ### Improvements
 - [improvements/builds-routing-improvement.md](improvements/builds-routing-improvement.md) — [SUPERSEDED] Multi-phase builds pipeline replacing single-shot build execution

@@ -74,6 +74,7 @@ The Brain emits a `PROJECT_ACTIVATE:` marker that activates the new project for 
 | File | Purpose |
 |------|---------|
 | `backend/src/gateway/setup.rs` | Brain orchestrator: session lifecycle, state machine, provider invocation |
+| `backend/src/gateway/setup_response.rs` | Setup response handling: questioning and confirmation phases |
 | `backend/src/gateway/pipeline.rs` | `/setup` command intercept, `pending_setup` session check |
 | `backend/src/gateway/keywords.rs` | Setup i18n messages (8 languages), `SETUP_TTL_SECS` constant |
 | `backend/src/gateway/builds_agents.rs` | `BRAIN_AGENT` const, `write_single()` method |

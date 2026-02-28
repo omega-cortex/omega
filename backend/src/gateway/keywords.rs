@@ -582,7 +582,7 @@ pub(super) fn discovery_expired_message(lang: &str) -> &'static str {
 }
 
 /// Maximum seconds a setup session stays valid.
-pub(super) const SETUP_TTL_SECS: u64 = 1800; // 30 minutes
+pub(super) const SETUP_TTL_SECS: i64 = 1800; // 30 minutes
 
 /// Localized message when user cancels discovery.
 pub(super) fn discovery_cancelled_message(lang: &str) -> &'static str {

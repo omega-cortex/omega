@@ -44,7 +44,7 @@ The OMEGA Brain is a setup agent that lets non-technical users describe a busine
 | REQ-BRAIN-009 | Brain emits `PROJECT_ACTIVATE:` marker | Should | Output ends with `PROJECT_ACTIVATE: <name>`, processed by `process_markers()` |
 | REQ-BRAIN-010 | Multi-round session with approval gate (3 rounds max) | Should | Up to 3 rounds, state tracked via context file, final round produces proposal |
 | REQ-BRAIN-011 | `/setup` intercepted early in `pipeline.rs` (before provider call) | Should | Handled in command dispatch section, same pattern as `/forget` |
-| REQ-BRAIN-012 | `pending_setup` fact with 30-minute TTL | Should | State stored as fact, format `<timestamp>\|<sender_id>`, expires after 30 min |
+| REQ-BRAIN-012 | `pending_setup` fact with 30-minute TTL | Should | State stored as fact, format `<timestamp>\|<sender_id>\|<round>`, expires after 30 min |
 | REQ-BRAIN-013 | Setup confirmation/cancellation keywords (8 languages) | Should | Reuses or parallels build confirm/cancel pattern |
 | REQ-BRAIN-014 | Localized setup session messages (8 languages) | Should | Intro, proposal, complete, cancelled, expired messages in EN/ES/PT/FR/DE/IT/NL/RU |
 | REQ-BRAIN-015 | Brain agent prompt includes examples of excellent ROLE.md files | Should | 2-3 examples covering different domains |

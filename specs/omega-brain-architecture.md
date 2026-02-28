@@ -42,7 +42,7 @@ Brain agent (execution mode)
   |-- Emits PROJECT_ACTIVATE: <name>
   |
   v
-setup.rs: handle_setup_response() -> process_markers()
+setup_response.rs: handle_setup_response() -> process_markers()
   |-- Markers processed by existing process_markers()
   |-- Session cleaned up
   |-- Completion message sent to user
@@ -267,13 +267,12 @@ impl AgentFilesGuard {
 
 ---
 
-### Module 4: Brain Orchestrator (`backend/src/gateway/setup.rs`)
+### Module 4: Brain Orchestrator (`backend/src/gateway/setup.rs` + `setup_response.rs`)
 
 - **Responsibility**: Session lifecycle management -- starting, continuing, completing, and cleaning up Brain setup sessions
-- **Public interface**: Three `pub(super)` methods on `Gateway`:
-  - `start_setup_session()` -- initial `/setup` handling
-  - `handle_setup_response()` -- continuing session (user answers/confirms)
-  - `cleanup_setup_session()` -- session teardown
+- **Public interface**: `pub(super)` methods on `Gateway` split across two files:
+  - `setup.rs`: `start_setup_session()`, `execute_setup()`, `cleanup_setup_session()`, `audit_setup()`
+  - `setup_response.rs`: `handle_setup_response()` (dispatches to `handle_setup_confirmation()` and `handle_setup_questioning()`)
 - **Dependencies**: `builds_agents.rs` (write_single), `builds.rs` (run_build_phase), `keywords.rs` (localized messages, confirm/cancel checks), `omega-skills/projects.rs` (load_projects), `process_markers.rs` (marker processing)
 - **Implementation order**: 5
 
@@ -382,7 +381,7 @@ impl Gateway {
     ///
     /// Brain creates ROLE.md + HEARTBEAT.md files, emits markers.
     /// Markers are processed by existing process_markers().
-    async fn execute_setup(
+    pub(super) async fn execute_setup(
         &self,
         incoming: &IncomingMessage,
         proposal_context: &str,
@@ -391,14 +390,14 @@ impl Gateway {
     }
 
     /// Clean up session state (fact + context file).
-    async fn cleanup_setup_session(&self, sender_id: &str) {
+    pub(super) async fn cleanup_setup_session(&self, sender_id: &str) {
         let _ = self.memory.delete_fact(sender_id, "pending_setup").await;
         let ctx_file = setup_context_path(&self.data_dir, sender_id);
         let _ = tokio::fs::remove_file(&ctx_file).await;
     }
 
     /// Log an audit entry for a setup operation.
-    async fn audit_setup(
+    pub(super) async fn audit_setup(
         &self,
         incoming: &IncomingMessage,
         project: &str,
@@ -414,7 +413,7 @@ impl Gateway {
             provider_used: Some(self.provider.name().to_string()),
             model: None,
             processing_ms: None,
-            status: if status == "complete" {
+            status: if status == "complete" || status == "started" {
                 AuditStatus::Ok
             } else {
                 AuditStatus::Error
@@ -552,7 +551,7 @@ impl Gateway {
 
 - **Responsibility**: Intercept `/setup` command and route `pending_setup` session messages
 - **Public interface**: No new public interface -- modifies `handle_message()` flow
-- **Dependencies**: `setup.rs` (start_setup_session, handle_setup_response), `commands/mod.rs` (Command::Setup)
+- **Dependencies**: `setup.rs` (start_setup_session), `setup_response.rs` (handle_setup_response), `commands/mod.rs` (Command::Setup)
 - **Implementation order**: 6
 
 #### Integration Points

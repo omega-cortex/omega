@@ -1,7 +1,7 @@
 # Specification: backend/src/gateway/ (Directory Module)
 
 ## File Path
-`backend/src/gateway/` (directory module with 18 files)
+`backend/src/gateway/` (directory module with 19 files)
 
 ## Refactoring History
 - **2026-02-20:** Marker extraction/parsing/stripping functions (40+) extracted into `backend/src/markers.rs`. See `specs/src-markers-rs.md`.
@@ -9,7 +9,7 @@
 - **2026-02-22:** Gateway refactored from a single `backend/src/gateway.rs` (3,449 lines) into a `backend/src/gateway/` directory module with 9 files. All struct fields use `pub(super)` visibility. No changes to `main.rs` or public API.
 - **2026-02-23:** Project-scoped learning: `scheduler_action.rs` extracted from `scheduler.rs` (~310 lines), `heartbeat_helpers.rs` extracted from `heartbeat.rs` (~250 lines). `active_project` threaded through pipeline, routing, and process_markers.
 - **2026-02-28:** Topology extraction: `builds_topology.rs` added (TOML-defined pipeline phases, agent loader, bundled defaults). `builds_agents.rs` rewritten to load agents from topology instead of embedded const strings. `builds_i18n.rs` extracted from `builds_parse.rs` (phase/QA/review i18n messages, 8 languages) to keep `builds_parse.rs` under 500 lines.
-- **2026-02-28:** OMEGA Brain: `setup.rs` added (Brain setup session orchestrator). `builds_agents.rs` extended with `BRAIN_AGENT` const and `write_single()` method. `keywords.rs` extended with setup i18n messages (8 languages). `pipeline.rs` extended with `/setup` intercept and `pending_setup` session check.
+- **2026-02-28:** OMEGA Brain: `setup.rs` added (Brain setup session orchestrator), `setup_response.rs` added (response handling — confirmation and questioning phases, extracted for 500-line limit). `builds_agents.rs` extended with `BRAIN_AGENT` const and `write_single()` method. `keywords.rs` extended with setup i18n messages (8 languages). `pipeline.rs` extended with `/setup` intercept and `pending_setup` session check.
 
 ## Module Structure
 
@@ -31,7 +31,8 @@
 | `builds_agents.rs` | ~186 | Topology-based agent file lifecycle: `AgentFilesGuard` RAII struct (writes agent `.md` files from `LoadedTopology` to workspace `.claude/agents/`, ref-counted cleanup on Drop via `Mutex<HashMap>` refcount). `write_from_topology()` replaces old const-string `write()`. `write_single()` for individual agent file creation (used by Brain setup). `BRAIN_AGENT` const via `include_str!()`. |
 | `builds_topology.rs` | ~319 | TOML-defined topology schema: `Topology`, `Phase`, `PhaseType`, `ModelTier`, `RetryConfig`, `ValidationConfig` structs. `load_topology()` reads from `~/.omega/topologies/<name>/`, `deploy_bundled_topology()` writes defaults from `include_str!()`, `validate_topology_name()` guards against path traversal. `LoadedTopology` holds parsed TOML + agent content map. |
 | `auth.rs` | ~167 | `check_auth()`, `handle_whatsapp_qr()` |
-| `setup.rs` | ~596 | Brain setup session orchestrator: `start_setup_session()`, `handle_setup_response()`, `execute_setup()`, `cleanup_setup_session()`, `audit_setup()`. Pure functions: `setup_context_path()`, `parse_setup_round()`, `parse_setup_output()`, `SetupOutput` enum. |
+| `setup.rs` | ~318 | Brain setup session orchestrator: `start_setup_session()`, `execute_setup()`, `cleanup_setup_session()`, `audit_setup()`. Pure functions: `setup_context_path()`, `parse_setup_round()`, `parse_setup_output()`, `SetupOutput` enum. |
+| `setup_response.rs` | ~315 | Setup response handling (extracted for 500-line limit): `handle_setup_response()`, `handle_setup_confirmation()`, `handle_setup_questioning()`, `extract_proposal_preview()`. |
 | `process_markers.rs` | ~504 | `process_markers(incoming, text, active_project)`, `process_purge_facts()`, `process_improvement_markers()`, `send_task_confirmation()` |
 
 All submodules access `Gateway` fields via `pub(super)` visibility (module-internal, not public API).
