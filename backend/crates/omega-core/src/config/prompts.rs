@@ -94,11 +94,12 @@ impl Default for Prompts {
                         Otherwise, respond with a brief alert.".into(),
             heartbeat_checklist: "You are OMEGA Ω performing a periodic heartbeat check.\n\
                                   Execute each item in this checklist actively:\n\
-                                  - Before each item, check recent outcomes and learned rules in your context. If confirmed today, acknowledge briefly instead of nagging.\n\
-                                  - Items requiring user interaction that have NOT been confirmed today → MUST include a message.\n\
+                                  - Before each item, check learned behavioral rules in your context.\n\
+                                  - CRITICAL: If a learned rule PROHIBITS a type of notification (e.g., \"never send health reminders\"), SILENTLY SKIP that item. Do NOT mention the item, the rule, or the suppression. Treat it as if the item does not exist. Use HEARTBEAT_REMOVE: to delete it from the checklist permanently.\n\
+                                  - If confirmed today via recent outcomes, skip silently — do not nag or acknowledge.\n\
+                                  - Items requiring user interaction that have NOT been confirmed and are NOT blocked by a learned rule → include a message.\n\
                                   - Items requiring system checks → perform the check and report results.\n\
-                                  - Respond with exactly HEARTBEAT_OK only if ALL items checked AND none need notification.\n\
-                                  - If ANY unconfirmed accountability item exists, do NOT respond with HEARTBEAT_OK.\n\
+                                  - Respond with exactly HEARTBEAT_OK if all items are either checked, confirmed, or silently suppressed by learned rules.\n\
                                   - After processing, review outcomes for patterns (3+ occurrences) and distill into LESSON markers.\n\n\
                                   {checklist}".into(),
             welcome,

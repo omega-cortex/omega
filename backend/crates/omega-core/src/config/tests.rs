@@ -476,6 +476,28 @@ fn test_patch_heartbeat_interval_preserves_comments() {
 }
 
 // ===================================================================
+// REQ-HBVS-001: heartbeat_checklist instructs silent suppression
+// ===================================================================
+
+#[test]
+fn test_heartbeat_checklist_instructs_silent_suppression() {
+    let prompts = Prompts::default();
+    assert!(
+        prompts.heartbeat_checklist.contains("SILENTLY SKIP"),
+        "heartbeat_checklist must instruct silent skipping of learned-rule-blocked items"
+    );
+    assert!(
+        prompts.heartbeat_checklist.contains("HEARTBEAT_REMOVE:"),
+        "heartbeat_checklist must instruct permanent removal of suppressed items"
+    );
+    // Must NOT contain the old "acknowledge briefly" wording that caused verbose suppression.
+    assert!(
+        !prompts.heartbeat_checklist.contains("acknowledge briefly"),
+        "heartbeat_checklist must NOT tell AI to 'acknowledge briefly' — that causes verbose suppression"
+    );
+}
+
+// ===================================================================
 // REQ-BDP-010 (Must): SYSTEM_FACT_KEYS contains "pending_discovery"
 // ===================================================================
 
