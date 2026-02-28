@@ -605,28 +605,28 @@ pub(super) fn discovery_cancelled_message(lang: &str) -> &'static str {
 /// Localized help message for `/setup` command (shown when no description provided).
 pub(super) fn setup_help_message(lang: &str) -> &'static str {
     match lang {
-        "Spanish" => "Usa `/setup` seguido de una descripci\u{f3}n de tu negocio para que OMEGA se configure como experto en tu dominio.\n\nEjemplo: `/setup Soy agente inmobiliario en Lisboa`",
-        "Portuguese" => "Use `/setup` seguido de uma descri\u{e7}\u{e3}o do seu neg\u{f3}cio para que OMEGA se configure como especialista no seu dom\u{ed}nio.\n\nExemplo: `/setup Sou corretor de im\u{f3}veis em Lisboa`",
-        "French" => "Utilisez `/setup` suivi d'une description de votre activit\u{e9} pour que OMEGA se configure comme expert de votre domaine.\n\nExemple : `/setup Je suis agent immobilier \u{e0} Lisbonne`",
-        "German" => "Verwende `/setup` gefolgt von einer Beschreibung deines Gesch\u{e4}fts, damit OMEGA sich als Experte f\u{fc}r deine Dom\u{e4}ne konfiguriert.\n\nBeispiel: `/setup Ich bin Immobilienmakler in Lissabon`",
-        "Italian" => "Usa `/setup` seguito da una descrizione della tua attivit\u{e0} per configurare OMEGA come esperto nel tuo dominio.\n\nEsempio: `/setup Sono un agente immobiliare a Lisbona`",
-        "Dutch" => "Gebruik `/setup` gevolgd door een beschrijving van je bedrijf om OMEGA te configureren als domeinexpert.\n\nVoorbeeld: `/setup Ik ben makelaar in Lissabon`",
-        "Russian" => "\u{418}\u{441}\u{43f}\u{43e}\u{43b}\u{44c}\u{437}\u{443}\u{439}\u{442}\u{435} `/setup` \u{441} \u{43e}\u{43f}\u{438}\u{441}\u{430}\u{43d}\u{438}\u{435}\u{43c} \u{432}\u{430}\u{448}\u{435}\u{433}\u{43e} \u{431}\u{438}\u{437}\u{43d}\u{435}\u{441}\u{430}, \u{447}\u{442}\u{43e}\u{431}\u{44b} OMEGA \u{43d}\u{430}\u{441}\u{442}\u{440}\u{43e}\u{438}\u{43b}\u{441}\u{44f} \u{43a}\u{430}\u{43a} \u{44d}\u{43a}\u{441}\u{43f}\u{435}\u{440}\u{442} \u{432} \u{432}\u{430}\u{448}\u{435}\u{439} \u{43e}\u{431}\u{43b}\u{430}\u{441}\u{442}\u{438}.\n\n\u{41f}\u{440}\u{438}\u{43c}\u{435}\u{440}: `/setup \u{42f} \u{440}\u{438}\u{44d}\u{43b}\u{442}\u{43e}\u{440} \u{432} \u{41b}\u{438}\u{441}\u{441}\u{430}\u{431}\u{43e}\u{43d}\u{435}`",
-        _ => "Use `/setup` followed by a description of your business so OMEGA configures itself as your domain expert.\n\nExample: `/setup I'm a realtor in Lisbon`",
+        "Spanish" => "Usa `/setup` seguido de una descripci\u{f3}n de tu negocio para que *OMEGA Ω* se configure como experto en tu dominio.\n\nEjemplo: `/setup Soy agente inmobiliario en Lisboa`",
+        "Portuguese" => "Use `/setup` seguido de uma descri\u{e7}\u{e3}o do seu neg\u{f3}cio para que *OMEGA Ω* se configure como especialista no seu dom\u{ed}nio.\n\nExemplo: `/setup Sou corretor de im\u{f3}veis em Lisboa`",
+        "French" => "Utilisez `/setup` suivi d'une description de votre activit\u{e9} pour que *OMEGA Ω* se configure comme expert de votre domaine.\n\nExemple : `/setup Je suis agent immobilier \u{e0} Lisbonne`",
+        "German" => "Verwende `/setup` gefolgt von einer Beschreibung deines Gesch\u{e4}fts, damit *OMEGA Ω* sich als Experte f\u{fc}r deine Dom\u{e4}ne konfiguriert.\n\nBeispiel: `/setup Ich bin Immobilienmakler in Lissabon`",
+        "Italian" => "Usa `/setup` seguito da una descrizione della tua attivit\u{e0} per configurare *OMEGA Ω* come esperto nel tuo dominio.\n\nEsempio: `/setup Sono un agente immobiliare a Lisbona`",
+        "Dutch" => "Gebruik `/setup` gevolgd door een beschrijving van je bedrijf om *OMEGA Ω* te configureren als domeinexpert.\n\nVoorbeeld: `/setup Ik ben makelaar in Lissabon`",
+        "Russian" => "\u{418}\u{441}\u{43f}\u{43e}\u{43b}\u{44c}\u{437}\u{443}\u{439}\u{442}\u{435} `/setup` \u{441} \u{43e}\u{43f}\u{438}\u{441}\u{430}\u{43d}\u{438}\u{435}\u{43c} \u{432}\u{430}\u{448}\u{435}\u{433}\u{43e} \u{431}\u{438}\u{437}\u{43d}\u{435}\u{441}\u{430}, \u{447}\u{442}\u{43e}\u{431}\u{44b} *OMEGA \u{3a9}* \u{43d}\u{430}\u{441}\u{442}\u{440}\u{43e}\u{438}\u{43b}\u{441}\u{44f} \u{43a}\u{430}\u{43a} \u{44d}\u{43a}\u{441}\u{43f}\u{435}\u{440}\u{442} \u{432} \u{432}\u{430}\u{448}\u{435}\u{439} \u{43e}\u{431}\u{43b}\u{430}\u{441}\u{442}\u{438}.\n\n\u{41f}\u{440}\u{438}\u{43c}\u{435}\u{440}: `/setup \u{42f} \u{440}\u{438}\u{44d}\u{43b}\u{442}\u{43e}\u{440} \u{432} \u{41b}\u{438}\u{441}\u{441}\u{430}\u{431}\u{43e}\u{43d}\u{435}`",
+        _ => "Use `/setup` followed by a description of your business so *OMEGA Ω* configures itself as your domain expert.\n\nExample: `/setup I'm a realtor in Lisbon`",
     }
 }
 
 /// Localized intro message when setup starts (first round questions).
 pub(super) fn setup_intro_message(lang: &str, questions: &str) -> String {
     let intro = match lang {
-        "Spanish" => "Para configurar OMEGA como tu experto, necesito entender mejor tu negocio:",
-        "Portuguese" => "Para configurar OMEGA como seu especialista, preciso entender melhor seu neg\u{f3}cio:",
-        "French" => "Pour configurer OMEGA comme votre expert, j'ai besoin de mieux comprendre votre activit\u{e9} :",
-        "German" => "Um OMEGA als deinen Experten einzurichten, muss ich dein Gesch\u{e4}ft besser verstehen:",
-        "Italian" => "Per configurare OMEGA come tuo esperto, ho bisogno di capire meglio la tua attivit\u{e0}:",
-        "Dutch" => "Om OMEGA als jouw expert in te stellen, moet ik je bedrijf beter begrijpen:",
-        "Russian" => "\u{427}\u{442}\u{43e}\u{431}\u{44b} \u{43d}\u{430}\u{441}\u{442}\u{440}\u{43e}\u{438}\u{442}\u{44c} OMEGA \u{43a}\u{430}\u{43a} \u{432}\u{430}\u{448}\u{435}\u{433}\u{43e} \u{44d}\u{43a}\u{441}\u{43f}\u{435}\u{440}\u{442}\u{430}, \u{43c}\u{43d}\u{435} \u{43d}\u{443}\u{436}\u{43d}\u{43e} \u{43b}\u{443}\u{447}\u{448}\u{435} \u{43f}\u{43e}\u{43d}\u{44f}\u{442}\u{44c} \u{432}\u{430}\u{448} \u{431}\u{438}\u{437}\u{43d}\u{435}\u{441}:",
-        _ => "To configure OMEGA as your expert, I need to understand your business better:",
+        "Spanish" => "Para configurar *OMEGA Ω* como tu experto, necesito entender mejor tu negocio:",
+        "Portuguese" => "Para configurar *OMEGA Ω* como seu especialista, preciso entender melhor seu neg\u{f3}cio:",
+        "French" => "Pour configurer *OMEGA Ω* comme votre expert, j'ai besoin de mieux comprendre votre activit\u{e9} :",
+        "German" => "Um *OMEGA Ω* als deinen Experten einzurichten, muss ich dein Gesch\u{e4}ft besser verstehen:",
+        "Italian" => "Per configurare *OMEGA Ω* come tuo esperto, ho bisogno di capire meglio la tua attivit\u{e0}:",
+        "Dutch" => "Om *OMEGA Ω* als jouw expert in te stellen, moet ik je bedrijf beter begrijpen:",
+        "Russian" => "\u{427}\u{442}\u{43e}\u{431}\u{44b} \u{43d}\u{430}\u{441}\u{442}\u{440}\u{43e}\u{438}\u{442}\u{44c} *OMEGA \u{3a9}* \u{43a}\u{430}\u{43a} \u{432}\u{430}\u{448}\u{435}\u{433}\u{43e} \u{44d}\u{43a}\u{441}\u{43f}\u{435}\u{440}\u{442}\u{430}, \u{43c}\u{43d}\u{435} \u{43d}\u{443}\u{436}\u{43d}\u{43e} \u{43b}\u{443}\u{447}\u{448}\u{435} \u{43f}\u{43e}\u{43d}\u{44f}\u{442}\u{44c} \u{432}\u{430}\u{448} \u{431}\u{438}\u{437}\u{43d}\u{435}\u{441}:",
+        _ => "To configure *OMEGA Ω* as your expert, I need to understand your business better:",
     };
     format!("{intro}\n\n{questions}")
 }
@@ -695,14 +695,14 @@ pub(super) fn setup_proposal_message(lang: &str, preview: &str) -> String {
 /// Localized message when setup completes successfully.
 pub(super) fn setup_complete_message(lang: &str, project: &str) -> String {
     match lang {
-        "Spanish" => format!("OMEGA est\u{e1} configurado como experto en *{project}*. Tu proyecto est\u{e1} activo."),
-        "Portuguese" => format!("OMEGA est\u{e1} configurado como especialista em *{project}*. Seu projeto est\u{e1} ativo."),
-        "French" => format!("OMEGA est configur\u{e9} comme expert en *{project}*. Votre projet est actif."),
-        "German" => format!("OMEGA ist als Experte f\u{fc}r *{project}* konfiguriert. Dein Projekt ist aktiv."),
-        "Italian" => format!("OMEGA \u{e8} configurato come esperto in *{project}*. Il tuo progetto \u{e8} attivo."),
-        "Dutch" => format!("OMEGA is geconfigureerd als expert in *{project}*. Je project is actief."),
-        "Russian" => format!("OMEGA \u{43d}\u{430}\u{441}\u{442}\u{440}\u{43e}\u{435}\u{43d} \u{43a}\u{430}\u{43a} \u{44d}\u{43a}\u{441}\u{43f}\u{435}\u{440}\u{442} \u{432} *{project}*. \u{412}\u{430}\u{448} \u{43f}\u{440}\u{43e}\u{435}\u{43a}\u{442} \u{430}\u{43a}\u{442}\u{438}\u{432}\u{435}\u{43d}."),
-        _ => format!("OMEGA is now configured as your *{project}* expert. Your project is active."),
+        "Spanish" => format!("*OMEGA \u{3a9}* est\u{e1} configurado como tu experto en *{project}*. Tu proyecto est\u{e1} activo."),
+        "Portuguese" => format!("*OMEGA \u{3a9}* est\u{e1} configurado como seu especialista em *{project}*. Seu projeto est\u{e1} ativo."),
+        "French" => format!("*OMEGA \u{3a9}* est configur\u{e9} comme votre expert en *{project}*. Votre projet est actif."),
+        "German" => format!("*OMEGA \u{3a9}* ist als Experte f\u{fc}r *{project}* konfiguriert. Dein Projekt ist aktiv."),
+        "Italian" => format!("*OMEGA \u{3a9}* \u{e8} configurato come tuo esperto in *{project}*. Il tuo progetto \u{e8} attivo."),
+        "Dutch" => format!("*OMEGA \u{3a9}* is geconfigureerd als expert in *{project}*. Je project is actief."),
+        "Russian" => format!("*OMEGA \u{3a9}* \u{43d}\u{430}\u{441}\u{442}\u{440}\u{43e}\u{435}\u{43d} \u{43a}\u{430}\u{43a} \u{44d}\u{43a}\u{441}\u{43f}\u{435}\u{440}\u{442} \u{432} *{project}*. \u{412}\u{430}\u{448} \u{43f}\u{440}\u{43e}\u{435}\u{43a}\u{442} \u{430}\u{43a}\u{442}\u{438}\u{432}\u{435}\u{43d}."),
+        _ => format!("*OMEGA \u{3a9}* is now configured as your *{project}* expert. Your project is active."),
     }
 }
 
