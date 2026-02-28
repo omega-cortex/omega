@@ -88,7 +88,4 @@ If the reviewer finds critical issues:
 
 ## Step 8: Versioning
 Once approved, create the final commit with `fix:` prefix.
-Do NOT clean up `docs/.workflow/` yet — the post-commit audit needs prior reports.
-
-Then invoke the post-commit audit:
-`/workflow:post-commit-audit --scope="[same --scope as this workflow, or the scope the Analyst determined in Step 1]"`
+Clean up `docs/.workflow/` temporary files.

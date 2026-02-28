@@ -1,5 +1,5 @@
 ---
-name: workflow:feature
+name: workflow:new-feature
 description: Add a feature to an existing project. Accepts optional --scope to limit context.
 ---
 
@@ -21,7 +21,8 @@ Before starting the chain, verify this is an existing project:
 
 ### Inter-Step Output Validation
 Before invoking each agent, verify the previous agent produced its expected output:
-- Before Analyst (Step 1): if discovery ran, verify `docs/.workflow/idea-brief.md` exists
+- Before Feature Evaluator (Step 0.5): if discovery ran, verify `docs/.workflow/idea-brief.md` exists
+- Before Analyst (Step 1): verify `docs/.workflow/feature-evaluation.md` exists with a GO verdict or user override
 - Before Architect (Step 2): verify `specs/*-requirements.md` exists
 - Before Test Writer (Step 3): verify `specs/*-architecture.md` exists
 - Before Developer (Step 4): verify test files exist
@@ -56,7 +57,22 @@ If invoking discovery:
 3. It produces the Idea Brief at `docs/.workflow/idea-brief.md`
 4. The Analyst then uses the Idea Brief as input
 
-If skipping discovery, proceed directly to Step 1.
+If skipping discovery, proceed directly to Step 0.5.
+
+## Step 0.5: Feature Evaluation (always runs)
+**Always invoke the `feature-evaluator` subagent** before proceeding to the Analyst. This is a mandatory gate that evaluates whether the feature is worth building.
+
+1. The feature-evaluator reads the Idea Brief (if discovery ran) or the feature description from command arguments
+2. It evaluates the feature across 7 dimensions: necessity, impact, complexity cost, alternatives, alignment, risk, and timing
+3. It produces a scored evaluation with a **GO / CONDITIONAL / NO-GO** verdict
+4. It saves the evaluation to `docs/.workflow/feature-evaluation.md`
+
+**Based on the verdict:**
+- **GO** → proceed to Step 1 (Analyst)
+- **CONDITIONAL** → present the conditions to the user. If the user accepts the conditions and wants to proceed, continue to Step 1. If the user wants to modify the feature scope based on the conditions, return to Step 0 (Discovery) with the modified scope. If the user aborts, STOP the chain
+- **NO-GO** → present the evaluation to the user. If the user **explicitly overrides** the NO-GO and wants to proceed anyway, document the override in the evaluation report and continue to Step 1. Otherwise, STOP the chain and report: "Feature evaluation resulted in NO-GO. The pipeline has been stopped. See docs/.workflow/feature-evaluation.md for details."
+
+**The user always has the final say.** The feature-evaluator is advisory, not a veto.
 
 ## Step 1: Analyst
 Invoke the `analyst` subagent. It MUST:
@@ -124,8 +140,5 @@ If the reviewer finds critical issues:
 - Repeat until approved
 
 ## Step 9: Versioning
-Once approved, create the final commit with `feat:` prefix and version tag.
-Do NOT clean up `docs/.workflow/` yet — the post-commit audit needs prior reports.
-
-Then invoke the post-commit audit:
-`/workflow:post-commit-audit --scope="[same --scope as this workflow, or the scope the Analyst determined in Step 1]"`
+Once approved, create the final commit and version tag.
+Clean up `docs/.workflow/` temporary files.

@@ -1,0 +1,65 @@
+[topology]
+name = "development"
+description = "Default 7-phase TDD build pipeline"
+version = 1
+
+[[phases]]
+name = "analyst"
+agent = "build-analyst"
+model_tier = "complex"
+max_turns = 25
+phase_type = "parse-brief"
+
+[[phases]]
+name = "architect"
+agent = "build-architect"
+model_tier = "complex"
+post_validation = ["specs/architecture.md"]
+
+[[phases]]
+name = "test-writer"
+agent = "build-test-writer"
+model_tier = "complex"
+
+[phases.pre_validation]
+type = "file_exists"
+paths = ["specs/architecture.md"]
+
+[[phases]]
+name = "developer"
+agent = "build-developer"
+model_tier = "complex"
+
+[phases.pre_validation]
+type = "file_patterns"
+patterns = ["test", "spec", "_test."]
+
+[[phases]]
+name = "qa"
+agent = "build-qa"
+model_tier = "complex"
+phase_type = "corrective-loop"
+
+[phases.pre_validation]
+type = "file_patterns"
+patterns = [".rs", ".py", ".js", ".ts", ".go", ".java", ".rb", ".c", ".cpp"]
+
+[phases.retry]
+max = 3
+fix_agent = "build-developer"
+
+[[phases]]
+name = "reviewer"
+agent = "build-reviewer"
+model_tier = "complex"
+phase_type = "corrective-loop"
+
+[phases.retry]
+max = 2
+fix_agent = "build-developer"
+
+[[phases]]
+name = "delivery"
+agent = "build-delivery"
+model_tier = "complex"
+phase_type = "parse-summary"

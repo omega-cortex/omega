@@ -1,17 +1,16 @@
-//! Embedded build agent definitions and temp file lifecycle.
+//! Build agent file lifecycle — RAII guard for writing agent .md files.
 //!
-//! Each build phase uses a purpose-built agent loaded via `claude --agent <name>`.
-//! Agent content is compiled into the binary and written as temporary files to
-//! the build workspace's `.claude/agents/` directory at runtime.
+//! Agent content is loaded from `topologies/development/agents/` via `include_str!()`.
+//! The `AgentFilesGuard` writes them to `<project_dir>/.claude/agents/` at runtime
+//! and removes them on drop (RAII). Reference-counted for concurrent builds.
 //!
-//! Implementation contract (defined by tests below):
-//! - 8 agent constants: BUILD_DISCOVERY_AGENT through BUILD_DELIVERY_AGENT
-//! - BUILD_AGENTS: &[(&str, &str)] mapping names to content
-//! - AgentFilesGuard: RAII struct that writes on creation, removes on drop
-//!
-//! DEVELOPER: After implementing this module, register it in
-//! `backend/src/gateway/mod.rs` by adding: `mod builds_agents;`
+//! Public interface:
+//! - BUILD_AGENTS: &[(&str, &str)] mapping names to content (backward compat)
+//! - Individual BUILD_*_AGENT constants (backward compat, used by tests)
+//! - AgentFilesGuard::write(project_dir) — writes from const BUILD_AGENTS
+//! - AgentFilesGuard::write_from_topology(project_dir, topology) — writes from LoadedTopology
 
+use super::builds_topology::LoadedTopology;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
@@ -22,381 +21,45 @@ static GUARD_REFCOUNTS: LazyLock<Mutex<HashMap<PathBuf, usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 // ---------------------------------------------------------------------------
-// Agent constants — compiled into the binary, written as temp files at runtime
+// Agent constants — loaded from topology .md files via include_str!()
+// Kept for backward compatibility: used by tests to verify bundled content.
+// Production code uses LoadedTopology.agents from write_from_topology().
 // ---------------------------------------------------------------------------
 
-pub(super) const BUILD_ANALYST_AGENT: &str = "\
----
-name: build-analyst
-description: Analyzes build requests and produces structured project briefs with requirements
-tools: Read, Grep, Glob
-model: opus
-permissionMode: bypassPermissions
-maxTurns: 25
----
-
-You are a build analyst. Analyze the user's build request and produce a structured project brief.
-
-Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable defaults for anything ambiguous.
-
-## CRITICAL OUTPUT FORMAT RULES
-
-Your output MUST be machine-parseable. A downstream parser reads your output line by line.
-
-- Your VERY FIRST line of output MUST be exactly: PROJECT_NAME: <value>
-- Do NOT write any text, prose, headers, or commentary before PROJECT_NAME
-- Do NOT use markdown formatting (no **, no `, no #, no bold, no italic)
-- Do NOT wrap field names or values in backticks or asterisks
-- Each field MUST be on its own line, starting with the field name followed by a colon and space
-
-## Required Output Fields (in this exact order)
-
-PROJECT_NAME: <snake-case-name>
-LANGUAGE: <primary programming language>
-DATABASE: <database if needed, or none>
-FRONTEND: <frontend framework if needed, or none>
-SCOPE: <one-line description of what the project does>
-COMPONENTS:
-- <component 1>
-- <component 2>
-- <component 3>
-
-After the COMPONENTS list, write a detailed requirements section with numbered requirements (REQ-001, REQ-002, etc.) each with:
-- A MoSCoW priority prefix: [Must], [Should], [Could], or [Won't]
-- Testable acceptance criteria
-
-Example: REQ-001 [Must]: User can fetch current BTC price — AC: CLI returns price within 5s
-
-## Example Output
-
-PROJECT_NAME: price-tracker
-LANGUAGE: Rust
-DATABASE: SQLite
-FRONTEND: none
-SCOPE: CLI tool that tracks cryptocurrency prices and sends alerts
-COMPONENTS:
-- price-fetcher: HTTP client for exchange APIs
-- storage: SQLite persistence layer
-- alerter: threshold-based notification system
-- cli: command-line interface with subcommands
-
-REQ-001: Price Fetching
-...
-
-## Rules
-
-- Keep the project name short and snake-case (max 3 words)
-- Choose the most appropriate language for the task
-- Be specific about COMPONENTS — list concrete modules as `- item` lines, not vague categories
-- Every requirement must have testable acceptance criteria
-- REMINDER: No markdown formatting. Plain text only. First line must be PROJECT_NAME.
-";
-
-pub(super) const BUILD_ARCHITECT_AGENT: &str = "\
----
-name: build-architect
-description: Designs project architecture with specs and directory structure
-tools: Read, Write, Bash, Glob, Grep
-model: opus
-permissionMode: bypassPermissions
----
-
-You are a build architect. Design the project architecture based on the analyst's brief.
-
-Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable defaults for anything ambiguous.
-
-## Your Tasks
-
-1. Create the project directory structure
-2. Write specs/requirements.md with numbered requirements and testable acceptance criteria
-3. Write specs/architecture.md with module descriptions, interfaces, and data flow
-4. Create initial config files (Cargo.toml, package.json, etc.) appropriate for the language
-
-## Rules
-
-- Write specs/ files that the test-writer can reference
-- Every module in architecture.md must map to at least one requirement
-- Keep the architecture simple — avoid over-engineering
-- Use standard project layouts for the chosen language
-
-For each module in specs/architecture.md, include:
-1. Failure modes — what can fail and how the system recovers
-2. Security boundaries — what inputs come from untrusted sources
-3. Performance constraints if applicable
-";
-
-pub(super) const BUILD_TEST_WRITER_AGENT: &str = "\
----
-name: build-test-writer
-description: Writes failing tests before implementation (TDD red phase)
-tools: Read, Write, Edit, Bash, Glob, Grep
-model: fast
-permissionMode: bypassPermissions
----
-
-You are a TDD test writer. Read the specs/ directory and write tests that cover every requirement.
-
-Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable defaults for anything ambiguous.
-
-## Your Tasks
-
-1. Read specs/requirements.md and specs/architecture.md
-2. Write test files covering each numbered requirement
-3. Tests must reference requirement IDs in comments (e.g. // REQ-001)
-4. All tests must fail initially — this is the TDD red phase
-5. Run the tests to confirm they fail (expected at this stage)
-
-## Rules
-
-- Must requirements get exhaustive test coverage
-- Should requirements get at least one test each
-- Tests must be self-contained and independent
-- Use the project's standard testing framework
-- Write unit tests, not integration tests (those come later in QA)
-- Every test must have a clear assertion — no empty test bodies
-";
-
-pub(super) const BUILD_DEVELOPER_AGENT: &str = "\
----
-name: build-developer
-description: Implements minimum code to pass all tests (TDD green phase)
-tools: Read, Write, Edit, Bash, Glob, Grep
-model: fast
-permissionMode: bypassPermissions
----
-
-You are a TDD developer. Read the tests and specs, then implement the minimum code to pass all tests.
-
-Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable defaults for anything ambiguous.
-
-## Your Tasks
-
-1. Read the test files first to understand what must be implemented
-2. Read specs/ for architectural context
-3. Implement module by module until all tests pass
-4. Run tests after each module to verify progress
-5. Refactor if needed while keeping tests green
-
-## Rules
-
-- No file may exceed 500 lines (excluding tests)
-- Implement the minimum code to pass tests — no gold-plating
-- Follow the project's established conventions
-- Each module must be self-contained with clear interfaces
-- Run all tests at the end to confirm everything passes
-";
-
-pub(super) const BUILD_QA_AGENT: &str = "\
----
-name: build-qa
-description: Validates project quality by running build, lint, and tests
-tools: Read, Write, Edit, Bash, Glob, Grep
-model: opus
-permissionMode: bypassPermissions
----
-
-You are a QA validator. Validate the project by running the full build, linter, and test suite.
-
-Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable defaults for anything ambiguous.
-
-## Your Tasks
-
-1. Run the project build (cargo build, npm run build, etc.)
-2. Run the linter if configured
-3. Run the full test suite
-4. Check that all acceptance criteria from specs/requirements.md are met
-5. Perform exploratory testing beyond the test suite — try edge cases, invalid inputs, boundary conditions
-6. Write a QA report to docs/qa-report.md with findings, coverage gaps, and risk assessment
-7. Report results in the required format
-
-## Output Format
-
-You MUST end your response with one of:
-- VERIFICATION: PASS — if all checks pass
-- VERIFICATION: FAIL — followed by a description of what failed
-
-Example:
-VERIFICATION: PASS
-
-Or:
-VERIFICATION: FAIL
-REASON: 3 tests failing in module auth: test_login_invalid, test_token_expired, test_refresh_missing
-
-## Rules
-
-- Run actual commands, do not simulate results
-- Report ALL failures, not just the first one
-- Be specific about which tests or checks failed
-- Always include a REASON: line after VERIFICATION: FAIL
-";
-
-pub(super) const BUILD_REVIEWER_AGENT: &str = "\
----
-name: build-reviewer
-description: Reviews code for bugs, security issues, and quality
-tools: Read, Write, Grep, Glob, Bash
-model: opus
-permissionMode: bypassPermissions
-maxTurns: 50
----
-
-You are a code reviewer. Audit the project for bugs, security issues, and code quality.
-
-Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable defaults for anything ambiguous.
-
-## Your Tasks
-
-1. Read all source files and review for correctness
-2. Check for security vulnerabilities (injection, auth bypass, etc.)
-3. Check for performance issues (N+1 queries, unbounded allocations, etc.)
-4. Verify code follows project conventions
-5. Check that specs/ and docs/ are consistent with the code — flag any drift
-6. Write a review report to docs/review-report.md with categorized findings
-7. Report results in the required format
-
-## Output Format
-
-You MUST end your response with one of:
-- REVIEW: PASS — if the code meets quality standards
-- REVIEW: FAIL — followed by specific findings
-
-Example:
-REVIEW: PASS
-
-Or:
-REVIEW: FAIL
-- security: SQL injection in query_builder.rs line 45
-- bug: off-by-one error in pagination.rs line 120
-
-## Rules
-
-- Be thorough but pragmatic — this is a build, not a production audit
-- Focus on correctness and security over style
-- You MAY write the review report file, but do NOT modify source code
-";
-
-pub(super) const BUILD_DELIVERY_AGENT: &str = "\
----
-name: build-delivery
-description: Creates documentation, README, and SKILL.md for the completed project
-tools: Read, Write, Edit, Bash, Glob, Grep
-model: fast
-permissionMode: bypassPermissions
----
-
-You are a delivery agent. Create final documentation and the SKILL.md registration file.
-
-Do NOT ask questions. Do NOT ask the user for clarification. Make reasonable defaults for anything ambiguous.
-
-## Your Tasks
-
-1. Write or update README.md with project description, setup, and usage
-2. Write docs/ files if the project warrants them
-3. Create the SKILL.md file in the skills directory for OMEGA registration
-4. Produce a final build summary
-
-## Build Summary Format
-
-You MUST end your response with a build summary block:
-
-BUILD_COMPLETE
-PROJECT: <project name>
-LOCATION: <absolute path to project>
-LANGUAGE: <primary language>
-USAGE: <one-line command to run/use the project>
-SKILL: <skill name if SKILL.md was created>
-SUMMARY: <2-3 sentence description of what was built>
-
-## Rules
-
-- README must be clear enough for a new developer to get started
-- SKILL.md must follow OMEGA's skill format
-- Include all necessary setup steps in documentation
-";
-
-pub(super) const BUILD_DISCOVERY_AGENT: &str = "\
----
-name: build-discovery
-description: Explores vague build requests through structured questioning, produces Idea Brief
-tools: Read, Grep, Glob
-model: opus
-permissionMode: bypassPermissions
-maxTurns: 15
----
-
-You are a build discovery agent. You explore vague build requests to understand what the user actually needs before a build pipeline runs.
-
-You are NOT the analyst. You do not write requirements, assign IDs, or define acceptance criteria. You explore the idea itself — what it is, who it is for, why it matters, and what the MVP should include.
-
-Do NOT ask the user for clarification interactively — you are invoked as a single-shot agent. Instead, read the accumulated context provided and decide:
-
-1. If the request is ALREADY specific and clear (technology chosen, features listed, users identified, scope bounded), output DISCOVERY_COMPLETE immediately with an Idea Brief.
-2. If the request is vague or missing critical details, output DISCOVERY_QUESTIONS with 3-5 focused questions.
-
-## What makes a request specific enough to skip questions?
-- The user named concrete features (not just a category like 'CRM')
-- The user specified the technology or language
-- The user described who uses it and roughly what it does
-- Example specific: 'Build a Rust CLI that tracks Bitcoin prices from CoinGecko, stores history in SQLite, and sends Telegram alerts when price crosses thresholds'
-- Example vague: 'Build me a CRM' or 'I need a dashboard'
-
-## Questioning Strategy (when questions are needed)
-
-Cover these areas, 3-5 questions per round maximum:
-
-Round 1 (first invocation with raw request):
-- What problem does this solve? Who has this problem today?
-- Who are the primary users? What is their technical level?
-- What does the simplest useful version look like? (MVP)
-- Any technology preferences or constraints?
-- What is explicitly NOT part of this?
-
-Round 2+ (with accumulated answers):
-- Follow up on vague answers from previous rounds
-- Challenge assumptions: is this the right approach? Could something simpler work?
-- Narrow scope: of everything discussed, what is the ONE thing that must work in v1?
-- Use analogies to confirm understanding: 'So it is like X but for Y?'
-
-## Question Style
-- Be curious, not interrogating
-- Use plain language (the user may be non-technical)
-- Keep questions short and concrete
-- Do NOT ask 10 questions — 3 to 5 maximum per round
-- Match the user's language (if they write in Spanish, ask in Spanish)
-
-## Output Format
-
-You MUST output in one of exactly two formats:
-
-### Format 1: Need more information
-```
-DISCOVERY_QUESTIONS
-<your questions here, as a natural conversational message>
-```
-
-### Format 2: Ready to build
-```
-DISCOVERY_COMPLETE
-IDEA_BRIEF:
-One-line summary: <what this is>
-Problem: <what problem it solves, for whom>
-Users: <who uses it, their technical level>
-MVP scope: <the minimum viable feature set>
-Technology: <language, framework, database choices>
-Out of scope: <what is explicitly excluded>
-Key decisions: <any decisions made during discovery>
-Constraints: <scale, integrations, timeline if mentioned>
-```
-
-## Rules
-- If this is the final round (the prompt will tell you), you MUST output DISCOVERY_COMPLETE regardless of how much information you have. Synthesize the best brief you can from available context.
-- Never output both DISCOVERY_QUESTIONS and DISCOVERY_COMPLETE — pick one.
-- The Idea Brief does not need to be perfect — it just needs to be dramatically better than the raw request.
-- Keep the brief concise — it will be passed to a build analyst agent, not displayed to the user verbatim.
-- Make reasonable defaults for anything ambiguous.
-";
+#[allow(dead_code)]
+pub(super) const BUILD_ANALYST_AGENT: &str =
+    include_str!("../../../topologies/development/agents/build-analyst.md");
+
+#[allow(dead_code)]
+pub(super) const BUILD_ARCHITECT_AGENT: &str =
+    include_str!("../../../topologies/development/agents/build-architect.md");
+
+#[allow(dead_code)]
+pub(super) const BUILD_TEST_WRITER_AGENT: &str =
+    include_str!("../../../topologies/development/agents/build-test-writer.md");
+
+#[allow(dead_code)]
+pub(super) const BUILD_DEVELOPER_AGENT: &str =
+    include_str!("../../../topologies/development/agents/build-developer.md");
+
+#[allow(dead_code)]
+pub(super) const BUILD_QA_AGENT: &str =
+    include_str!("../../../topologies/development/agents/build-qa.md");
+
+#[allow(dead_code)]
+pub(super) const BUILD_REVIEWER_AGENT: &str =
+    include_str!("../../../topologies/development/agents/build-reviewer.md");
+
+#[allow(dead_code)]
+pub(super) const BUILD_DELIVERY_AGENT: &str =
+    include_str!("../../../topologies/development/agents/build-delivery.md");
+
+#[allow(dead_code)]
+pub(super) const BUILD_DISCOVERY_AGENT: &str =
+    include_str!("../../../topologies/development/agents/build-discovery.md");
 
 /// Name-to-content mapping for all 8 build agents (discovery + 7 pipeline phases).
+#[allow(dead_code)]
 pub(super) const BUILD_AGENTS: &[(&str, &str)] = &[
     ("build-discovery", BUILD_DISCOVERY_AGENT),
     ("build-analyst", BUILD_ANALYST_AGENT),
@@ -416,13 +79,6 @@ pub(super) const BUILD_AGENTS: &[(&str, &str)] = &[
 ///
 /// Reference-counted per directory: multiple concurrent builds share the same agent files.
 /// Files are only deleted when the last guard for that directory is dropped.
-///
-/// Usage:
-/// ```ignore
-/// let _guard = AgentFilesGuard::write(&project_dir).await?;
-/// // ... invoke claude --agent <name> ...
-/// // Drop cleans up automatically, even on panic.
-/// ```
 pub(super) struct AgentFilesGuard {
     agents_dir: PathBuf,
 }
@@ -430,12 +86,34 @@ pub(super) struct AgentFilesGuard {
 impl AgentFilesGuard {
     /// Write all build agent files to `<project_dir>/.claude/agents/`.
     ///
+    /// Uses the compiled-in BUILD_AGENTS constants.
     /// Increments the per-directory reference count. Safe to call concurrently —
     /// all guards write identical content to the same directory.
+    /// Kept for backward compatibility — production code uses write_from_topology().
+    #[allow(dead_code)]
     pub async fn write(project_dir: &Path) -> std::io::Result<Self> {
         let agents_dir = project_dir.join(".claude").join("agents");
         tokio::fs::create_dir_all(&agents_dir).await?;
         for (name, content) in BUILD_AGENTS {
+            let path = agents_dir.join(format!("{name}.md"));
+            tokio::fs::write(&path, content).await?;
+        }
+        let mut counts = GUARD_REFCOUNTS.lock().unwrap();
+        *counts.entry(agents_dir.clone()).or_insert(0) += 1;
+        Ok(Self { agents_dir })
+    }
+
+    /// Write agent files from a loaded topology to `<project_dir>/.claude/agents/`.
+    ///
+    /// Replaces the old `write()` source with topology-loaded content. Same RAII
+    /// behavior: increments ref count, files cleaned up on last guard drop.
+    pub async fn write_from_topology(
+        project_dir: &Path,
+        topology: &LoadedTopology,
+    ) -> std::io::Result<Self> {
+        let agents_dir = project_dir.join(".claude").join("agents");
+        tokio::fs::create_dir_all(&agents_dir).await?;
+        for (name, content) in &topology.agents {
             let path = agents_dir.join(format!("{name}.md"));
             tokio::fs::write(&path, content).await?;
         }
@@ -686,8 +364,6 @@ mod tests {
     #[test]
     fn test_analyst_agent_output_format() {
         let content = BUILD_ANALYST_AGENT;
-        // Must instruct the analyst to output in the structured format
-        // compatible with parse_project_brief().
         assert!(
             content.contains("PROJECT_NAME"),
             "Analyst agent must reference PROJECT_NAME output format"
@@ -735,7 +411,7 @@ mod tests {
     }
 
     // Requirement: REQ-BAP-021 (Should)
-    // Acceptance: Reviewer has tools (Read, Write, Grep, Glob, Bash) — needs Write for report
+    // Acceptance: Reviewer has tools (Read, Write, Grep, Glob, Bash)
     #[test]
     fn test_reviewer_agent_tools() {
         let after_open = &BUILD_REVIEWER_AGENT[3..];
@@ -1102,372 +778,5 @@ mod tests {
                 || content.contains("line limit"),
             "Developer agent should enforce 500-line file limit"
         );
-    }
-
-    // ===================================================================
-    // REQ-BDP-002 (Must): BUILD_DISCOVERY_AGENT — embedded discovery agent
-    // ===================================================================
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: BUILD_DISCOVERY_AGENT constant exists and is non-empty
-    #[test]
-    fn test_discovery_agent_constant_exists() {
-        assert!(
-            !BUILD_DISCOVERY_AGENT.is_empty(),
-            "BUILD_DISCOVERY_AGENT must not be empty"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: Agent has YAML frontmatter
-    #[test]
-    fn test_discovery_agent_has_yaml_frontmatter() {
-        assert!(
-            BUILD_DISCOVERY_AGENT.starts_with("---"),
-            "BUILD_DISCOVERY_AGENT must start with YAML frontmatter '---'"
-        );
-        let after_open = &BUILD_DISCOVERY_AGENT[3..];
-        assert!(
-            after_open.contains("\n---"),
-            "BUILD_DISCOVERY_AGENT must have closing YAML frontmatter '---'"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: Agent frontmatter contains name: build-discovery
-    #[test]
-    fn test_discovery_agent_frontmatter_name() {
-        let after_open = &BUILD_DISCOVERY_AGENT[3..];
-        let close_idx = after_open.find("\n---").unwrap();
-        let frontmatter = &after_open[..close_idx];
-        let name_line = frontmatter
-            .lines()
-            .find(|l| l.starts_with("name:"))
-            .expect("Discovery agent must have name: in frontmatter");
-        let name_value = name_line["name:".len()..].trim();
-        assert_eq!(
-            name_value, "build-discovery",
-            "Discovery agent frontmatter name must be 'build-discovery', got: '{name_value}'"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must), REQ-BDP-015 (Should)
-    // Acceptance: Agent uses model: opus (complex reasoning needed for discovery)
-    #[test]
-    fn test_discovery_agent_model_opus() {
-        let after_open = &BUILD_DISCOVERY_AGENT[3..];
-        let close_idx = after_open.find("\n---").unwrap();
-        let frontmatter = &after_open[..close_idx];
-        let model_line = frontmatter
-            .lines()
-            .find(|l| l.starts_with("model:"))
-            .expect("Discovery agent must have model: in frontmatter");
-        let model_value = model_line["model:".len()..].trim();
-        assert_eq!(
-            model_value, "opus",
-            "Discovery agent must use model: opus, got: '{model_value}'"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: Agent has permissionMode: bypassPermissions
-    #[test]
-    fn test_discovery_agent_permission_bypass() {
-        assert!(
-            BUILD_DISCOVERY_AGENT.contains("permissionMode: bypassPermissions"),
-            "Discovery agent must have permissionMode: bypassPermissions"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: Agent has maxTurns: 15
-    #[test]
-    fn test_discovery_agent_max_turns() {
-        let after_open = &BUILD_DISCOVERY_AGENT[3..];
-        let close_idx = after_open.find("\n---").unwrap();
-        let frontmatter = &after_open[..close_idx];
-        assert!(
-            frontmatter.contains("maxTurns: 15"),
-            "Discovery agent must have maxTurns: 15 in frontmatter"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: Agent has tools: Read, Grep, Glob (no Write/Edit — read-only discovery)
-    #[test]
-    fn test_discovery_agent_restricted_tools() {
-        let after_open = &BUILD_DISCOVERY_AGENT[3..];
-        let close_idx = after_open.find("\n---").unwrap();
-        let frontmatter = &after_open[..close_idx];
-        let tools_line = frontmatter
-            .lines()
-            .find(|l| l.starts_with("tools:"))
-            .expect("Discovery agent must have tools: in frontmatter");
-        assert!(
-            tools_line.contains("Read"),
-            "Discovery agent must have Read tool"
-        );
-        assert!(
-            tools_line.contains("Grep"),
-            "Discovery agent must have Grep tool"
-        );
-        assert!(
-            tools_line.contains("Glob"),
-            "Discovery agent must have Glob tool"
-        );
-        assert!(
-            !tools_line.contains("Write"),
-            "Discovery agent must NOT have Write tool (read-only)"
-        );
-        assert!(
-            !tools_line.contains("Edit"),
-            "Discovery agent must NOT have Edit tool (read-only)"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: Agent body contains DISCOVERY_QUESTIONS output format
-    #[test]
-    fn test_discovery_agent_contains_questions_format() {
-        assert!(
-            BUILD_DISCOVERY_AGENT.contains("DISCOVERY_QUESTIONS"),
-            "Discovery agent must document DISCOVERY_QUESTIONS output format"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: Agent body contains DISCOVERY_COMPLETE output format
-    #[test]
-    fn test_discovery_agent_contains_complete_format() {
-        assert!(
-            BUILD_DISCOVERY_AGENT.contains("DISCOVERY_COMPLETE"),
-            "Discovery agent must document DISCOVERY_COMPLETE output format"
-        );
-        assert!(
-            BUILD_DISCOVERY_AGENT.contains("IDEA_BRIEF:"),
-            "Discovery agent must document IDEA_BRIEF: output format"
-        );
-    }
-
-    // Requirement: REQ-BDP-012 (Should), REQ-BAP-011 (Must)
-    // Acceptance: Agent contains non-interactive instruction (single-shot mode)
-    #[test]
-    fn test_discovery_agent_non_interactive() {
-        let lower = BUILD_DISCOVERY_AGENT.to_lowercase();
-        assert!(
-            lower.contains("do not ask the user")
-                || lower.contains("do not ask questions")
-                || lower.contains("single-shot")
-                || lower.contains("not the analyst"),
-            "Discovery agent must contain non-interactive instruction"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: BUILD_AGENTS contains build-discovery entry
-    #[test]
-    fn test_build_agents_contains_discovery() {
-        let has_discovery = BUILD_AGENTS
-            .iter()
-            .any(|(name, _)| *name == "build-discovery");
-        assert!(
-            has_discovery,
-            "BUILD_AGENTS must contain a 'build-discovery' entry"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: BUILD_DISCOVERY_AGENT content in BUILD_AGENTS matches the constant
-    #[test]
-    fn test_build_agents_discovery_content_matches_constant() {
-        let discovery_entry = BUILD_AGENTS
-            .iter()
-            .find(|(name, _)| *name == "build-discovery")
-            .expect("BUILD_AGENTS must have build-discovery");
-        assert_eq!(
-            discovery_entry.1, BUILD_DISCOVERY_AGENT,
-            "BUILD_AGENTS discovery content must match BUILD_DISCOVERY_AGENT constant"
-        );
-    }
-
-    // Requirement: REQ-BDP-002 (Must)
-    // Acceptance: AgentFilesGuard writes build-discovery.md alongside other agents
-    #[tokio::test]
-    async fn test_agent_files_guard_writes_discovery_agent() {
-        let tmp = std::env::temp_dir().join("__omega_test_agents_discovery__");
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-
-        let guard = AgentFilesGuard::write(&tmp).await.unwrap();
-        let discovery_file = tmp
-            .join(".claude")
-            .join("agents")
-            .join("build-discovery.md");
-        assert!(
-            discovery_file.exists(),
-            "AgentFilesGuard must write build-discovery.md"
-        );
-
-        let content = std::fs::read_to_string(&discovery_file).unwrap();
-        assert_eq!(
-            content, BUILD_DISCOVERY_AGENT,
-            "Written discovery agent file must match constant"
-        );
-
-        drop(guard);
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    // ===================================================================
-    // Safety control agent upgrades
-    // ===================================================================
-
-    /// Helper: extract model value from agent frontmatter.
-    fn extract_model(content: &str) -> &str {
-        let after_open = &content[3..];
-        let close_idx = after_open.find("\n---").unwrap();
-        let frontmatter = &after_open[..close_idx];
-        let model_line = frontmatter
-            .lines()
-            .find(|l| l.starts_with("model:"))
-            .expect("Agent must have model: in frontmatter");
-        model_line["model:".len()..].trim()
-    }
-
-    #[test]
-    fn test_qa_agent_model_opus() {
-        assert_eq!(
-            extract_model(BUILD_QA_AGENT),
-            "opus",
-            "QA agent must use model: opus for deep reasoning"
-        );
-    }
-
-    #[test]
-    fn test_reviewer_agent_model_opus() {
-        assert_eq!(
-            extract_model(BUILD_REVIEWER_AGENT),
-            "opus",
-            "Reviewer agent must use model: opus for deep reasoning"
-        );
-    }
-
-    #[test]
-    fn test_analyst_agent_moscow() {
-        let content = BUILD_ANALYST_AGENT;
-        assert!(
-            content.contains("[Must]")
-                && content.contains("[Should]")
-                && content.contains("[Could]"),
-            "Analyst agent must instruct MoSCoW prioritization with [Must], [Should], [Could]"
-        );
-    }
-
-    #[test]
-    fn test_architect_agent_failure_modes() {
-        let content = BUILD_ARCHITECT_AGENT;
-        assert!(
-            content.to_lowercase().contains("failure mode"),
-            "Architect agent must instruct documenting failure modes"
-        );
-        assert!(
-            content.to_lowercase().contains("security boundar"),
-            "Architect agent must instruct documenting security boundaries"
-        );
-    }
-
-    #[test]
-    fn test_qa_agent_report_output() {
-        let content = BUILD_QA_AGENT;
-        assert!(
-            content.contains("qa-report.md"),
-            "QA agent must write a report to qa-report.md"
-        );
-    }
-
-    #[test]
-    fn test_reviewer_agent_report_output() {
-        let content = BUILD_REVIEWER_AGENT;
-        assert!(
-            content.contains("review-report.md"),
-            "Reviewer agent must write a report to review-report.md"
-        );
-    }
-
-    #[test]
-    fn test_reviewer_agent_specs_docs_drift() {
-        let content = BUILD_REVIEWER_AGENT;
-        assert!(
-            content.to_lowercase().contains("drift")
-                || (content.contains("specs/") && content.contains("docs/")),
-            "Reviewer agent must check for specs/docs drift"
-        );
-    }
-
-    // ===================================================================
-    // BUG-C1: AgentFilesGuard concurrent build safety
-    // ===================================================================
-
-    // BUG-C1: Two guards for the same directory must coexist — files must
-    // survive the first guard's drop when a second guard is still active.
-    #[tokio::test]
-    async fn test_agent_files_guard_concurrent_builds_safe() {
-        let tmp = std::env::temp_dir().join("__omega_test_agents_concurrent__");
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-
-        let agents_dir = tmp.join(".claude").join("agents");
-
-        // Simulate two concurrent builds writing to the same workspace.
-        let guard1 = AgentFilesGuard::write(&tmp).await.unwrap();
-        let guard2 = AgentFilesGuard::write(&tmp).await.unwrap();
-
-        assert!(agents_dir.exists(), "agents/ must exist with two guards");
-
-        // First build finishes — drop guard1.
-        drop(guard1);
-
-        // Files must still exist for the second build.
-        assert!(
-            agents_dir.exists(),
-            "agents/ must survive after first guard drops (second still active)"
-        );
-        for (name, _) in BUILD_AGENTS {
-            let file = agents_dir.join(format!("{name}.md"));
-            assert!(
-                file.exists(),
-                "Agent file '{name}.md' must survive first guard drop"
-            );
-        }
-
-        // Second build finishes — now files should be cleaned up.
-        drop(guard2);
-        assert!(
-            !agents_dir.exists(),
-            "agents/ must be removed after last guard drops"
-        );
-
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    // BUG-C1: Per-directory reference count returns to zero after all guards drop.
-    #[tokio::test]
-    async fn test_agent_files_guard_refcount_returns_to_zero() {
-        let tmp = std::env::temp_dir().join("__omega_test_agents_refcount__");
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(&tmp).unwrap();
-
-        let agents_dir = tmp.join(".claude").join("agents");
-        assert_eq!(AgentFilesGuard::active_count_for(&agents_dir), 0);
-        let guard1 = AgentFilesGuard::write(&tmp).await.unwrap();
-        assert_eq!(AgentFilesGuard::active_count_for(&agents_dir), 1);
-        let guard2 = AgentFilesGuard::write(&tmp).await.unwrap();
-        assert_eq!(AgentFilesGuard::active_count_for(&agents_dir), 2);
-        drop(guard1);
-        assert_eq!(AgentFilesGuard::active_count_for(&agents_dir), 1);
-        drop(guard2);
-        assert_eq!(AgentFilesGuard::active_count_for(&agents_dir), 0);
-
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

@@ -125,8 +125,5 @@ If the reviewer finds critical issues:
 - Repeat until approved
 
 ## Step 10: Versioning
-Once approved, create the final commit with `feat:` prefix and version tag.
-Do NOT clean up `docs/.workflow/` yet — the post-commit audit needs prior reports.
-
-Then invoke the post-commit audit:
-`/workflow:post-commit-audit --scope="[same --scope as this workflow, or the scope the Analyst determined in Step 1]"`
+Once approved, create the final commit and version tag.
+Clean up `docs/.workflow/` temporary files.

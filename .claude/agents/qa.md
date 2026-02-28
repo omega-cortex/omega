@@ -254,6 +254,11 @@ Save to `docs/qa/[domain]-qa-report.md`:
 |---|---|---|---|
 | [surface] | [what was sent/done] | PASS/FAIL/Out of Scope | [detail] |
 
+## Specs/Docs Drift
+| File | Documented Behavior | Actual Behavior | Severity |
+|------|-------------------|-----------------|----------|
+| [specs/file.md] | [what the spec says] | [what the system actually does] | low/medium/high |
+
 ## Blocking Issues (must fix before merge)
 Issues here prevent shipment. All Must requirement failures are automatically blocking.
 - **[ISSUE-001]**: [Location] — [What's wrong, what was expected, what actually happened]
@@ -274,6 +279,15 @@ Issues here should be fixed but do not block the current release.
 **FAIL** — The following Must requirements are not met: [list]. These must be fixed before this work can be reviewed.
 ```
 
+## Specs & Docs Drift Check
+After completing validation, verify that specs and docs match the actual system behavior:
+1. **Read the relevant spec files** in `specs/` for the modules you validated
+2. **Compare documented behavior against actual behavior** — if you observed the system doing something different from what specs describe, flag it
+3. **Read the relevant doc files** in `docs/` for user-facing features you tested
+4. **If docs describe behavior that doesn't match reality**, flag it in the QA report under a "Specs/Docs Drift" section
+5. **Add drift findings to the QA report** — each drift item should specify: file, what's documented, what actually happens
+6. This check is mandatory — stale docs are a liability that compounds over time
+
 ## Rules
 - **You validate, you don't fix** — if something is broken, report it; the developer fixes it
 - **Acceptance criteria are pass/fail** — no "partially met"
@@ -285,6 +299,7 @@ Issues here should be fixed but do not block the current release.
 - **Record exploratory findings immediately** — don't let them pile up; write to progress file after each one
 - **Security and failure tests need specifics** — "I tested for XSS" is not a finding. Record what was sent, what came back, and whether it passed or failed
 - **Traceability must be complete** — every Must and Should requirement needs tests and code
+- **Specs/docs drift must be checked** — compare documented behavior against actual behavior and flag discrepancies
 - **Save findings incrementally** — don't lose work to context limits
 - **If you can't validate everything**, say exactly what was covered and what remains
 - **Be specific** — "it doesn't work" is not a finding. Include what happened, what was expected, and where

@@ -1,35 +1,49 @@
-//! Multi-phase build orchestrator — decomposes build requests into 7 isolated phases
-//! using purpose-built agents via `claude --agent <name>`.
+//! Topology-driven build orchestrator — dispatches build phases from a loaded topology.
 //!
-//! Phase pipeline:
-//! 1. Analyst    — analyze request, produce ProjectBrief
-//! 2. Architect  — design architecture, create specs/
-//! 3. Test Writer — write failing tests (TDD red)
-//! 4. Developer  — implement to pass tests (TDD green)
-//! 5. QA         — validate quality (up to 3 iterations, fatal)
-//! 6. Reviewer   — audit code (up to 2 iterations, fatal)
-//! 7. Delivery   — docs, SKILL.md, build summary
+//! Loads the "development" topology from `~/.omega/topologies/development/TOPOLOGY.toml`,
+//! then iterates over `topology.phases`, dispatching each based on its `phase_type`:
+//!
+//! - ParseBrief: run agent, parse output via parse_project_brief(), create dir
+//! - Standard: run agent, check for error, proceed
+//! - CorrectiveLoop: run agent, parse result, retry with fix_agent on failure
+//! - ParseSummary: run agent, parse output via parse_build_summary(), send final msg
 //!
 //! Safety controls:
-//! - Inter-step validation before phases 3, 4, 5
-//! - QA loop: 3 iterations (QA → developer fix → re-QA)
-//! - Review loop: 2 iterations (review → developer fix → re-review)
+//! - Pre-validation before phases (from topology config)
+//! - Post-validation after phases (from topology config)
+//! - Corrective loops with configurable retries
 //! - Chain state persisted on failure for recovery inspection
 
 use super::builds_agents::AgentFilesGuard;
 use super::builds_parse::*;
+use super::builds_topology::{self, PhaseType};
 use super::Gateway;
 use omega_core::{config::shellexpand, context::Context, message::IncomingMessage};
 use omega_memory::audit::{AuditEntry, AuditStatus};
 use std::path::PathBuf;
 use tracing::warn;
 
+/// State accumulated during orchestration, passed between phases.
+#[derive(Default)]
+pub(super) struct OrchestratorState {
+    /// Raw text output from the analyst (ParseBrief) phase.
+    pub(super) brief_text: Option<String>,
+    /// Parsed project brief (name, scope, language, etc.).
+    pub(super) brief: Option<ProjectBrief>,
+    /// Project directory path (created after brief is parsed).
+    pub(super) project_dir: Option<PathBuf>,
+    /// Project directory as string (for prompt interpolation).
+    pub(super) project_dir_str: Option<String>,
+    /// Phases completed so far (names, for chain state).
+    pub(super) completed_phases: Vec<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Gateway methods
 // ---------------------------------------------------------------------------
 
 impl Gateway {
-    /// Main build orchestrator — runs 7 sequential agent phases for a build request.
+    /// Main build orchestrator — topology-driven phase loop.
     pub(super) async fn handle_build_request(
         &self,
         incoming: &IncomingMessage,
@@ -44,11 +58,23 @@ impl Gateway {
             .flatten()
             .unwrap_or_else(|| "English".to_string());
 
+        // Load topology.
+        let loaded = match builds_topology::load_topology(&self.data_dir, "development") {
+            Ok(t) => t,
+            Err(e) => {
+                if let Some(h) = typing_handle {
+                    h.abort();
+                }
+                self.send_text(incoming, &format!("Failed to load topology: {e}"))
+                    .await;
+                return;
+            }
+        };
+
         // Write agent files to workspace root BEFORE any phase runs.
-        // The CLI subprocess runs with cwd = ~/.omega/workspace/, so agent files
-        // must be at ~/.omega/workspace/.claude/agents/ for --agent discovery.
         let workspace_dir = PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
-        let _agent_guard = match AgentFilesGuard::write(&workspace_dir).await {
+        let _agent_guard = match AgentFilesGuard::write_from_topology(&workspace_dir, &loaded).await
+        {
             Ok(guard) => guard,
             Err(e) => {
                 if let Some(h) = typing_handle {
@@ -60,66 +86,212 @@ impl Gateway {
             }
         };
 
-        // Phase 1: Analyst — analyze build request and produce a brief.
-        self.send_text(incoming, &phase_message(&user_lang, 1, "analyzing"))
-            .await;
+        let mut state = OrchestratorState::default();
 
-        let brief_text = match self
-            .run_build_phase(
-                "build-analyst",
-                &incoming.text,
-                &self.model_complex,
-                Some(25),
-            )
+        for phase in &loaded.topology.phases {
+            let model = loaded.resolve_model(phase, &self.model_fast, &self.model_complex);
+
+            // Send localized phase message.
+            self.send_text(incoming, &phase_message_by_name(&user_lang, &phase.name))
+                .await;
+
+            // Run pre-validation if configured.
+            if let Some(ref validation) = phase.pre_validation {
+                if let Some(project_dir) = &state.project_dir {
+                    if let Some(err) = Gateway::run_validation(project_dir, validation) {
+                        if let Some(h) = typing_handle {
+                            h.abort();
+                        }
+                        self.send_text(incoming, &err).await;
+                        let cs = Self::chain_state_topo(
+                            &state,
+                            &format!("{} (validation)", phase.name),
+                            err,
+                        );
+                        if let Some(pd) = &state.project_dir {
+                            Gateway::save_chain_state(pd, &cs).await;
+                        }
+                        return;
+                    }
+                }
+            }
+
+            // Dispatch based on phase type.
+            match phase.phase_type {
+                PhaseType::ParseBrief => {
+                    if let Err(reason) = self
+                        .execute_parse_brief(incoming, phase, model, &mut state)
+                        .await
+                    {
+                        if let Some(h) = typing_handle {
+                            h.abort();
+                        }
+                        self.send_text(incoming, &reason).await;
+                        return;
+                    }
+                }
+                PhaseType::Standard => {
+                    if let Err(reason) = self.execute_standard(incoming, phase, model, &state).await
+                    {
+                        if let Some(h) = typing_handle {
+                            h.abort();
+                        }
+                        self.send_text(incoming, &reason).await;
+                        return;
+                    }
+                }
+                PhaseType::CorrectiveLoop => {
+                    let retry = match &phase.retry {
+                        Some(r) => r,
+                        None => {
+                            if let Some(h) = typing_handle {
+                                h.abort();
+                            }
+                            self.send_text(
+                                incoming,
+                                &format!(
+                                    "Configuration error: phase '{}' is corrective-loop but has no retry config",
+                                    phase.name
+                                ),
+                            )
+                            .await;
+                            return;
+                        }
+                    };
+
+                    if let Err(reason) = self
+                        .run_corrective_loop(incoming, &state, &user_lang, phase, retry, model)
+                        .await
+                    {
+                        if let Some(h) = typing_handle {
+                            h.abort();
+                        }
+                        let project_dir_str =
+                            state.project_dir_str.as_deref().unwrap_or("(unknown)");
+                        let brief_name = state
+                            .brief
+                            .as_ref()
+                            .map(|b| b.name.as_str())
+                            .unwrap_or("(unknown)");
+
+                        // Send exhausted message matching the loop type.
+                        let exhausted_msg = if phase.name == "qa" {
+                            qa_exhausted_message(&user_lang, &reason, project_dir_str)
+                        } else {
+                            review_exhausted_message(&user_lang, &reason, project_dir_str)
+                        };
+                        self.send_text(incoming, &exhausted_msg).await;
+                        self.audit_build(incoming, brief_name, "failed", &reason)
+                            .await;
+                        let cs = Self::chain_state_topo(&state, &phase.name, reason);
+                        if let Some(pd) = &state.project_dir {
+                            Gateway::save_chain_state(pd, &cs).await;
+                        }
+                        return;
+                    }
+                }
+                PhaseType::ParseSummary => {
+                    if let Err(reason) = self
+                        .execute_parse_summary(incoming, phase, model, &state)
+                        .await
+                    {
+                        // Delivery error is partial success.
+                        if let Some(h) = typing_handle {
+                            h.abort();
+                        }
+                        let brief_name = state
+                            .brief
+                            .as_ref()
+                            .map(|b| b.name.as_str())
+                            .unwrap_or("(unknown)");
+                        self.send_text(
+                            incoming,
+                            &format!(
+                                "Build complete but delivery had issues: {reason}\nProject: `{brief_name}`"
+                            ),
+                        )
+                        .await;
+                        self.audit_build(incoming, brief_name, "partial", &reason)
+                            .await;
+                        return;
+                    }
+                }
+            }
+
+            // Run post-validation if configured.
+            if let Some(ref paths) = phase.post_validation {
+                if let Some(project_dir) = &state.project_dir {
+                    for path in paths {
+                        // Reject path traversal in post_validation paths.
+                        if path.contains("..") || path.starts_with('/') || path.contains('\\') {
+                            if let Some(h) = typing_handle {
+                                h.abort();
+                            }
+                            let msg = format!(
+                                "Post-validation rejected: path '{}' contains invalid characters.",
+                                path
+                            );
+                            self.send_text(incoming, &msg).await;
+                            return;
+                        }
+                        if !project_dir.join(path).exists() {
+                            if let Some(h) = typing_handle {
+                                h.abort();
+                            }
+                            let msg = format!(
+                                "{} phase completed but {} was not generated. Build stopped.",
+                                phase.name, path
+                            );
+                            self.send_text(incoming, &msg).await;
+                            return;
+                        }
+                    }
+                    // Post-validation passed — send confirmation for architect.
+                    if phase.name == "architect" {
+                        self.send_text(incoming, "Architecture defined.").await;
+                    }
+                }
+            }
+
+            state.completed_phases.push(phase.name.clone());
+        }
+
+        // All phases completed successfully.
+        if let Some(h) = typing_handle {
+            h.abort();
+        }
+        let brief_name = state
+            .brief
+            .as_ref()
+            .map(|b| b.name.as_str())
+            .unwrap_or("(unknown)");
+        self.audit_build(incoming, brief_name, "success", "").await;
+    }
+
+    /// Execute a ParseBrief phase: run analyst, parse brief, create project dir.
+    async fn execute_parse_brief(
+        &self,
+        incoming: &IncomingMessage,
+        phase: &builds_topology::Phase,
+        model: &str,
+        state: &mut OrchestratorState,
+    ) -> Result<(), String> {
+        let brief_text = self
+            .run_build_phase(&phase.agent, &incoming.text, model, phase.max_turns)
             .await
-        {
-            Ok(text) => text,
-            Err(e) => {
-                if let Some(h) = typing_handle {
-                    h.abort();
-                }
-                self.send_text(
-                    incoming,
-                    &format!("Could not analyze your build request: {e}"),
-                )
-                .await;
-                return;
-            }
-        };
+            .map_err(|e| format!("Could not analyze your build request: {e}"))?;
 
-        // Phase 1 output is parsed below — no need to log in production.
-
-        let brief = match parse_project_brief(&brief_text) {
-            Some(b) => b,
-            None => {
-                if let Some(h) = typing_handle {
-                    h.abort();
-                }
-                self.send_text(
-                    incoming,
-                    "Could not parse the build brief. Please try rephrasing.",
-                )
-                .await;
-                return;
-            }
-        };
+        let brief = parse_project_brief(&brief_text)
+            .ok_or("Could not parse the build brief. Please try rephrasing.")?;
 
         let project_dir = PathBuf::from(shellexpand(&self.data_dir))
             .join("workspace/builds")
             .join(&brief.name);
         let project_dir_str = project_dir.display().to_string();
 
-        if let Err(e) = tokio::fs::create_dir_all(&project_dir).await {
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            self.send_text(
-                incoming,
-                &format!("Failed to create project directory: {e}"),
-            )
-            .await;
-            return;
-        }
+        tokio::fs::create_dir_all(&project_dir)
+            .await
+            .map_err(|e| format!("Failed to create project directory: {e}"))?;
 
         self.send_text(
             incoming,
@@ -130,260 +302,84 @@ impl Gateway {
         )
         .await;
 
-        // Phase 2: Architect — design architecture and create specs.
-        self.send_text(incoming, &phase_message(&user_lang, 2, "designing"))
-            .await;
+        state.brief_text = Some(brief_text);
+        state.project_dir = Some(project_dir);
+        state.project_dir_str = Some(project_dir_str);
+        state.brief = Some(brief);
+        Ok(())
+    }
 
-        let architect_prompt = format!(
-            "Project brief:\n{brief_text}\nBegin architecture design in {project_dir_str}."
-        );
-        if let Err(e) = self
-            .run_build_phase(
-                "build-architect",
-                &architect_prompt,
-                &self.model_complex,
-                None,
-            )
-            .await
-        {
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            self.send_text(incoming, &format!("Architecture phase failed: {e}"))
-                .await;
-            return;
-        }
+    /// Execute a Standard phase: run agent, check for error.
+    async fn execute_standard(
+        &self,
+        incoming: &IncomingMessage,
+        phase: &builds_topology::Phase,
+        model: &str,
+        state: &OrchestratorState,
+    ) -> Result<(), String> {
+        let project_dir_str = state.project_dir_str.as_deref().unwrap_or("");
+        let brief_text = state.brief_text.as_deref().unwrap_or("");
+        let brief_name = state.brief.as_ref().map(|b| b.name.as_str()).unwrap_or("");
 
-        // Verify specs/architecture.md was created.
-        let arch_file = project_dir.join("specs/architecture.md");
-        if !arch_file.exists() {
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            self.send_text(
-                incoming,
-                "Architecture phase completed but no specs were generated. Build stopped.",
-            )
-            .await;
-            return;
-        }
-
-        self.send_text(incoming, "Architecture defined.").await;
-
-        // Phase 3: Test Writer — write failing tests (TDD red phase).
-        if let Some(err) = Gateway::validate_phase_output(&project_dir, "test-writer") {
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            self.send_text(incoming, &err).await;
-            let cs = Self::chain_state(
-                &brief.name,
-                &project_dir_str,
-                &["analyst", "architect"],
-                "test-writer (validation)",
-                err,
-            );
-            Gateway::save_chain_state(&project_dir, &cs).await;
-            return;
-        }
-
-        self.send_text(incoming, &phase_message(&user_lang, 3, "testing"))
-            .await;
-
-        let test_writer_prompt =
-            format!("Read specs/ in {project_dir_str} and write failing tests. Begin.");
-        if let Err(e) = self
-            .run_build_phase(
-                "build-test-writer",
-                &test_writer_prompt,
-                &self.model_complex,
-                None,
-            )
-            .await
-        {
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            self.send_text(
-                incoming,
-                &format!(
-                    "Test writing phase failed: {e}. Partial results in `{}`.",
-                    brief.name
-                ),
-            )
-            .await;
-            return;
-        }
-
-        self.send_text(incoming, "Tests written.").await;
-
-        // Phase 4: Developer — implement to pass tests (TDD green phase).
-        if let Some(err) = Gateway::validate_phase_output(&project_dir, "developer") {
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            self.send_text(incoming, &err).await;
-            let cs = Self::chain_state(
-                &brief.name,
-                &project_dir_str,
-                &["analyst", "architect", "test-writer"],
-                "developer (validation)",
-                err,
-            );
-            Gateway::save_chain_state(&project_dir, &cs).await;
-            return;
-        }
-
-        self.send_text(incoming, &phase_message(&user_lang, 4, "implementing"))
-            .await;
-
-        let developer_prompt = format!(
-            "Read the tests and specs/ in {project_dir_str}. Implement until all tests pass. Begin."
-        );
-        if let Err(e) = self
-            .run_build_phase(
-                "build-developer",
-                &developer_prompt,
-                &self.model_complex,
-                None,
-            )
-            .await
-        {
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            self.send_text(
-                incoming,
-                &format!(
-                    "Implementation phase failed: {e}. Partial results in `{}`.",
-                    brief.name
-                ),
-            )
-            .await;
-            return;
-        }
-        self.send_text(incoming, "Implementation complete \u{2014} verifying...")
-            .await;
-
-        // Phase 5: QA — validate quality (up to 3 iterations).
-        if let Some(err) = Gateway::validate_phase_output(&project_dir, "qa") {
-            if let Some(h) = typing_handle {
-                h.abort();
-            }
-            self.send_text(incoming, &err).await;
-            let cs = Self::chain_state(
-                &brief.name,
-                &project_dir_str,
-                &["analyst", "architect", "test-writer", "developer"],
-                "qa (validation)",
-                err,
-            );
-            Gateway::save_chain_state(&project_dir, &cs).await;
-            return;
-        }
-
-        self.send_text(incoming, &phase_message(&user_lang, 5, "validating"))
-            .await;
-
-        match self
-            .run_qa_loop(incoming, &project_dir_str, &user_lang)
-            .await
-        {
-            Ok(()) => {}
-            Err(reason) => {
-                if let Some(h) = typing_handle {
-                    h.abort();
-                }
-                self.send_text(
-                    incoming,
-                    &qa_exhausted_message(&user_lang, &reason, &project_dir_str),
+        // Build phase-specific prompt.
+        let prompt = match phase.name.as_str() {
+            "architect" => {
+                format!(
+                    "Project brief:\n{brief_text}\nBegin architecture design in {project_dir_str}."
                 )
-                .await;
-                self.audit_build(incoming, &brief.name, "failed", &reason)
-                    .await;
-                let cs = Self::chain_state(
-                    &brief.name,
-                    &project_dir_str,
-                    &["analyst", "architect", "test-writer", "developer"],
-                    "qa",
-                    reason,
-                );
-                Gateway::save_chain_state(&project_dir, &cs).await;
-                return;
             }
-        }
+            "test-writer" => {
+                format!("Read specs/ in {project_dir_str} and write failing tests. Begin.")
+            }
+            "developer" => {
+                format!("Read the tests and specs/ in {project_dir_str}. Implement until all tests pass. Begin.")
+            }
+            _ => format!("Execute phase '{}' in {project_dir_str}.", phase.name),
+        };
 
-        // Phase 6: Reviewer — code review (up to 2 iterations, fatal).
-        self.send_text(incoming, &phase_message(&user_lang, 6, "reviewing"))
-            .await;
-
-        match self
-            .run_review_loop(incoming, &project_dir_str, &user_lang)
+        self.run_build_phase(&phase.agent, &prompt, model, phase.max_turns)
             .await
-        {
-            Ok(()) => {}
-            Err(reason) => {
-                if let Some(h) = typing_handle {
-                    h.abort();
-                }
-                self.send_text(
-                    incoming,
-                    &review_exhausted_message(&user_lang, &reason, &project_dir_str),
+            .map_err(|e| {
+                format!(
+                    "{} phase failed: {e}. Partial results in `{brief_name}`.",
+                    phase.name
                 )
+            })?;
+
+        // Phase-specific completion messages.
+        if phase.name == "test-writer" {
+            self.send_text(incoming, "Tests written.").await;
+        } else if phase.name == "developer" {
+            self.send_text(incoming, "Implementation complete \u{2014} verifying...")
                 .await;
-                self.audit_build(incoming, &brief.name, "failed", &reason)
-                    .await;
-                let cs = Self::chain_state(
-                    &brief.name,
-                    &project_dir_str,
-                    &["analyst", "architect", "test-writer", "developer", "qa"],
-                    "reviewer",
-                    reason,
-                );
-                Gateway::save_chain_state(&project_dir, &cs).await;
-                return;
-            }
         }
 
-        // Phase 7: Delivery — docs, SKILL.md, build summary.
-        self.send_text(incoming, &phase_message(&user_lang, 7, "delivering"))
-            .await;
+        Ok(())
+    }
 
+    /// Execute a ParseSummary phase: run delivery, parse summary, send final message.
+    ///
+    /// Note: typing handle lifecycle is managed by the caller (handle_build_request).
+    /// This method does NOT abort the typing handle.
+    async fn execute_parse_summary(
+        &self,
+        incoming: &IncomingMessage,
+        phase: &builds_topology::Phase,
+        model: &str,
+        state: &OrchestratorState,
+    ) -> Result<(), String> {
+        let project_dir_str = state.project_dir_str.as_deref().unwrap_or("");
+        let brief_name = state.brief.as_ref().map(|b| b.name.as_str()).unwrap_or("");
         let skills_dir = PathBuf::from(shellexpand(&self.data_dir)).join("skills");
         let skills_dir_str = skills_dir.display().to_string();
+
         let delivery_prompt = format!(
-            "Create docs and skill file for {} in {project_dir_str}. Skills dir: {skills_dir_str}.",
-            brief.name
+            "Create docs and skill file for {brief_name} in {project_dir_str}. Skills dir: {skills_dir_str}.",
         );
 
-        let delivery_text = match self
-            .run_build_phase(
-                "build-delivery",
-                &delivery_prompt,
-                &self.model_complex,
-                None,
-            )
-            .await
-        {
-            Ok(text) => text,
-            Err(e) => {
-                // Build succeeded but delivery failed — still report success.
-                if let Some(h) = typing_handle {
-                    h.abort();
-                }
-                self.send_text(
-                    incoming,
-                    &format!(
-                        "Build complete but delivery had issues: {e}\n\
-                         Project: `{}`",
-                        brief.name
-                    ),
-                )
-                .await;
-                self.audit_build(incoming, &brief.name, "partial", &e).await;
-                return;
-            }
-        };
+        let delivery_text = self
+            .run_build_phase(&phase.agent, &delivery_prompt, model, phase.max_turns)
+            .await?;
 
         // Parse and send final summary.
         let final_msg = if let Some(summary) = parse_build_summary(&delivery_text) {
@@ -406,34 +402,26 @@ impl Gateway {
                     .unwrap_or_default(),
             )
         } else {
-            format!(
-                "Build complete!\n\n\
-                 Project `{}` is ready.",
-                brief.name,
-            )
+            format!("Build complete!\n\nProject `{brief_name}` is ready.",)
         };
 
-        if let Some(h) = typing_handle {
-            h.abort();
-        }
         self.send_text(incoming, &final_msg).await;
-        self.audit_build(incoming, &brief.name, "success", "").await;
+        Ok(())
     }
 
-    /// Build a `ChainState` for the current project at a given failure point.
-    fn chain_state(
-        name: &str,
-        dir: &str,
-        completed: &[&str],
-        failed: &str,
-        reason: String,
-    ) -> ChainState {
+    /// Build a `ChainState` from the current orchestrator state at a given failure point.
+    fn chain_state_topo(state: &OrchestratorState, failed: &str, reason: String) -> ChainState {
         ChainState {
-            project_name: name.to_string(),
-            project_dir: dir.to_string(),
-            completed_phases: completed.iter().map(|s| (*s).to_string()).collect(),
+            project_name: state
+                .brief
+                .as_ref()
+                .map(|b| b.name.clone())
+                .unwrap_or_default(),
+            project_dir: state.project_dir_str.clone().unwrap_or_default(),
+            completed_phases: state.completed_phases.clone(),
             failed_phase: Some(failed.to_string()),
             failure_reason: Some(reason),
+            topology_name: Some("development".to_string()),
         }
     }
 

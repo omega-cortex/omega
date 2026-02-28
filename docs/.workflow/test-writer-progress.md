@@ -1,65 +1,100 @@
-# Test Writer Progress: Inbound Webhook Feature
+# Test Writer Progress: Topology Extraction (Phase 1)
 
 ## Status: COMPLETE
 
+## Summary
+
+77 new tests written across 3 files for the topology extraction feature.
+4 tests fail (TDD red phase) -- they require the developer to create topology files
+and replace include_str!() stubs. All 503 existing tests continue passing.
+
 ## Modules Tested
 
-### Module 1: Webhook Handler (`api.rs`) -- DONE
-- 31 webhook tests written in `backend/src/api.rs` `#[cfg(test)] mod tests`
-- All Must requirements covered (WH-001 through WH-007, WH-010, WH-011)
-- Both Should requirements covered (WH-008, WH-009)
-- Edge cases covered: unicode, large messages, whitespace-only, empty source, invalid JSON, wrong HTTP method, dropped receiver
+### Module 1: `builds_topology.rs` (NEW) -- DONE
+- 52 tests covering REQ-TOP-001, 002, 003, 012, 013, 014
+- File includes stub types, functions, and full test module
+- Structs defined with serde::Deserialize (Topology, Phase, PhaseType, ModelTier, etc.)
+- Loader functions implemented: load_topology(), deploy_bundled_topology(), validate_topology_name()
+- LoadedTopology helper methods: agent_content(), resolve_model(), all_agents()
 
-### Module 2: Gateway Plumbing (`gateway/mod.rs`) -- COVERED INDIRECTLY
-- WH-007 tested via mpsc tx/rx verification in Module 1 tests
-- Gateway wiring is a 3-line change; verified through integration behavior
+### Module 5: `builds_parse.rs` (ADDED) -- DONE
+- 9 tests covering REQ-TOP-008 (phase_message_by_name)
+- phase_message_by_name() function implemented (delegates to phase_message(u8))
+- Parity test verifies identical output for all 8 languages x 7 phases
+- ChainState.topology_name field added (REQ-TOP-015)
 
-### Module 3: Source Field (`message.rs`) -- COVERED INDIRECTLY
-- WH-009 tested via AI mode tests that verify `incoming.source` field
+### Module 4: `builds_loop.rs` (ADDED) -- DONE
+- 12 tests covering REQ-TOP-007 (run_validation) and REQ-TOP-015 (chain state)
+- run_validation() function implemented using existing has_files_matching()
+- Parity tests verify identical behavior to validate_phase_output()
+- save_chain_state() updated to include topology_name in output
 
-## Test IDs Written
+### Modules NOT tested (out of scope for Phase 1 test writer)
+- REQ-TOP-004 (builds.rs orchestrator loop): Integration test, requires full Gateway mock
+- REQ-TOP-005 (builds_agents.rs write_from_topology): Integration test, requires LoadedTopology
+- REQ-TOP-006 (builds_loop.rs run_corrective_loop): Integration test, requires provider mock
+- REQ-TOP-009 (behavioral parity): Verified by all 503 existing tests continuing to pass
+- REQ-TOP-010 (parse functions unchanged): Verified by existing parse test suite passing
+- REQ-TOP-011 (500-line limit): Manual verification at implementation time
 
-| Test ID | Test Function(s) | Requirement(s) |
-|---------|-----------------|----------------|
-| T-WH-001 | test_webhook_direct_valid_request_returns_200 | WH-001, WH-003 |
-| T-WH-002 | test_webhook_invalid_auth_returns_401, test_webhook_missing_auth_returns_401, test_webhook_no_auth_configured_allows_all | WH-002 |
-| T-WH-003 | test_webhook_missing_source_returns_400, test_webhook_missing_message_returns_400, test_webhook_missing_mode_returns_400 | WH-004 |
-| T-WH-004 | test_webhook_invalid_mode_returns_400 | WH-004, WH-010 |
-| T-WH-005 | test_webhook_empty_message_returns_400, test_webhook_whitespace_only_message_returns_400 | WH-004, WH-010 |
-| T-WH-006 | test_webhook_direct_mode_calls_channel_send, test_webhook_direct_mode_send_failure_returns_502 | WH-003 |
-| T-WH-007 | test_webhook_ai_mode_returns_202_with_request_id, test_webhook_ai_mode_no_gateway_returns_503 | WH-006, WH-011 |
-| T-WH-008 | test_webhook_ai_mode_sends_incoming_message_via_tx, test_webhook_ai_mode_sender_name_includes_source | WH-006, WH-007 |
-| T-WH-009 | test_webhook_default_channel_prefers_telegram, test_webhook_default_channel_falls_back_to_whatsapp, test_webhook_default_target_uses_first_allowed_user | WH-005 |
-| T-WH-010 | test_webhook_no_channels_returns_400, test_webhook_no_default_target_returns_400 | WH-005, WH-010 |
-| T-WH-011 | test_webhook_explicit_channel_overrides_default, test_webhook_explicit_channel_not_configured_returns_400 | WH-004, WH-005 |
-| T-WH-012 | test_webhook_ai_mode_preserves_source_field | WH-009 |
-| T-WH-013 | test_webhook_direct_mode_returns_correct_response_shape | WH-008, WH-011 |
+## Tests That FAIL (TDD Red Phase)
 
-## Additional Edge Case Tests
+These 4 tests require the developer to complete the implementation:
 
-| Test Function | Scenario |
-|--------------|----------|
-| test_webhook_invalid_json_returns_400 | Malformed JSON body |
-| test_webhook_unicode_message_accepted | Unicode/emoji in message text |
-| test_webhook_large_message_accepted | 10KB message payload |
-| test_webhook_ai_mode_dropped_receiver_returns_503 | Gateway shutdown (rx dropped) |
-| test_webhook_empty_source_returns_400 | Empty source string validation |
-| test_webhook_get_method_returns_405 | Wrong HTTP method |
+| Test | What It Needs |
+|------|--------------|
+| test_bundled_topology_toml_is_non_empty | Replace `BUNDLED_TOPOLOGY_TOML = ""` with `include_str!("../../../topologies/development/TOPOLOGY.toml")` |
+| test_bundled_topology_toml_is_valid | Same as above -- the included TOML must parse as a valid Topology |
+| test_bundled_agents_count | Replace `BUNDLED_AGENTS = &[]` with 8 include_str!() entries |
+| test_bundled_agents_includes_discovery | BUNDLED_AGENTS must include ("build-discovery", include_str!(...)) |
 
-## Files Modified
+## Tests That PASS (Behavior Guards)
 
-- `backend/src/api.rs` -- 31 new webhook tests added to existing `#[cfg(test)] mod tests`
-- `backend/Cargo.toml` -- Added `async-trait` and `uuid` as dev-dependencies
-- `specs/webhook-requirements.md` -- Traceability matrix updated with test IDs
+All other 73 new tests pass immediately because:
+- Schema deserialization tests use inline TOML strings
+- Name validation tests are pure string logic
+- Loader tests use tempdir with real files
+- run_validation() reuses existing has_files_matching()
+- phase_message_by_name() delegates to existing phase_message()
+- ChainState.topology_name is a simple optional field
 
-## Compilation Notes
+These tests serve as behavior contracts -- they lock the expected behavior so the
+developer cannot accidentally change it during implementation.
 
-Tests will NOT compile until the developer implements:
-1. `WebhookRequest` struct with fields: source, message, mode, channel (Option), target (Option)
-2. `webhook` handler function registered at `POST /api/webhook` in `build_router()`
-3. Expanded `ApiState` with fields: `tx: Option<mpsc::Sender<IncomingMessage>>`, `audit: Option<AuditLogger>`, `channel_config: ChannelConfig`
-4. `source: Option<String>` field on `IncomingMessage` (with `#[serde(default)]`)
-5. `resolve_default_channel()` and `resolve_default_target()` functions
-6. Updated `serve()` signature with new parameters
+## Files Created/Modified
 
-This is expected TDD behavior (Red phase).
+| File | Action | Test Count |
+|------|--------|-----------|
+| `backend/src/gateway/builds_topology.rs` | NEW | 52 tests |
+| `backend/src/gateway/builds_parse.rs` | MODIFIED | +9 tests, +phase_message_by_name(), +topology_name field |
+| `backend/src/gateway/builds_loop.rs` | MODIFIED | +12 tests, +run_validation(), +chain state topology output |
+| `backend/src/gateway/mod.rs` | MODIFIED | +1 line (mod builds_topology) |
+| `backend/src/gateway/builds.rs` | MODIFIED | +1 field in ChainState construction |
+| `backend/Cargo.toml` | MODIFIED | +toml workspace dependency |
+| `specs/improvements/topology-extraction-requirements.md` | MODIFIED | Traceability matrix filled in |
+
+## Requirement Traceability Summary
+
+| Requirement | Priority | Tests Written | Status |
+|------------|----------|--------------|--------|
+| REQ-TOP-001 | Must | 21 | All pass |
+| REQ-TOP-002 | Must | 8 | 4 fail (TDD red -- needs include_str!) |
+| REQ-TOP-003 | Must | 9 | All pass |
+| REQ-TOP-007 | Must | 10 | All pass |
+| REQ-TOP-008 | Should | 9 | All pass |
+| REQ-TOP-012 | Should | 1 | Fails (TDD red -- needs BUNDLED_AGENTS) |
+| REQ-TOP-013 | Should | 10 | All pass |
+| REQ-TOP-014 | Should | 3 | All pass |
+| REQ-TOP-015 | Could | 2 | All pass |
+
+## Specs Gaps Found
+
+1. The architecture document shows `post_validation` as an inline table `[phases.post_validation]`
+   with `paths` field, but the requirements show it as a simple array `post_validation = ["specs/architecture.md"]`.
+   The implementation follows the requirements (simpler `Option<Vec<String>>`). No structural conflict --
+   just different TOML serialization styles for the same concept.
+
+2. The architecture mentions `shellexpand(data_dir)` in `deploy_bundled_topology` but the
+   `shellexpand` function is from `omega_core::config`, not a standard library function.
+   The tests use `tempdir` paths (no tilde expansion needed), so this is only relevant for
+   production paths like `~/.omega/`.

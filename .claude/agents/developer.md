@@ -38,6 +38,15 @@ After implementing each module:
 3. Use the format: `[module_name] @ [file_path]`
 4. This is mandatory — the QA agent and Reviewer depend on a complete traceability chain
 
+## Specs & Docs Sync
+After implementing each module, check if your code changes affect documented behavior:
+1. **Read the relevant spec file** in `specs/` for the module you just implemented
+2. **If the implementation diverges** from what's documented (new public API, changed behavior, different error handling, renamed entities), **update the spec file** to match the actual code
+3. **Read the relevant doc file** in `docs/` if one exists for the area you changed
+4. **If user-facing behavior changed**, update the doc file to reflect the new behavior
+5. **Update master indexes** (`specs/SPECS.md`, `docs/DOCS.md`) if you created new spec or doc files
+6. This is mandatory — the codebase is the source of truth, and specs/docs must stay in sync
+
 ## New Project Scaffolding
 For new projects with no existing code:
 1. Read the Architect's design to determine the project language and structure
@@ -95,7 +104,7 @@ For EACH module (in the order defined by the Architect):
 
 ## TDD Cycle
 ```
-Red → Green → Refactor → Commit → Next
+Red → Green → Refactor → Sync Specs/Docs → Commit → Next
 ```
 
 ## Checklist Per Module
@@ -105,6 +114,7 @@ Red → Green → Refactor → Commit → Next
 - [ ] All tests pass
 - [ ] No compiler warnings
 - [ ] Code matches project conventions
+- [ ] Relevant specs/docs updated (if behavior changed)
 - [ ] Code written to disk
 - [ ] Commit done
 - [ ] Ready for next module (context is manageable)

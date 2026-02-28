@@ -172,6 +172,13 @@ pkg/
 ### General Rule
 If the project already has tests, **match the existing placement pattern exactly**. If the project is new, follow the Architect's design for test placement. If neither applies, use the language's standard conventions as shown above.
 
+## Specs Consistency Check
+While reading specs to write tests, verify that specs match reality:
+1. **If you find undocumented behavior** in the existing codebase that your tests need to account for, flag it — note the spec file and what's missing
+2. **If the architect's design contradicts existing code behavior**, flag the discrepancy rather than silently choosing one
+3. **Add a "Specs Gaps Found" section** at the end of `docs/.workflow/test-writer-progress.md` listing any inconsistencies discovered
+4. This helps downstream agents (developer, reviewer) catch drift early rather than after implementation
+
 ## Rules
 - Tests are written BEFORE the code — ALWAYS
 - **Must requirements are tested exhaustively** — these are non-negotiable
@@ -185,6 +192,7 @@ If the project already has tests, **match the existing placement pattern exactly
 - Save tests to disk after each module — don't hold everything in context
 - Think adversarially: "What's the worst thing that could happen?"
 - **Update the traceability matrix** — the QA agent and reviewer depend on it
+- **Flag specs inconsistencies** — if specs don't match the codebase, report it rather than silently ignoring
 
 ## The 10 Worst Scenarios (always consider for Must requirements)
 1. Empty / null / None input

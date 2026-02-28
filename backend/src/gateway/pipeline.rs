@@ -17,6 +17,7 @@ use super::builds_parse::{
     discovery_file_path, parse_discovery_output, parse_discovery_round, truncate_brief_preview,
     DiscoveryOutput,
 };
+use super::builds_topology;
 use super::keywords::*;
 use super::Gateway;
 use crate::commands;
@@ -277,24 +278,47 @@ impl Gateway {
 
                 // Write agent files and run discovery agent.
                 let workspace_dir = PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
-                let _agent_guard = match AgentFilesGuard::write(&workspace_dir).await {
-                    Ok(guard) => guard,
-                    Err(e) => {
-                        warn!("Failed to write agent files for discovery: {e}");
-                        // Clean up discovery state and fall through.
-                        let _ = self
-                            .memory
-                            .delete_fact(&incoming.sender_id, "pending_discovery")
-                            .await;
-                        let _ = tokio::fs::remove_file(&disc_file).await;
-                        if let Some(h) = typing_handle {
-                            h.abort();
+                let _agent_guard =
+                    match builds_topology::load_topology(&self.data_dir, "development") {
+                        Ok(loaded) => {
+                            match AgentFilesGuard::write_from_topology(&workspace_dir, &loaded)
+                                .await
+                            {
+                                Ok(guard) => guard,
+                                Err(e) => {
+                                    warn!("Failed to write agent files for discovery: {e}");
+                                    let _ = self
+                                        .memory
+                                        .delete_fact(&incoming.sender_id, "pending_discovery")
+                                        .await;
+                                    let _ = tokio::fs::remove_file(&disc_file).await;
+                                    if let Some(h) = typing_handle {
+                                        h.abort();
+                                    }
+                                    self.send_text(
+                                        &incoming,
+                                        "Discovery failed (agent setup error).",
+                                    )
+                                    .await;
+                                    return;
+                                }
+                            }
                         }
-                        self.send_text(&incoming, "Discovery failed (agent setup error).")
-                            .await;
-                        return;
-                    }
-                };
+                        Err(e) => {
+                            warn!("Failed to load topology for discovery: {e}");
+                            let _ = self
+                                .memory
+                                .delete_fact(&incoming.sender_id, "pending_discovery")
+                                .await;
+                            let _ = tokio::fs::remove_file(&disc_file).await;
+                            if let Some(h) = typing_handle {
+                                h.abort();
+                            }
+                            self.send_text(&incoming, "Discovery failed (topology load error).")
+                                .await;
+                            return;
+                        }
+                    };
 
                 let result = self
                     .run_build_phase(
@@ -507,11 +531,31 @@ impl Gateway {
 
             // Write agent files for discovery.
             let workspace_dir = PathBuf::from(shellexpand(&self.data_dir)).join("workspace");
-            let _agent_guard = match AgentFilesGuard::write(&workspace_dir).await {
-                Ok(guard) => guard,
+            let _agent_guard = match builds_topology::load_topology(&self.data_dir, "development") {
+                Ok(loaded) => {
+                    match AgentFilesGuard::write_from_topology(&workspace_dir, &loaded).await {
+                        Ok(guard) => guard,
+                        Err(e) => {
+                            // Fall back to direct confirmation if agent files fail.
+                            warn!("Failed to write agent files for discovery: {e}");
+                            let stamped =
+                                format!("{}|{}", chrono::Utc::now().timestamp(), incoming.text);
+                            let _ = self
+                                .memory
+                                .store_fact(&incoming.sender_id, "pending_build_request", &stamped)
+                                .await;
+                            let confirm_msg = build_confirm_message(&user_lang, &incoming.text);
+                            if let Some(h) = typing_handle {
+                                h.abort();
+                            }
+                            self.send_text(&incoming, &confirm_msg).await;
+                            return;
+                        }
+                    }
+                }
                 Err(e) => {
-                    // Fall back to direct confirmation if agent files fail.
-                    warn!("Failed to write agent files for discovery: {e}");
+                    // Fall back to direct confirmation if topology fails.
+                    warn!("Failed to load topology for discovery: {e}");
                     let stamped = format!("{}|{}", chrono::Utc::now().timestamp(), incoming.text);
                     let _ = self
                         .memory

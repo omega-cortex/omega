@@ -20,7 +20,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 
 ### Milestone 2: Binary (`backend/src/`)
 - [src-main-rs.md](src-main-rs.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap
-- [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`backend/src/gateway/`) — 15-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, scheduler_action, heartbeat, heartbeat_helpers, summarizer, keywords, builds, builds_loop, builds_parse, builds_agents
+- [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`backend/src/gateway/`) — 17-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, scheduler_action, heartbeat, heartbeat_helpers, summarizer, keywords, builds, builds_loop, builds_parse, builds_agents, builds_topology, builds_i18n
 - [src-markers-rs.md](src-markers-rs.md) — Marker extraction, parsing, stripping (40+ functions extracted from gateway)
 - [src-task-confirmation-rs.md](src-task-confirmation-rs.md) — Task scheduling confirmation (anti-hallucination, duplicate detection, localized confirmation messages)
 - [src-commands-rs.md](src-commands-rs.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, purge, help)
@@ -95,6 +95,8 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [improvements/build-agent-pipeline-improvement.md](improvements/build-agent-pipeline-improvement.md) — Replace 5-phase hardcoded prompts with 7-phase agent pipeline using `--agent` flag and embedded agent definitions
 - [improvements/build-pipeline-safety-controls.md](improvements/build-pipeline-safety-controls.md) — QA retry loop (3 iter), review loop (2 iter, fatal), inter-step validation, chain state recovery, agent prompt improvements
 - [improvements/build-discovery-phase-improvement.md](improvements/build-discovery-phase-improvement.md) — Interactive discovery session before build pipeline (multi-round clarification, cancel support)
+- [improvements/topology-extraction-requirements.md](improvements/topology-extraction-requirements.md) — Phase 1: Extract hardcoded 7-phase build pipeline into config-driven TOPOLOGY.toml + external agent .md files
+- [improvements/topology-extraction-architecture.md](improvements/topology-extraction-architecture.md) — Architecture design for topology extraction: builds_topology.rs schema/loader, orchestrator refactoring, agent lifecycle, validation, failure modes, security model
 
 ### Bugfixes
 - [bugfixes/p0-audit-2026-02-23-analysis.md](bugfixes/p0-audit-2026-02-23-analysis.md) — P0 audit findings (UTF-8 panics, HTTP timeouts, etc.)

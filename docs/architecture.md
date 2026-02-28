@@ -410,7 +410,7 @@ Key rule: **project lessons don't leak into general context, but general lessons
 
 ## Multi-Agent Pipeline Architecture
 
-Omega uses a **sequential agent pipeline with bounded corrective loops and file-mediated handoffs** — a pattern applied in two contexts:
+Omega uses a **topology-driven sequential agent pipeline with bounded corrective loops and file-mediated handoffs** — a pattern applied in two contexts:
 
 | Context | Where | Agents | Trigger |
 |---------|-------|--------|---------|
@@ -419,54 +419,142 @@ Omega uses a **sequential agent pipeline with bounded corrective loops and file-
 
 Both use the same underlying pattern. The only difference is the execution environment: runtime builds run inside the OMEGA process (Rust orchestrator), dev-time workflows run inside Claude Code's agent system (markdown command files).
 
+### Topology Format
+
+Runtime builds are defined by a **TOPOLOGY.toml** file that describes the phase sequence, agent assignments, model tiers, retry limits, and validation rules. The default "development" topology lives at `~/.omega/topologies/development/`:
+
+```
+~/.omega/topologies/development/
+  TOPOLOGY.toml              <-- Phase sequence and configuration
+  agents/
+    build-analyst.md          <-- Agent instructions (one file per agent)
+    build-architect.md
+    build-test-writer.md
+    build-developer.md
+    build-qa.md
+    build-reviewer.md
+    build-delivery.md
+    build-discovery.md
+```
+
+The topology TOML defines each phase with its agent, model tier, execution type, retry rules, and validation:
+
+```toml
+[topology]
+name = "development"
+description = "Default 7-phase TDD build pipeline"
+version = 1
+
+[[phases]]
+name = "analyst"
+agent = "build-analyst"
+model_tier = "complex"
+max_turns = 25
+phase_type = "parse-brief"
+
+[[phases]]
+name = "qa"
+agent = "build-qa"
+model_tier = "complex"
+phase_type = "corrective-loop"
+
+[phases.pre_validation]
+type = "file_patterns"
+patterns = [".rs", ".py", ".js", ".ts"]
+
+[phases.retry]
+max = 3
+fix_agent = "build-developer"
+```
+
+**Four phase types** dispatch to existing Rust functions:
+
+| PhaseType | Behavior | Used By |
+|-----------|----------|---------|
+| `standard` | Run agent, check for error, proceed | architect, test-writer, developer |
+| `parse-brief` | Run agent, parse output via `parse_project_brief()`, create project dir | analyst |
+| `corrective-loop` | Run agent, parse result, on fail re-invoke fix_agent, retry up to max | qa, reviewer |
+| `parse-summary` | Run agent, parse output via `parse_build_summary()`, format final message | delivery |
+
+**Bundling and deployment:** The topology files are compiled into the binary via `include_str!()` from `topologies/development/` in the source repo. On the first build request, they are deployed to `~/.omega/topologies/development/` if the directory does not exist. Existing files are never overwritten, preserving user customizations.
+
 ### Pattern: Sequential Agent Chain
 
-Each agent in the chain is a **specialist with a single responsibility**. Agents execute in strict order — the output of one becomes the input of the next:
+Each agent in the chain is a **specialist with a single responsibility**. Agents execute in the order defined by the topology's `[[phases]]` array:
 
 ```
-Analyst → Architect → Test Writer → Developer → QA → Reviewer → Delivery
+Analyst -> Architect -> Test Writer -> Developer -> QA -> Reviewer -> Delivery
 ```
 
-No agent knows about the others. No agent calls another agent directly. The **orchestrator** (builds.rs or the workflow command) is the only component that knows the full sequence.
+No agent knows about the others. No agent calls another agent directly. The **orchestrator** (`builds.rs`) reads the topology and dispatches each phase based on its `phase_type`.
+
+### Topology-Driven Orchestrator
+
+The orchestrator in `builds.rs` loads the topology once per build request and iterates over its phases:
+
+```
+load_topology("development")
+        |
+        v
+for phase in topology.phases:
+  1. Send localized progress message (phase name -> i18n lookup)
+  2. Run pre-validation if configured (file_exists or file_patterns)
+  3. Dispatch based on phase_type (Standard/ParseBrief/CorrectiveLoop/ParseSummary)
+  4. Run post-validation if configured (check required output files)
+  5. Update orchestrator state (brief, project_dir, completed phases)
+```
+
+An `OrchestratorState` struct carries state between phases: the parsed project brief, project directory path, and list of completed phases (for chain state on failure).
 
 ### Communication: File-Mediated Handoffs
 
 Agents do not share memory, state, or context windows. All inter-agent communication happens through **files on disk**:
 
 ```
-┌──────────┐    writes specs/    ┌───────────┐    reads specs/     ┌─────────────┐
-│ Analyst  │ ──────────────────→ │ Architect │ ──────────────────→ │ Test Writer │
-└──────────┘    requirements     └───────────┘    writes specs/     └─────────────┘
-                                                  architecture           │
-                                                                         │ reads specs/
-                                                                         │ writes tests/
-                                                                         ▼
-┌──────────┐    reads code/      ┌───────────┐    reads tests/     ┌───────────┐
-│ Reviewer │ ←────────────────── │    QA     │ ←────────────────── │ Developer │
-└──────────┘    writes reviews/  └───────────┘    writes qa/       └───────────┘
++----------+    writes specs/    +-----------+    reads specs/     +-------------+
+| Analyst  | ------------------> | Architect | ------------------> | Test Writer |
++----------+    requirements     +-----------+    writes specs/     +-------------+
+                                                  architecture           |
+                                                                         | reads specs/
+                                                                         | writes tests/
+                                                                         v
++----------+    reads code/      +-----------+    reads tests/     +-----------+
+| Reviewer | <------------------ |    QA     | <------------------ | Developer |
++----------+    writes reviews/  +-----------+    writes qa/       +-----------+
                                                                     reads tests/
                                                                     writes code/
 ```
 
 **Why files, not in-memory state:**
-- Each agent gets a **fresh context window** — no accumulated token bloat
-- Artifacts are **inspectable** — you can read what any agent produced at any step
-- The chain is **resumable** — if step 4 fails, re-run from step 4 with the same files
-- **No coupling** — swap an agent's implementation without touching others
+- Each agent gets a **fresh context window** -- no accumulated token bloat
+- Artifacts are **inspectable** -- you can read what any agent produced at any step
+- The chain is **resumable** -- if step 4 fails, re-run from step 4 with the same files
+- **No coupling** -- swap an agent's implementation without touching others
 
 ### Bounded Corrective Loops
 
-The pipeline is not purely linear. Two agents have **retry loops** where a verifier can send work back to the implementer:
+The pipeline is not purely linear. Phases with `phase_type = "corrective-loop"` have **retry loops** where a verifier can send work back to a fix agent:
 
 ```
-Developer ←──fix──→ QA        (max 3 iterations)
-Developer ←──fix──→ Reviewer  (max 2 iterations)
+Developer <--fix--> QA        (max from topology, default 3)
+Developer <--fix--> Reviewer  (max from topology, default 2)
 ```
 
-Every loop has a **hard iteration cap**. If the cap is reached, the chain **stops and escalates to the user** rather than spinning indefinitely. This prevents:
+Retry limits and the fix agent are configured per phase in the topology's `[phases.retry]` section. Every loop has a **hard iteration cap**. If the cap is reached, the chain **stops and escalates to the user** rather than spinning indefinitely. This prevents:
 - Infinite loops from contradictory requirements
 - Cost explosion from agents disagreeing
 - Silent failures from agents that "agree to disagree"
+
+### Pre/Post Validation
+
+Validation rules are defined in the topology per phase:
+
+- **Pre-validation** (`[phases.pre_validation]`): Runs before the phase. Two types:
+  - `file_exists`: Check that specific files exist in the project directory
+  - `file_patterns`: Check that at least one file matching the patterns exists in the directory tree
+- **Post-validation** (`post_validation`): Runs after the phase. A list of file paths that must exist after the phase completes.
+
+If validation fails, the chain stops and a chain state file is saved for inspection.
 
 ### Self-Healing Post-Commit Audit
 
@@ -474,47 +562,51 @@ After the main chain commits, a **bounded audit loop** automatically verifies th
 
 ```
 [Main chain commits]
-        │
-        ▼
-Reviewer (scoped audit) ──→ AUDIT-VERDICT: clean ──→ DONE
-        │
-        └──→ AUDIT-VERDICT: requires-fix
-                    │
-                    ▼
-            Analyst → Developer → QA (reduced fix cycle)
-                    │
-                    └──→ Re-audit (round 2, max 2 rounds)
+        |
+        v
+Reviewer (scoped audit) --> AUDIT-VERDICT: clean --> DONE
+        |
+        +---> AUDIT-VERDICT: requires-fix
+                    |
+                    v
+            Analyst -> Developer -> QA (reduced fix cycle)
+                    |
+                    +---> Re-audit (round 2, max 2 rounds)
 ```
 
-The audit loop uses a **machine-parseable verdict** (`AUDIT-VERDICT: clean` or `AUDIT-VERDICT: requires-fix`) to branch deterministically — no ambiguous natural language parsing.
+The audit loop uses a **machine-parseable verdict** (`AUDIT-VERDICT: clean` or `AUDIT-VERDICT: requires-fix`) to branch deterministically -- no ambiguous natural language parsing.
 
 ### Why Choreography, Not Orchestration
 
-The orchestrator does **not** make dynamic routing decisions mid-chain. It runs a fixed sequence. This is **choreography** (each agent knows what artifact to read/write) rather than **orchestration** (a central brain deciding who runs next based on runtime state).
+The orchestrator does **not** make dynamic routing decisions mid-chain. It runs the fixed sequence defined in the topology. This is **choreography** (each agent knows what artifact to read/write) rather than **orchestration** (a central brain deciding who runs next based on runtime state).
 
-The only dynamic behavior is the corrective loops, and even those follow a fixed pattern (verifier rejects → implementer retries → verifier re-checks).
+The only dynamic behavior is the corrective loops, and even those follow a fixed pattern (verifier rejects -> implementer retries -> verifier re-checks) with topology-defined bounds.
 
 **Why this matters:**
-- The pipeline is **predictable** — same inputs always produce the same agent sequence
-- **Debugging** is straightforward — check which file artifact is wrong, that's the agent that failed
-- **Cost is bounded** — you can calculate worst-case agent calls before the chain starts
+- The pipeline is **predictable** -- same topology always produces the same agent sequence
+- **Debugging** is straightforward -- check which file artifact is wrong, that's the agent that failed
+- **Cost is bounded** -- you can calculate worst-case agent calls from the topology before the chain starts
+- **Customizable** -- change retry limits, swap agents, or reorder phases by editing TOML, not Rust code
 
 ### Runtime vs Dev-Time Comparison
 
 | Aspect | Runtime (builds.rs) | Dev-Time (workflow commands) |
 |--------|---------------------|------------------------------|
 | Orchestrator | Rust code (`handle_build_request()`) | Markdown command file |
+| Pipeline definition | `TOPOLOGY.toml` + agent `.md` files | Inline in workflow command markdown |
 | Agent invocation | `claude --agent <name>` subprocess | Claude Code subagent system |
-| Agent definitions | Embedded constants (`builds_agents.rs`) | `.claude/agents/*.md` files |
+| Agent definitions | `~/.omega/topologies/<name>/agents/*.md` | `.claude/agents/*.md` files |
 | Artifact location | `~/.omega/workspace/builds/<name>/` | `specs/`, `docs/`, source code |
-| QA retry cap | 3 iterations (fatal) | 3 iterations (escalate) |
-| Reviewer retry cap | 2 iterations (fatal) | 2 iterations (escalate) |
+| QA retry cap | From topology (default 3, fatal) | 3 iterations (escalate) |
+| Reviewer retry cap | From topology (default 2, fatal) | 2 iterations (escalate) |
 | Post-commit audit | Not applicable (runtime) | 2 rounds max, auto-fix cycle |
 | User interaction | Progress messages via Telegram/WhatsApp | Terminal output |
 
 ### Agent RAII Guard (Runtime Only)
 
-Runtime builds use an **RAII guard** (`AgentFilesGuard`) that writes 8 agent `.md` files to `~/.omega/workspace/.claude/agents/` before the first phase and **automatically deletes them on drop**. This ensures agent definitions don't leak between builds or persist after failures.
+Runtime builds use an **RAII guard** (`AgentFilesGuard`) that writes agent `.md` files from the loaded topology to `~/.omega/workspace/.claude/agents/` before the first phase and **automatically deletes them on drop**. The guard reads agent content from the `LoadedTopology` struct (which loaded them from `~/.omega/topologies/<name>/agents/`). This ensures agent definitions don't leak between builds or persist after failures.
+
+The guard is reference-counted per directory: multiple concurrent builds share the same agent files, and only the last guard to drop performs cleanup.
 
 ---
 

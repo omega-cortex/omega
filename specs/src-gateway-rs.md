@@ -1,13 +1,14 @@
 # Specification: backend/src/gateway/ (Directory Module)
 
 ## File Path
-`backend/src/gateway/` (directory module with 15 files)
+`backend/src/gateway/` (directory module with 17 files)
 
 ## Refactoring History
 - **2026-02-20:** Marker extraction/parsing/stripping functions (40+) extracted into `backend/src/markers.rs`. See `specs/src-markers-rs.md`.
 - **2026-02-20:** Task confirmation logic extracted into `backend/src/task_confirmation.rs`. See `specs/src-task-confirmation-rs.md`.
 - **2026-02-22:** Gateway refactored from a single `backend/src/gateway.rs` (3,449 lines) into a `backend/src/gateway/` directory module with 9 files. All struct fields use `pub(super)` visibility. No changes to `main.rs` or public API.
 - **2026-02-23:** Project-scoped learning: `scheduler_action.rs` extracted from `scheduler.rs` (~310 lines), `heartbeat_helpers.rs` extracted from `heartbeat.rs` (~250 lines). `active_project` threaded through pipeline, routing, and process_markers.
+- **2026-02-28:** Topology extraction: `builds_topology.rs` added (TOML-defined pipeline phases, agent loader, bundled defaults). `builds_agents.rs` rewritten to load agents from topology instead of embedded const strings. `builds_i18n.rs` extracted from `builds_parse.rs` (phase/QA/review i18n messages, 8 languages) to keep `builds_parse.rs` under 500 lines.
 
 ## Module Structure
 
@@ -22,10 +23,12 @@
 | `heartbeat_helpers.rs` | ~289 | `process_heartbeat_markers()`, `build_enrichment()`, `build_system_prompt()`, `send_heartbeat_result()` |
 | `pipeline.rs` | ~455 | `handle_message()`, `build_system_prompt()`, resolves `active_project`, routes builds to `handle_build_request()` and all other messages to `handle_direct_response()` |
 | `routing.rs` | ~436 | `classify_and_route()` (dead code), `execute_steps()` (dead code), `handle_direct_response()`, passes `active_project` to `process_markers()` |
-| `builds.rs` | ~483 | 7-phase agent build orchestrator: `handle_build_request()` (analyst → architect → test-writer → developer → QA → reviewer → delivery), `run_build_phase()` (agent-based with `--agent` flag), `audit_build()`, `chain_state()` helper. Inter-step validation before phases 3/4/5. Delegates QA/review loops to `builds_loop.rs`. |
-| `builds_loop.rs` | ~240 | Build pipeline iteration loops: `run_qa_loop()` (3 iterations), `run_review_loop()` (2 iterations, fatal), `validate_phase_output()` (pre-phase checks), `save_chain_state()` (writes `docs/.workflow/chain-state.md` on failure), `has_files_matching()` (recursive file search) |
-| `builds_parse.rs` | ~490 | Pure parsing functions for builds: `parse_project_brief()`, `parse_verification_result()`, `parse_review_result()`, `parse_build_summary()`, `phase_message()` (7 phases, 8 languages), 6 i18n functions (QA/review pass/retry/exhausted), data structures (`ProjectBrief`, `VerificationResult`, `ReviewResult`, `BuildSummary`, `ChainState`), tests |
-| `builds_agents.rs` | ~444 | Embedded build agent definitions (8 agents: discovery + 7 pipeline, compiled into binary), `AgentFilesGuard` RAII lifecycle (writes temp `.claude/agents/` files, ref-counted cleanup on Drop via `Arc<AtomicUsize>`), `BUILD_AGENTS` name-to-content mapping. All phases use model: opus. Analyst includes MoSCoW. Architect includes failure modes. |
+| `builds.rs` | ~477 | Topology-driven build orchestrator: `handle_build_request()` iterates over `LoadedTopology.phases`, dispatching each based on `PhaseType` (ParseBrief, Standard, CorrectiveLoop, ParseSummary). `run_build_phase()` (agent-based with `--agent` flag), `audit_build()`, `chain_state()` helper. Delegates corrective loops to `builds_loop.rs`. |
+| `builds_loop.rs` | ~415 | Build pipeline corrective loops and validation: `run_corrective_loop()` (unified QA/reviewer loop from topology RetryConfig), `run_validation()` (topology-driven pre-phase checks), `save_chain_state()` (writes `docs/.workflow/chain-state.md` on failure), `has_files_matching()` (recursive file search). Legacy `run_qa_loop()`, `run_review_loop()`, `validate_phase_output()` retained for transition. |
+| `builds_parse.rs` | ~287 | Pure parsing functions and data structures for builds: `parse_project_brief()`, `parse_verification_result()`, `parse_review_result()`, `parse_build_summary()`, `parse_discovery_output()`, `parse_discovery_round()`, `truncate_brief_preview()`, `discovery_file_path()`. Data structures: `ProjectBrief`, `VerificationResult`, `ReviewResult`, `BuildSummary`, `ChainState`, `DiscoveryOutput`. Re-exports i18n functions from `builds_i18n.rs`. |
+| `builds_i18n.rs` | ~265 | Localized i18n messages for the build pipeline (8 languages x 7 phases): `phase_message()`, `phase_message_by_name()`, `qa_pass_message()`, `qa_retry_message()`, `qa_exhausted_message()`, `review_pass_message()`, `review_retry_message()`, `review_exhausted_message()`. Extracted from `builds_parse.rs` for the 500-line limit. |
+| `builds_agents.rs` | ~159 | Topology-based agent file lifecycle: `AgentFilesGuard` RAII struct (writes agent `.md` files from `LoadedTopology` to workspace `.claude/agents/`, ref-counted cleanup on Drop via `Mutex<HashMap>` refcount). `write_from_topology()` replaces old const-string `write()`. |
+| `builds_topology.rs` | ~319 | TOML-defined topology schema: `Topology`, `Phase`, `PhaseType`, `ModelTier`, `RetryConfig`, `ValidationConfig` structs. `load_topology()` reads from `~/.omega/topologies/<name>/`, `deploy_bundled_topology()` writes defaults from `include_str!()`, `validate_topology_name()` guards against path traversal. `LoadedTopology` holds parsed TOML + agent content map. |
 | `auth.rs` | ~167 | `check_auth()`, `handle_whatsapp_qr()` |
 | `process_markers.rs` | ~504 | `process_markers(incoming, text, active_project)`, `process_purge_facts()`, `process_improvement_markers()`, `send_task_confirmation()` |
 

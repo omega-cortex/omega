@@ -182,6 +182,8 @@ cargo build --release        # Optimized binary
 - Projects: `~/.omega/projects/*/ROLE.md`
 - Workspace: `~/.omega/workspace/` (AI subprocess working directory)
 - Builds: `~/.omega/workspace/builds/<project-name>/`
+- Topologies (bundled): `topologies/development/`
+- Topologies (runtime): `~/.omega/topologies/`
 - Stores: `~/.omega/stores/` (domain-specific databases)
 - Heartbeat: `~/.omega/prompts/HEARTBEAT.md` (global), `~/.omega/projects/<name>/HEARTBEAT.md` (per-project)
 - Logs: `~/.omega/logs/omega.log`
