@@ -62,6 +62,10 @@ pub(super) const BUILD_DISCOVERY_AGENT: &str =
 pub(super) const BRAIN_AGENT: &str =
     include_str!("../../../topologies/development/agents/omega-brain.md");
 
+/// Role creator agent for `/setup` — writes high-quality ROLE.md files.
+pub(super) const ROLE_CREATOR_AGENT: &str =
+    include_str!("../../../topologies/development/agents/omega-role-creator.md");
+
 /// Name-to-content mapping for all 8 build agents (discovery + 7 pipeline phases).
 #[allow(dead_code)]
 pub(super) const BUILD_AGENTS: &[(&str, &str)] = &[

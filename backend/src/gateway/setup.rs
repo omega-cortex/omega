@@ -10,7 +10,7 @@ use omega_core::message::IncomingMessage;
 use omega_memory::audit::{AuditEntry, AuditStatus};
 use tracing::warn;
 
-use super::builds_agents::{AgentFilesGuard, BRAIN_AGENT};
+use super::builds_agents::{AgentFilesGuard, BRAIN_AGENT, ROLE_CREATOR_AGENT};
 use super::keywords::*;
 use super::Gateway;
 
@@ -257,7 +257,7 @@ impl Gateway {
             .await;
     }
 
-    /// Execute the approved setup: run Brain in execution mode.
+    /// Execute the approved setup: Brain creates HEARTBEAT + markers, then Role Creator writes ROLE.md.
     pub(super) async fn execute_setup(
         &self,
         _incoming: &IncomingMessage,
@@ -265,16 +265,54 @@ impl Gateway {
     ) -> Result<String, String> {
         let omega_dir = PathBuf::from(shellexpand(&self.data_dir));
 
-        let prompt =
-            format!("EXECUTE_SETUP. Create all files and emit markers.\n\n{proposal_context}");
+        // Phase 1: Brain creates HEARTBEAT.md and emits markers (no ROLE.md).
+        let brain_prompt =
+            format!("EXECUTE_SETUP. Create HEARTBEAT.md and emit markers. Do NOT write ROLE.md — the role-creator agent handles that.\n\n{proposal_context}");
 
-        let _agent_guard = AgentFilesGuard::write_single(&omega_dir, "omega-brain", BRAIN_AGENT)
+        let _brain_guard = AgentFilesGuard::write_single(&omega_dir, "omega-brain", BRAIN_AGENT)
             .await
-            .map_err(|e| format!("Failed to write agent: {e}"))?;
+            .map_err(|e| format!("Failed to write Brain agent: {e}"))?;
 
-        self.run_build_phase("omega-brain", &prompt, &self.model_complex, Some(30))
+        let brain_output = self
+            .run_build_phase("omega-brain", &brain_prompt, &self.model_complex, Some(30))
             .await
-            .map_err(|e| format!("Brain execution failed: {e}"))
+            .map_err(|e| format!("Brain execution failed: {e}"))?;
+
+        // Extract project name from Brain output for the role-creator.
+        let project_name = brain_output
+            .lines()
+            .find(|l| l.starts_with("PROJECT_ACTIVATE:"))
+            .and_then(|l| l.strip_prefix("PROJECT_ACTIVATE:"))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "project".to_string());
+
+        // Phase 2: Role Creator writes ROLE.md using accumulated context.
+        let role_prompt = format!(
+            "Create ROLE.md for the project '{project_name}' at ~/.omega/projects/{project_name}/ROLE.md\n\n\
+             Domain context from the setup session:\n{proposal_context}"
+        );
+
+        let _role_guard =
+            AgentFilesGuard::write_single(&omega_dir, "omega-role-creator", ROLE_CREATOR_AGENT)
+                .await
+                .map_err(|e| format!("Failed to write Role Creator agent: {e}"))?;
+
+        match self
+            .run_build_phase(
+                "omega-role-creator",
+                &role_prompt,
+                &self.model_complex,
+                Some(30),
+            )
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                warn!("Role Creator failed: {e}. HEARTBEAT.md and markers were created by Brain.");
+            }
+        }
+
+        Ok(brain_output)
     }
 
     /// Clean up session state (fact + context file).
