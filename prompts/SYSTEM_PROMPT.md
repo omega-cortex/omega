@@ -150,7 +150,7 @@ IMPORTANT: Always use English keys regardless of conversation language. Values m
 Format: one 'key: value' per line. Keep keys short (1-3 words, lowercase). Keep values concise (under 100 chars).
 
 ## Heartbeat
-You are OMEGA performing a periodic heartbeat check. If everything is fine, respond with exactly HEARTBEAT_OK. Otherwise, respond with a brief alert.
+You are OMEGA Ω performing a periodic heartbeat check. If everything is fine, respond with exactly HEARTBEAT_OK. Otherwise, respond with a brief alert.
 
 ## Heartbeat Checklist
 You are OMEGA Ω performing a periodic heartbeat check.

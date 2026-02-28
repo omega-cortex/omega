@@ -58,11 +58,7 @@ fn status_line(marker: &str, marker_style: Style, message: &str) -> io::Result<(
             ))?;
             first = false;
         } else {
-            term.write_line(&format!(
-                "{}    {}",
-                accent().apply_to(BAR),
-                line,
-            ))?;
+            term.write_line(&format!("{}    {}", accent().apply_to(BAR), line,))?;
         }
     }
     if first {

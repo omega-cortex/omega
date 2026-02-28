@@ -153,7 +153,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Start the OMEGA agent.
+/// Start the OMEGA Ω agent.
 async fn cmd_start(config_path: &str) -> anyhow::Result<()> {
     let mut cfg = config::load(config_path)?;
 

@@ -1,6 +1,6 @@
-# OMEGA Workspace
+# OMEGA Ω Workspace
 
-This is OMEGA's working directory (`~/.omega/workspace/`). All file operations, builds, and project artifacts live here. OMEGA is an autonomous AI agent — not a chatbot — that executes tasks on behalf of its owner.
+This is OMEGA Ω's working directory (`~/.omega/workspace/`). All file operations, builds, and project artifacts live here. OMEGA is an autonomous AI agent — not a chatbot — that executes tasks on behalf of its owner.
 
 ## Directory Structure
 
@@ -13,7 +13,7 @@ This is OMEGA's working directory (`~/.omega/workspace/`). All file operations, 
 ├── logs/
 │   └── omega.log               # Runtime logs (heartbeat, errors, messages)
 ├── prompts/
-│   ├── SYSTEM_PROMPT.md        # OMEGA core identity & behavior rules
+│   ├── SYSTEM_PROMPT.md        # OMEGA Ω core identity & behavior rules
 │   ├── HEARTBEAT.md            # Periodic checklist — monitored by heartbeat loop
 │   └── WELCOME.toml            # Localized welcome messages
 ├── skills/                     # Modular capabilities (SKILL.md per skill)

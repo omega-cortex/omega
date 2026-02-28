@@ -108,7 +108,7 @@ impl TelegramChannel {
                 { "command": "whatsapp", "description": "Connect WhatsApp via QR code" },
                 { "command": "heartbeat", "description": "Heartbeat status and watchlist" },
                 { "command": "learning", "description": "Show what I've learned from you" },
-                { "command": "setup", "description": "Configure OMEGA as a domain expert" },
+                { "command": "setup", "description": "Configure OMEGA \u{03a9} as a domain expert" },
             ]
         });
 

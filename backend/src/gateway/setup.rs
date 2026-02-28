@@ -119,7 +119,7 @@ impl Gateway {
         // Build Brain prompt.
         let prompt = if project_context.is_empty() {
             format!(
-                "Setup round 1. The user wants to configure OMEGA for their domain.\n\
+                "Setup round 1. The user wants to configure OMEGA Ω for their domain.\n\
                  User description: {description}\n\n\
                  No existing projects.\n\n\
                  Analyze the description. If specific enough, output SETUP_PROPOSAL.\n\
@@ -127,7 +127,7 @@ impl Gateway {
             )
         } else {
             format!(
-                "Setup round 1. The user wants to configure OMEGA for their domain.\n\
+                "Setup round 1. The user wants to configure OMEGA Ω for their domain.\n\
                  User description: {description}\n\n\
                  Existing projects:\n{project_context}\n\
                  Analyze the description. If specific enough, output SETUP_PROPOSAL.\n\

@@ -31,8 +31,8 @@ pub fn append_bug_report(data_dir: &str, description: &str) -> Result<(), String
     let mut content = std::fs::read_to_string(&path).unwrap_or_default();
 
     // Ensure file header exists.
-    if !content.contains("# OMEGA Bug Reports") {
-        content = format!("# OMEGA Bug Reports\n\n{content}");
+    if !content.contains("# OMEGA Ω Bug Reports") {
+        content = format!("# OMEGA Ω Bug Reports\n\n{content}");
     }
 
     // Ensure today's date section exists.
