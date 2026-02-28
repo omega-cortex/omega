@@ -25,7 +25,8 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [src-task-confirmation-rs.md](src-task-confirmation-rs.md) — Task scheduling confirmation (anti-hallucination, duplicate detection, localized confirmation messages)
 - [src-commands-rs.md](src-commands-rs.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, purge, help)
 - [src-init-rs.md](src-init-rs.md) — Setup wizard (interactive + non-interactive modes), config generation
-- [src-init-wizard-rs.md](src-init-wizard-rs.md) — **New** — Interactive-only init helpers (browser detection, Anthropic auth, WhatsApp QR, Google OAuth)
+- [src-init-style-rs.md](src-init-style-rs.md) — Branded CLI output helpers for init wizard (console::Style, gutter-bar visual language)
+- [src-init-wizard-rs.md](src-init-wizard-rs.md) — Interactive-only init helpers (browser detection, Anthropic auth, WhatsApp QR, Google OAuth)
 - [src-selfcheck-rs.md](src-selfcheck-rs.md) — Startup health checks
 - [src-service-rs.md](src-service-rs.md) — OS-aware service management (macOS LaunchAgent / Linux systemd)
 - [src-claudemd-rs.md](src-claudemd-rs.md) — Workspace CLAUDE.md maintenance (init + periodic refresh via claude CLI subprocess)
@@ -125,7 +126,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 │    gateway/summarizer.rs (conversation summary)  │
 │    gateway/keywords.rs   (constants & matching)  │
 │              markers.rs  task_confirmation.rs    │
-│              claudemd.rs init.rs  init_wizard.rs │
+│       claudemd.rs init.rs init_style.rs init_wizard.rs │
 │              selfcheck.rs  service.rs  i18n.rs   │
 ├─────────────────────────────────────────────────┤
 │  omega-core     │ omega-providers │ omega-channels│

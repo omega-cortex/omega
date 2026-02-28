@@ -1,6 +1,7 @@
 //! Init wizard — interactive setup for new users with cliclack styled prompts,
 //! plus non-interactive mode for programmatic deployment.
 
+use crate::init_style;
 use crate::init_wizard;
 use crate::service;
 use omega_core::shellexpand;
@@ -17,16 +18,15 @@ const LOGO: &str = r#"
 
 /// Run the interactive init wizard.
 pub async fn run() -> anyhow::Result<()> {
-    println!("{LOGO}");
-    cliclack::intro("omega init")?;
+    init_style::omega_intro(LOGO, "omega init")?;
 
     // 1. Create data directory.
     let data_dir = shellexpand("~/.omega");
     if !Path::new(&data_dir).exists() {
         std::fs::create_dir_all(&data_dir)?;
-        cliclack::log::success(format!("{data_dir} — created"))?;
+        init_style::omega_success(&format!("{data_dir} — created"))?;
     } else {
-        cliclack::log::success(format!("{data_dir} — exists"))?;
+        init_style::omega_success(&format!("{data_dir} — exists"))?;
     }
 
     // 2. Check claude CLI.
@@ -42,11 +42,11 @@ pub async fn run() -> anyhow::Result<()> {
         spinner.stop("claude CLI — found");
     } else {
         spinner.error("claude CLI — NOT FOUND");
-        cliclack::note(
+        init_style::omega_note(
             "Install claude CLI",
             "npm install -g @anthropic-ai/claude-code\n\nThen run 'omega init' again.",
         )?;
-        cliclack::outro_cancel("Setup aborted")?;
+        init_style::omega_outro_cancel("Setup aborted")?;
         return Ok(());
     }
 
@@ -61,7 +61,7 @@ pub async fn run() -> anyhow::Result<()> {
         .interact()?;
 
     if bot_token.is_empty() {
-        cliclack::log::info("Skipping Telegram — you can add it later in config.toml")?;
+        init_style::omega_info("Skipping Telegram — you can add it later in config.toml")?;
     }
 
     // 5. User ID (optional).
@@ -82,7 +82,7 @@ pub async fn run() -> anyhow::Result<()> {
             .initial_value(false)
             .interact()?;
         if setup {
-            cliclack::note(
+            init_style::omega_note(
                 "Voice Transcription",
                 "Voice messages will be transcribed using OpenAI Whisper.\n\
                  Get a key: https://platform.openai.com/api-keys",
@@ -113,7 +113,7 @@ pub async fn run() -> anyhow::Result<()> {
     // 9. Generate config.toml.
     let config_path = "config.toml";
     if Path::new(config_path).exists() {
-        cliclack::log::warning(
+        init_style::omega_warning(
             "config.toml already exists — skipping.\nDelete it and run 'omega init' again to regenerate.",
         )?;
     } else {
@@ -126,7 +126,7 @@ pub async fn run() -> anyhow::Result<()> {
             google_email.as_deref(),
         );
         std::fs::write(config_path, config)?;
-        cliclack::log::success("Generated config.toml")?;
+        init_style::omega_success("Generated config.toml")?;
     }
 
     // 11. Offer service installation.
@@ -138,8 +138,8 @@ pub async fn run() -> anyhow::Result<()> {
         match service::install(config_path) {
             Ok(()) => true,
             Err(e) => {
-                cliclack::log::warning(format!("Service install failed: {e}"))?;
-                cliclack::log::info("You can install later with: omega service install")?;
+                init_style::omega_warning(&format!("Service install failed: {e}"))?;
+                init_style::omega_info("You can install later with: omega service install")?;
                 false
             }
         }
@@ -161,9 +161,10 @@ pub async fn run() -> anyhow::Result<()> {
     } else if !install_service {
         steps.push_str("\nTip: Run `omega service install` to auto-start on login");
     }
-    cliclack::note("Next steps", &steps)?;
+    init_style::omega_note("Next steps", &steps)?;
 
-    cliclack::outro("Setup complete — enjoy OMEGA Ω!")?;
+    init_style::omega_outro("Setup complete")?;
+    init_style::typewrite("\n  enjoy OMEGA Ω!\n\n", 30);
     Ok(())
 }
 

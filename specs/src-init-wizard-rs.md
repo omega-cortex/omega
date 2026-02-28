@@ -27,7 +27,8 @@ Interactive-only helpers extracted from `init.rs` to keep the init module under 
 | `test_create_incognito_script` | Script created, has shebang, contains app name and flag, is executable |
 
 ## Dependencies
-- `cliclack` — Interactive prompts (select, input, confirm, spinner, note, log)
+- `cliclack` — Interactive prompts (select, input, confirm, spinner)
+- `crate::init_style` — Branded chrome (note, success, warning, error, step, info)
 - `omega_channels::whatsapp` — WhatsApp pairing
 - `omega_core::shellexpand` — Home directory expansion
 - `std::process::Command` — Subprocess execution (`claude`, `gog`)

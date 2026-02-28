@@ -18,6 +18,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 - [src-selfcheck-rs.md](src-selfcheck-rs.md) — Startup health checks
 - [src-service-rs.md](src-service-rs.md) — OS-aware service management (macOS LaunchAgent / Linux systemd)
 - [src-init-rs.md](src-init-rs.md) — Setup wizard (interactive + non-interactive modes), config generation
+- [src-init-style-rs.md](src-init-style-rs.md) — Branded CLI output helpers for init wizard (console::Style, gutter-bar visual language)
 - [claudemd.md](claudemd.md) — Workspace CLAUDE.md maintenance (auto-creation and periodic refresh for Claude Code subprocess context)
 
 ### omega-core

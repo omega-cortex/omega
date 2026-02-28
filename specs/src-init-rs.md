@@ -24,23 +24,32 @@ Interactive wizard helpers have been extracted to `backend/src/init_wizard.rs`:
 - `PrivateBrowser` — Struct holding browser label, app name, and incognito flag
 - `PRIVATE_BROWSERS` — Constant array of known browsers with incognito support (Chrome, Brave, Firefox, Edge)
 
-### UX Layer: cliclack
-All user interaction uses the `cliclack` crate instead of raw `println!`/stdin. The following cliclack primitives are used throughout the wizard:
+### UX Layer: cliclack + init_style
+User interaction uses `cliclack` for interactive widgets and `init_style` for branded chrome output:
+
+**cliclack — Interactive widgets (unchanged):**
 
 | Primitive | Usage |
 |-----------|-------|
-| `cliclack::intro(msg)` | Opens the wizard session banner |
-| `cliclack::outro(msg)` | Closes the wizard session on success |
-| `cliclack::outro_cancel(msg)` | Closes the wizard session on abort |
 | `cliclack::input(label)` | Prompted text input with `.placeholder()`, `.required()`, `.default_input()`, `.validate()` |
 | `cliclack::confirm(label)` | Yes/No prompt with `.initial_value()` |
 | `cliclack::spinner()` | Animated spinner for async/long operations, stopped with `.stop()` or `.error()` |
-| `cliclack::note(title, body)` | Boxed informational block |
-| `cliclack::log::success(msg)` | Green checkmark log line |
-| `cliclack::log::info(msg)` | Info log line |
-| `cliclack::log::warning(msg)` | Warning log line |
-| `cliclack::log::error(msg)` | Error log line |
-| `cliclack::log::step(msg)` | Step progress log line |
+| `cliclack::select(label)` | Single-choice selection with `.item()` |
+
+**init_style — Branded chrome (replaces cliclack chrome):**
+
+| Primitive | Usage |
+|-----------|-------|
+| `init_style::omega_intro(logo, subtitle)` | Opens the wizard session with branded logo and subtitle |
+| `init_style::omega_outro(msg)` | Closes the wizard session on success |
+| `init_style::omega_outro_cancel(msg)` | Closes the wizard session on abort |
+| `init_style::omega_note(title, body)` | Titled informational block with gutter-dot body |
+| `init_style::omega_success(msg)` | Green `+` success status line |
+| `init_style::omega_info(msg)` | Cyan `-` info status line |
+| `init_style::omega_warning(msg)` | Yellow `!` warning status line |
+| `init_style::omega_error(msg)` | Red `x` error status line |
+| `init_style::omega_step(msg)` | Cyan `>` step progress line |
+| `init_style::typewrite(text, delay)` | Character-by-character animation (outro signature) |
 
 ---
 
@@ -62,10 +71,9 @@ const LOGO: &str = r#"
 ```
 
 **Logic:**
-1. Print `LOGO` via `println!` (raw output, before cliclack takes over)
-2. Call `cliclack::intro("omega init")?` to open the styled session
+1. Call `init_style::omega_intro(LOGO, "omega init")?` to print the branded logo (cyan bold, instant) and open the wizard session with a gutter-bar subtitle
 
-**Purpose:** Creates strong visual branding and immediately signals to the user that they are in an interactive setup experience. The ASCII logo is printed with raw `println!` because it precedes the cliclack session boundary.
+**Purpose:** Creates strong visual branding and immediately signals to the user that they are in an interactive setup experience. The logo is printed instantly (no typewrite animation) in cyan bold via `init_style`.
 
 **Duration:** Instant
 
@@ -77,8 +85,8 @@ const LOGO: &str = r#"
 **Logic Flow:**
 1. Expand `~/` to actual home directory path using `shellexpand("~/.omega")`
 2. Check if directory exists with `Path::new(&data_dir).exists()`
-3. If missing: Create recursively with `std::fs::create_dir_all(&data_dir)?`; log via `cliclack::log::success(format!("{data_dir} — created"))`
-4. If exists: Log via `cliclack::log::success(format!("{data_dir} — exists"))`
+3. If missing: Create recursively with `std::fs::create_dir_all(&data_dir)?`; log via `init_style::omega_success(format!("{data_dir} — created"))`
+4. If exists: Log via `init_style::omega_success(format!("{data_dir} — exists"))`
 
 **Outputs:**
 - Created: `~/.omega — created` (green checkmark)
@@ -105,8 +113,8 @@ const LOGO: &str = r#"
 4. If found: Stop spinner with `"claude CLI — found"`
 5. If NOT found:
    - Stop spinner with error: `"claude CLI — NOT FOUND"`
-   - Display installation instructions via `cliclack::note("Install claude CLI", ...)`
-   - Close session with `cliclack::outro_cancel("Setup aborted")?`
+   - Display installation instructions via `init_style::omega_note("Install claude CLI", ...)`
+   - Close session with `init_style::omega_outro_cancel("Setup aborted")?`
    - Return early with `Ok(())` (graceful, non-error exit)
 
 **Outputs (Positive Path):**
@@ -139,9 +147,9 @@ const LOGO: &str = r#"
 2. Display `cliclack::select("Anthropic auth method")` with two options:
    - `"Already authenticated (Recommended)"` — Claude CLI is already logged in
    - `"Paste setup-token"` — Run `claude setup-token` elsewhere, then paste here
-3. If "Already authenticated": log success via `cliclack::log::success("Anthropic authentication — already configured")`
+3. If "Already authenticated": log success via `init_style::omega_success("Anthropic authentication — already configured")`
 4. If "Paste setup-token":
-   - Display `cliclack::note("Anthropic setup-token", ...)` with instructions
+   - Display `init_style::omega_note("Anthropic setup-token", ...)` with instructions
    - Prompt for token via `cliclack::input("Paste Anthropic setup-token")` with validation (non-empty)
    - Start spinner: `"Applying setup-token..."`
    - Execute `claude setup-token <token>` as subprocess
@@ -164,7 +172,7 @@ const LOGO: &str = r#"
    - `.default_input("")`
    - `.interact()?`
 2. Receive string (empty string if user just presses Enter)
-3. If empty: Log via `cliclack::log::info("Skipping Telegram — you can add it later in config.toml")`
+3. If empty: Log via `init_style::omega_info("Skipping Telegram — you can add it later in config.toml")`
 
 **Validation:** No format validation of token at this stage. Invalid tokens are caught later when the bot attempts to connect.
 
@@ -229,7 +237,7 @@ See [Google Workspace Setup Flow](#google-workspace-setup-flow-run_google_setup)
 
 **Logic Flow:**
 1. Check if `config.toml` already exists
-2. If exists: Warn via `cliclack::log::warning(...)` and skip generation
+2. If exists: Warn via `init_style::omega_warning(...)` and skip generation
 3. If missing: Call `generate_config(bot_token, user_ids, whisper_key, whatsapp_enabled, google_email)` and write to file
 
 **Skip Output (if exists):**
@@ -256,7 +264,7 @@ See [Google Workspace Setup Flow](#google-workspace-setup-flow-run_google_setup)
 1. Prompt with `cliclack::confirm("Install Omega as a system service?")` (initial value: `true`)
 2. If user accepts: Call `service::install(config_path)`
    - On success: Record `service_installed = true`
-   - On failure: Log warning via `cliclack::log::warning`, suggest `omega service install` later, continue wizard
+   - On failure: Log warning via `init_style::omega_warning`, suggest `omega service install` later, continue wizard
 3. If user declines: Skip (service can be installed later)
 
 **Purpose:** Offers convenient auto-start setup as part of the init flow. Non-fatal — failures don't block the wizard.
@@ -266,7 +274,7 @@ See [Google Workspace Setup Flow](#google-workspace-setup-flow-run_google_setup)
 ---
 
 ### Phase 10: Summary and Next Steps
-**Action:** Display next steps via `cliclack::note` and close session with `cliclack::outro`
+**Action:** Display next steps via `init_style::omega_note` and close session with `init_style::omega_outro`
 
 **Logic Flow:**
 1. Build step list starting with base steps:
@@ -279,8 +287,8 @@ See [Google Workspace Setup Flow](#google-workspace-setup-flow-run_google_setup)
 3. If `google_email` is `Some(...)`, append: `★ Google Workspace is connected!`
 4. If `service_installed` is `true`, append: `★ System service installed — Omega starts on login!`
 5. If service was declined, append: `Tip: Run 'omega service install' to auto-start on login`
-6. Display via `cliclack::note("Next steps", &steps)?`
-7. Close session with `cliclack::outro("Setup complete — enjoy Omega!")?`
+6. Display via `init_style::omega_note("Next steps", &steps)?`
+7. Close session with `init_style::omega_outro("Setup complete")?` followed by `init_style::typewrite("\n  enjoy OMEGA ...\n\n", 30)`
 
 **Purpose:**
 - Confirms successful wizard completion
@@ -299,13 +307,13 @@ fn run_whatsapp_setup() -> anyhow::Result<bool>
 ### Logic Flow
 1. Prompt user with `cliclack::confirm("Connect WhatsApp?")` (initial value: `false`)
 2. If user declines: return `Ok(false)`
-3. Log step and instructions via `cliclack::log::step` and `cliclack::log::info`
+3. Log step and instructions via `init_style::omega_step` and `init_style::omega_info`
 4. Spawn a short-lived `tokio::runtime::Runtime` for the async pairing flow
 5. Inside the async block:
    - Call `whatsapp::start_pairing("~/.omega").await?` to get QR and done channels
    - Wait up to 30 seconds for the first QR code on `qr_rx`
    - Render QR code via `whatsapp::generate_qr_terminal(&qr_data)?`
-   - Display QR code inside `cliclack::note("Scan this QR code with WhatsApp", &qr_text)?`
+   - Display QR code inside `init_style::omega_note("Scan this QR code with WhatsApp", &qr_text)?`
    - Start a spinner: `"Waiting for scan..."`
    - Wait up to 60 seconds for pairing confirmation on `done_rx`
    - If paired: stop spinner with `"WhatsApp linked successfully"`
@@ -338,7 +346,7 @@ fn run_google_setup() -> anyhow::Result<Option<String>>
 2. If user declines: return `Ok(None)`
 
 **Step 3: Display Google Cloud Console instructions**
-1. Call `cliclack::note("Google Workspace Setup", ...)` with a 6-step guide:
+1. Call `init_style::omega_note("Google Workspace Setup", ...)` with a 6-step guide:
    - Go to console.cloud.google.com
    - Create a project (or use existing)
    - Enable: Gmail API, Calendar API, Drive API
@@ -377,7 +385,7 @@ fn run_google_setup() -> anyhow::Result<Option<String>>
 5. If no browsers found or user declines: use default browser (no BROWSER env var set)
 
 **Step 8: Display OAuth Tips**
-1. Display `cliclack::note("OAuth Tips", ...)` with troubleshooting guidance:
+1. Display `init_style::omega_note("OAuth Tips", ...)` with troubleshooting guidance:
    - Click 'Advanced' → 'Go to gog (unsafe)' → Allow
    - If 'Access blocked: not verified', publish app or add test user
 
@@ -675,9 +683,9 @@ The `init.rs` module follows these error handling principles:
 
 1. **I/O Errors are Fatal:** File operations, directory creation, cliclack interactions use `?` to propagate errors. These abort the wizard.
 
-2. **Missing Claude CLI is Non-Fatal:** The wizard exits gracefully with helpful instructions via `cliclack::outro_cancel`, not an error. User can fix and retry.
+2. **Missing Claude CLI is Non-Fatal:** The wizard exits gracefully with helpful instructions via `init_style::omega_outro_cancel`, not an error. User can fix and retry.
 
-3. **Existing Config File is NOT Fatal:** If `config.toml` already exists, wizard skips generation with a `cliclack::log::warning`. No error; just a message.
+3. **Existing Config File is NOT Fatal:** If `config.toml` already exists, wizard skips generation with `init_style::omega_warning`. No error; just a message.
 
 4. **Invalid User Input is Permissive:** Non-numeric user IDs don't error; they are silently treated as `None`. User can edit config later.
 
@@ -712,7 +720,7 @@ The `init.rs` module follows these error handling principles:
 - **Google Workspace:** Automatically skipped if `gog` CLI is not installed; otherwise decline the confirm prompt
 
 ### Failure Modes
-- **Claude CLI Missing:** Styled error with installation command inside `cliclack::note`, session closed with `cliclack::outro_cancel`
+- **Claude CLI Missing:** Styled error with installation command inside `init_style::omega_note`, session closed with `init_style::omega_outro_cancel`
 - **WhatsApp Pairing Timeout:** Spinner stops with error, warning logged, wizard continues
 - **Google `gog` Failures:** Spinner stops with error, warning logged, wizard continues
 - **I/O Errors:** Anyhow error message bubbles up; user sees Rust error but can retry
@@ -723,7 +731,9 @@ The `init.rs` module follows these error handling principles:
 
 **Called by:** `backend/src/main.rs` in the `init` command handler. `main.rs` dispatches to `run_noninteractive()` when deployment CLI args are provided, or `run()` for the interactive wizard.
 
-**Companion module:** `backend/src/init_wizard.rs` -- contains interactive wizard helpers extracted from `init.rs` (browser detection, Anthropic auth, WhatsApp setup, Google setup)
+**Companion modules:**
+- `backend/src/init_wizard.rs` -- contains interactive wizard helpers extracted from `init.rs` (browser detection, Anthropic auth, WhatsApp setup, Google setup)
+- `backend/src/init_style.rs` -- branded CLI output helpers (replaces cliclack chrome)
 
 **Reads from:** stdin (via cliclack interactive prompts in interactive mode), CLI args and env vars (in non-interactive mode)
 
@@ -732,7 +742,8 @@ The `init.rs` module follows these error handling principles:
 - stdout: All prompts and messages (via cliclack in interactive mode, via tracing in non-interactive mode)
 
 **Dependencies:**
-- `cliclack` -- Terminal UX primitives (intro, outro, input, confirm, spinner, note, log) — interactive mode only
+- `cliclack` -- Interactive widgets (input, confirm, spinner, select) — interactive mode only
+- `crate::init_style` -- Branded chrome output (intro, outro, success, info, warning, error, step, note, typewrite)
 - `clap` -- CLI argument parsing with `env` feature for `OMEGA_` env var support
 - `omega_core::shellexpand` -- Home directory expansion
 - `omega_channels::whatsapp` -- WhatsApp QR pairing flow (interactive mode)

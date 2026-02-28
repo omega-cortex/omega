@@ -4,7 +4,7 @@
 
 The init wizard is Omega's **first impression and first-time user experience**. It's a 2-minute interactive setup that transforms Omega from an uninitialized Rust project into a working personal AI agent connected to your messaging platforms and services.
 
-The wizard uses the **`cliclack`** crate for a polished, styled CLI experience with `◆ ◇ │` visual markers, spinners, confirmation toggles, and structured note blocks — replacing the plain `println!` prompts of earlier versions.
+The wizard uses **`cliclack`** for interactive widgets (inputs, spinners, confirms, selects) and **`init_style`** for branded chrome output (intro, outro, status lines, note blocks) with a cyan gutter-bar visual language using `console::Style`.
 
 The init wizard solves a critical problem: **new users need a frictionless path from "I cloned this repo" to "my bot works."** Without it, new users would face:
 - Manual directory creation
@@ -117,7 +117,7 @@ omega init --telegram-token "123:ABC" --allowed-users "842277204" \
 ```
 
 **What's Happening:**
-The wizard prints the ASCII OMEGA banner, then calls `cliclack::intro("omega init")` to begin the styled wizard session. The `┌` marker signals the start of the interactive flow.
+The wizard calls `init_style::omega_intro(LOGO, "omega init")` to print the branded OMEGA banner in cyan bold (instant, no animation) and open the wizard session with a gutter-bar subtitle. The `|` marker signals the start of the interactive flow.
 
 **User Action:** None. Just read the banner.
 
@@ -185,7 +185,7 @@ Without this directory, Omega can't persist data between sessions. Creating it u
 A `cliclack::spinner()` animates while the wizard runs `claude --version` to verify that the Claude Code CLI is installed and accessible. Claude Code is Omega's default AI backend, so it's **mandatory** for Omega to work.
 
 **Why It Matters:**
-If Claude CLI is missing, Omega cannot function. Rather than letting the user discover this later during `omega start`, the wizard fails fast with a `cliclack::note` containing the installation command. The session ends with `cliclack::outro_cancel("Setup aborted")`.
+If Claude CLI is missing, Omega cannot function. Rather than letting the user discover this later during `omega start`, the wizard fails fast with an `init_style::omega_note` containing the installation command. The session ends with `init_style::omega_outro_cancel("Setup aborted")`.
 
 **User Action:**
 - If found: Proceed to next step
@@ -379,7 +379,7 @@ The wizard:
 1. Spins up a temporary tokio runtime for the async pairing flow
 2. Calls `whatsapp::start_pairing("~/.omega")` to begin the pairing process
 3. Waits up to 30 seconds for a QR code to appear
-4. Renders the QR code inside a `cliclack::note` block
+4. Renders the QR code inside an `init_style::omega_note` block
 5. Shows a spinner while waiting up to 60 seconds for the user to scan
 6. Reports success or failure
 
@@ -433,7 +433,7 @@ The wizard moves on. No `[google]` section is added to the config.
 │
 ```
 
-The wizard displays step-by-step Google Cloud Console instructions inside a `cliclack::note` block so the user knows how to obtain the credentials file.
+The wizard displays step-by-step Google Cloud Console instructions inside an `init_style::omega_note` block so the user knows how to obtain the credentials file.
 
 **Sub-step 7b: Credentials File Path**
 ```
@@ -682,7 +682,7 @@ Lines 4, Google, and service lines only appear if those integrations were set up
 Tip: Run `omega service install` to auto-start on login
 ```
 
-The `└` marker from `cliclack::outro` signals the end of the wizard session.
+The gutter bar from `init_style::omega_outro` signals the end of the wizard session, followed by the typewrite "enjoy OMEGA" signature.
 
 **What Should the User Do?**
 
@@ -881,7 +881,7 @@ New users would face:
 
 ### With the Wizard
 New users get:
-- Beautiful cliclack-styled prompts (clear visual hierarchy with spinners, toggles, notes)
+- Beautiful branded chrome and cliclack widgets (clear visual hierarchy with gutter-bar status lines, spinners, toggles, notes)
 - Guided, interactive setup (clear prompts and instructions)
 - Automatic directory and config generation (no manual file editing)
 - Integrated help (links to @BotFather, @userinfobot, Google Cloud Console steps)
@@ -909,7 +909,7 @@ New users get:
 └  Setup aborted
 ```
 
-**Why:** Claude Code is mandatory. Without it, Omega can't function. The wizard ends immediately with `outro_cancel`.
+**Why:** Claude Code is mandatory. Without it, Omega can't function. The wizard ends immediately with `init_style::omega_outro_cancel`.
 
 **User action:** Install npm package, re-run `omega init`
 
@@ -1052,15 +1052,16 @@ Stops the running Omega daemon. Gracefully shuts down all connections.
 
 ## Implementation Insights
 
-### Why cliclack?
+### Why cliclack + init_style?
 
-The wizard uses the `cliclack` crate instead of raw `println!`/`stdin` for several reasons:
-- **Visual hierarchy:** `◆ ◇ │ ┌ └` markers make the flow scannable at a glance
-- **Spinners:** Async operations (CLI checks, WhatsApp pairing, OAuth) show animated feedback
-- **Confirm toggles:** Yes/No prompts are explicit toggles, not ambiguous text input
+The wizard uses `cliclack` for interactive widgets and `init_style` for branded chrome output:
+- **Branded identity:** `init_style` provides a distinctive OMEGA visual identity using cyan gutter-bar chrome with `console::Style`, distinct from cliclack's generic `◆ ◇ │` markers
+- **Spinners:** Async operations (CLI checks, WhatsApp pairing, OAuth) show animated feedback via `cliclack::spinner()`
+- **Confirm toggles:** Yes/No prompts are explicit toggles via `cliclack::confirm()`, not ambiguous text input
 - **Input validation:** `cliclack::input().validate()` provides inline error messages without restarting the prompt
-- **Notes:** Multi-line instructions (Google Cloud Console steps) are displayed in styled blocks
-- **Consistent UX:** All Omega CLI interactions feel polished and professional
+- **Branded status lines:** Success (`+`), warning (`!`), error (`x`), info (`-`), step (`>`) markers via `init_style` with semantic colors
+- **Branded note blocks:** Multi-line instructions displayed via `init_style::omega_note()` with gutter-dot body lines
+- **Consistent UX:** Branded chrome and cliclack widgets coexist cleanly (cyan OMEGA chrome vs purple cliclack widgets)
 
 ### Why Not Auto-Detect Telegram Token?
 The wizard could theoretically:
@@ -1212,12 +1213,12 @@ The init wizard is successful if:
 3. **User Understands What Was Configured** -- Explicit messages and next steps
 4. **User Can Customize Later** -- Config.toml is documented and editable
 5. **Bad State is Recoverable** -- User can delete and re-run
-6. **Visual Polish** -- cliclack styling makes the experience professional and scannable
+6. **Visual Polish** -- branded `init_style` chrome and cliclack widgets make the experience professional and scannable
 
 ---
 
 ## Conclusion
 
-The init wizard is the **entry point to Omega**. It transforms a raw codebase into a working personal AI agent in 2-5 minutes. Using `cliclack` for styled prompts, spinners, and toggles, the wizard provides a polished CLI experience that covers Telegram, WhatsApp, and Google Workspace setup in a single guided flow. By combining interactive guidance, automatic generation, and fast validation, the wizard removes friction while maintaining clarity and user control.
+The init wizard is the **entry point to Omega**. It transforms a raw codebase into a working personal AI agent in 2-5 minutes. Using `init_style` for branded chrome output and `cliclack` for interactive prompts, spinners, and toggles, the wizard provides a polished CLI experience that covers Telegram, WhatsApp, and Google Workspace setup in a single guided flow. By combining interactive guidance, automatic generation, and fast validation, the wizard removes friction while maintaining clarity and user control.
 
 For new users, `omega init` is the bridge between "I found an interesting project" and "I have a fully connected AI agent."

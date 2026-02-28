@@ -1,5 +1,6 @@
 //! Interactive-only helpers for the init wizard (browser detection, auth, WhatsApp, Google).
 
+use crate::init_style;
 use omega_channels::whatsapp;
 use omega_core::shellexpand;
 use std::path::Path;
@@ -85,7 +86,7 @@ pub(crate) fn run_anthropic_auth() -> anyhow::Result<()> {
         .interact()?;
 
     if auth_method == "setup-token" {
-        cliclack::note(
+        init_style::omega_note(
             "Anthropic setup-token",
             "Run `claude setup-token` in your terminal.\nThen paste the generated token below.",
         )?;
@@ -114,15 +115,15 @@ pub(crate) fn run_anthropic_auth() -> anyhow::Result<()> {
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 spinner.error(format!("setup-token failed: {stderr}"));
-                cliclack::log::warning("You can authenticate later with: claude setup-token")?;
+                init_style::omega_warning("You can authenticate later with: claude setup-token")?;
             }
             Err(e) => {
                 spinner.error(format!("Failed to run claude: {e}"));
-                cliclack::log::warning("You can authenticate later with: claude setup-token")?;
+                init_style::omega_warning("You can authenticate later with: claude setup-token")?;
             }
         }
     } else {
-        cliclack::log::success("Anthropic authentication — already configured")?;
+        init_style::omega_success("Anthropic authentication — already configured")?;
     }
 
     Ok(())
@@ -140,7 +141,7 @@ fn whatsapp_already_paired() -> bool {
 pub(crate) async fn run_whatsapp_setup() -> anyhow::Result<bool> {
     // If already paired, skip the QR flow.
     if whatsapp_already_paired() {
-        cliclack::log::success("WhatsApp — already paired")?;
+        init_style::omega_success("WhatsApp — already paired")?;
         return Ok(true);
     }
 
@@ -152,8 +153,8 @@ pub(crate) async fn run_whatsapp_setup() -> anyhow::Result<bool> {
         return Ok(false);
     }
 
-    cliclack::log::step("Starting WhatsApp pairing...")?;
-    cliclack::log::info("Open WhatsApp on your phone > Linked Devices > Link a Device")?;
+    init_style::omega_step("Starting WhatsApp pairing...")?;
+    init_style::omega_info("Open WhatsApp on your phone > Linked Devices > Link a Device")?;
 
     let result = async {
         let (mut qr_rx, mut done_rx) = whatsapp::start_pairing("~/.omega").await?;
@@ -167,7 +168,7 @@ pub(crate) async fn run_whatsapp_setup() -> anyhow::Result<bool> {
         // Render QR in terminal.
         let qr_text = whatsapp::generate_qr_terminal(&qr_data)?;
         // Display QR code inside a cliclack note.
-        cliclack::note("Scan this QR code with WhatsApp", &qr_text)?;
+        init_style::omega_note("Scan this QR code with WhatsApp", &qr_text)?;
 
         let spinner = cliclack::spinner();
         spinner.start("Waiting for scan...");
@@ -191,11 +192,11 @@ pub(crate) async fn run_whatsapp_setup() -> anyhow::Result<bool> {
     match result {
         Ok(true) => Ok(true),
         Ok(false) => {
-            cliclack::log::warning("You can try again later with /whatsapp.")?;
+            init_style::omega_warning("You can try again later with /whatsapp.")?;
             Ok(false)
         }
         Err(e) => {
-            cliclack::log::error(format!("{e} — you can try again later with /whatsapp."))?;
+            init_style::omega_error(&format!("{e} — you can try again later with /whatsapp."))?;
             Ok(false)
         }
     }
@@ -226,7 +227,7 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>> {
     }
 
     // Show setup instructions.
-    cliclack::note(
+    init_style::omega_note(
         "Google Workspace Setup",
         "1. Go to console.cloud.google.com\n\
          2. Create a project (or use existing)\n\
@@ -267,12 +268,12 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>> {
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             spinner.error(format!("gog auth credentials failed: {stderr}"));
-            cliclack::log::warning("Skipping Google Workspace setup.")?;
+            init_style::omega_warning("Skipping Google Workspace setup.")?;
             return Ok(None);
         }
         Err(e) => {
             spinner.error(format!("Failed to run gog: {e}"));
-            cliclack::log::warning("Skipping Google Workspace setup.")?;
+            init_style::omega_warning("Skipping Google Workspace setup.")?;
             return Ok(None);
         }
     }
@@ -311,7 +312,7 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>> {
             match create_incognito_script(&PRIVATE_BROWSERS[browser_idx]) {
                 Ok(path) => Some(path),
                 Err(e) => {
-                    cliclack::log::warning(format!(
+                    init_style::omega_warning(&format!(
                         "Could not set up incognito browser: {e} — using default browser"
                     ))?;
                     None
@@ -325,7 +326,7 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>> {
     };
 
     // Show OAuth troubleshooting tips before starting the flow.
-    cliclack::note(
+    init_style::omega_note(
         "OAuth Tips",
         "A browser will open for Google sign-in.\n\
          • Click 'Advanced' → 'Go to gog (unsafe)' → Allow\n\
@@ -361,7 +362,7 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>> {
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             spinner.error(format!("gog auth add failed: {stderr}"));
-            cliclack::log::warning(
+            init_style::omega_warning(
                 "If your browser showed an error, try manually in an incognito window:\n\
                  gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets",
             )?;
@@ -369,7 +370,7 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>> {
         }
         Err(e) => {
             spinner.error(format!("Failed to run gog: {e}"));
-            cliclack::log::warning("Google Workspace setup incomplete.")?;
+            init_style::omega_warning("Google Workspace setup incomplete.")?;
             return Ok(None);
         }
     }
@@ -382,13 +383,15 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>> {
     if let Ok(output) = verify {
         let stdout = String::from_utf8_lossy(&output.stdout);
         if stdout.contains(&email) {
-            cliclack::log::success("Google Workspace connected!")?;
+            init_style::omega_success("Google Workspace connected!")?;
             return Ok(Some(email));
         }
     }
 
     // Verification couldn't confirm, but auth might still have worked.
-    cliclack::log::warning("Could not verify Google auth — check manually with 'gog auth list'.")?;
+    init_style::omega_warning(
+        "Could not verify Google auth — check manually with 'gog auth list'.",
+    )?;
     Ok(Some(email))
 }
 
