@@ -197,7 +197,7 @@ pub(super) fn handle_heartbeat(
     );
 
     let checklist = match active_project {
-        Some(proj) => read_project_heartbeat_file(proj).or_else(read_heartbeat_file),
+        Some(proj) => read_project_heartbeat_file(proj),
         None => read_heartbeat_file(),
     };
 

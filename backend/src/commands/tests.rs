@@ -288,15 +288,16 @@ fn test_heartbeat_localized() {
 }
 
 #[test]
-fn test_heartbeat_with_nonexistent_project_falls_back_to_global() {
-    // A project that doesn't exist should fall back to global heartbeat
-    // (same behavior as None since the project file won't exist)
+fn test_heartbeat_with_active_project_no_fallback_to_global() {
+    // When a project is active but has no HEARTBEAT.md, should NOT show global heartbeat
     let with_project =
         settings::handle_heartbeat(true, 30, Some("nonexistent-project-xyz"), "English");
-    let without_project = settings::handle_heartbeat(true, 30, None, "English");
-    assert_eq!(
-        with_project, without_project,
-        "nonexistent project should fall back to global"
+    assert!(
+        with_project.contains("No watchlist")
+            || with_project.contains("no watchlist")
+            || with_project.contains("no_watchlist")
+            || !with_project.contains("Watchlist"),
+        "active project with no heartbeat file should show no-watchlist message, not global: {with_project}"
     );
 }
 

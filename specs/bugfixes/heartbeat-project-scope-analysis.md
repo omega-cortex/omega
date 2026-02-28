@@ -29,7 +29,7 @@ The heartbeat **loop** (`gateway/heartbeat.rs:253-306`) is NOT affected — it a
 
 ## Design Decision
 
-When a project is active and both heartbeat files exist: show **project only**. Fall back to global only if the project has no heartbeat file.
+When a project is active, heartbeat is **fully scoped** to that project. No fallback to global. If the project has no `HEARTBEAT.md`, show "no watchlist items" — not the global heartbeat.
 
 ## Files Changed
 
