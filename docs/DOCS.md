@@ -13,7 +13,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 
 ### Binary (`backend/src/`)
 - [src-main-rs.md](src-main-rs.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap
-- [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`backend/src/gateway/`) — 17-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, heartbeat, summarizer, keywords, builds (orchestrator + loop + parse + agents + topology + i18n)
+- [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`backend/src/gateway/`) — 18-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, heartbeat, summarizer, keywords, builds (orchestrator + loop + parse + agents + topology + i18n), setup (Brain orchestrator)
 - [src-commands-rs.md](src-commands-rs.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, purge, help)
 - [src-selfcheck-rs.md](src-selfcheck-rs.md) — Startup health checks
 - [src-service-rs.md](src-service-rs.md) — OS-aware service management (macOS LaunchAgent / Linux systemd)
@@ -77,6 +77,9 @@ Omega is a personal AI agent infrastructure written in Rust. This `docs/` direct
 - [introspection.md](introspection.md) — Autonomous skill improvement, reward-based learning, self-audit
 - [api.md](api.md) — HTTP API for SaaS dashboard integration (health, WhatsApp QR pairing)
 - [webhook.md](webhook.md) — Inbound webhook for external tool integration (direct + AI delivery modes, curl examples, integration guide)
+
+### Self-Configuration
+- [omega-brain.md](omega-brain.md) — OMEGA Brain: `/setup` command for non-technical onboarding, multi-round session, automatic project creation (ROLE.md, HEARTBEAT.md, schedules)
 
 ### Audits
 - [audits/audit-builds-2026-02-27.md](audits/audit-builds-2026-02-27.md) — Builds module code review (guard race, name validation, depth limit, spec drift)

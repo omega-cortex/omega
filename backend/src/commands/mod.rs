@@ -43,6 +43,7 @@ pub enum Command {
     WhatsApp,
     Heartbeat,
     Learning,
+    Setup,
     Help,
 }
 
@@ -70,6 +71,7 @@ impl Command {
             "/whatsapp" => Some(Self::WhatsApp),
             "/heartbeat" => Some(Self::Heartbeat),
             "/learning" => Some(Self::Learning),
+            "/setup" => Some(Self::Setup),
             "/help" => Some(Self::Help),
             _ => None,
         }
@@ -128,6 +130,8 @@ pub async fn handle(cmd: Command, ctx: &CommandContext<'_>) -> String {
             settings::handle_heartbeat(ctx.heartbeat_enabled, ctx.heartbeat_interval_mins, &lang)
         }
         Command::Learning => learning::handle_learning(ctx.store, ctx.sender_id, &lang).await,
+        // Setup is intercepted early in pipeline.rs -- this arm is a fallback.
+        Command::Setup => status::handle_help(&lang),
         Command::Help => status::handle_help(&lang),
     }
 }

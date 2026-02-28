@@ -1,140 +1,122 @@
-# Feature Evaluation: Pluggable Agent Topology System
-
-## Note on Idea Brief
-
-The existing `docs/.workflow/idea-brief.md` describes the **Inbound Webhook** feature, not the Pluggable Agent Topology System. This evaluation is based on the feature description provided in the command arguments.
+# Feature Evaluation: OMEGA Brain
 
 ## Feature Description
 
-Replace the hardcoded 7-phase sequential agent pipeline in `builds.rs` with a pluggable topology system where:
-1. The gateway endpoint connecting to Claude Code has an adaptable "cap" that accommodates different execution patterns (pipeline, orchestration, DAG, parallel, etc.)
-2. The current development pipeline (analyst->architect->test-writer->developer->QA->reviewer->delivery) is preserved as a default built-in topology
-3. Users can create custom topologies for their own needs (e.g., trading system with Market Data Agent -> Analysis Agent -> Strategy Agent -> Execution Agent, etc.)
-4. An Architecture Assistant agent helps users design custom agent topologies on the fly
+A single agent -- the OMEGA Brain -- that understands user business goals and configures OMEGA by composing existing primitives. When a user says "I'm a realtor, help me manage my business," the Brain asks 2-4 targeted questions, proposes a setup, and upon approval creates:
+
+- `~/.omega/projects/<name>/ROLE.md` (domain expertise)
+- `~/.omega/projects/<name>/HEARTBEAT.md` (monitoring checklist)
+- Scheduled actions via `SCHEDULE_ACTION:` markers
+- Project activation via `PROJECT_ACTIVATE:` marker
+
+MVP scope: Trigger 1 only (new business goal -- create project setup). One agent, one conversation, one call. No new crates, no new database tables, no new marker types.
+
+Source: `docs/.workflow/idea-brief.md`
 
 ## Evaluation Summary
 
 | Dimension | Score (1-5) | Assessment |
 |-----------|-------------|------------|
-| D1: Necessity | 3 | The current fixed pipeline works and serves Omega's only build use case. No users are blocked. But the vision of Omega as "personal AI agent infrastructure" implies multi-topology support eventually. |
-| D2: Impact | 4 | Transforms Omega from a single-purpose build tool into a general-purpose agent orchestration platform. This directly serves the "Anthropic falls in love" mission. |
-| D3: Complexity Cost | 1 | Massive cross-cutting change: refactors 4 tightly coupled gateway files (~1,400 lines), requires new topology definition format, parser, validator, runtime executor with DAG/parallel support, security model for user-defined agents, and an Architecture Assistant agent. Ongoing maintenance burden is high. |
-| D4: Alternatives | 3 | Simpler config-driven sequential phase lists could deliver 70% of the value. LangGraph, CrewAI, and Microsoft Agent Framework already solve general-purpose orchestration. But none integrate with Omega's channel+provider architecture natively. |
-| D5: Alignment | 4 | Strongly aligned with "personal AI agent infrastructure" and the Lego-block philosophy. However, "less is more" and "the best engine part is the one you can remove" caution against premature abstraction. |
-| D6: Risk | 2 | High risk of destabilizing the working build pipeline during refactor. User-defined agent execution creates a new security surface (arbitrary prompts, tool access, sandboxing). The feature's scope is ambiguous enough that rework is likely. |
-| D7: Timing | 2 | The build pipeline was just strengthened (safety controls, QA loops, reviewer loops, discovery phase) in the last 3 commits. The foundation has not yet proven itself in production. Abstracting now is premature. |
+| D1: Necessity | 4 | Today OMEGA's project primitives require technical knowledge of file conventions. A non-technical user cannot self-onboard. The system prompt already tells OMEGA to "suggest creating a project" but OMEGA cannot actually create one -- it can only describe the manual steps. |
+| D2: Impact | 4 | Transforms OMEGA from "AI chatbot that knows things" to "AI that configures itself for your domain." A 5-minute onboarding that produces a working domain expert is the kind of demo that makes Anthropic fall in love. Multiplier effect: every Brain-created project generates ongoing heartbeat, scheduling, and learning value. |
+| D3: Complexity Cost | 4 | The Brain is a single agent call (like build-discovery) using `run_build_phase()`. No new crates, no new DB tables, no new markers. Changes needed: (1) Brain agent .md file, (2) keyword detection or trigger in `keywords.rs`/`pipeline.rs`, (3) file-writing logic for ROLE.md and HEARTBEAT.md (the agent does this via Claude Code tools). Estimated: ~200-400 new lines across 2-3 files. |
+| D4: Alternatives | 3 | OMEGA already tells users to create projects manually, and Claude Code can technically write files when asked. But the current path requires the user to know OMEGA's file conventions, and there is no structured conversation flow. No external tool solves "configure this specific agent infrastructure." A simpler alternative exists: enhanced system prompt instructions that teach OMEGA to write ROLE.md directly -- but this lacks the structured question/approval flow that ensures quality. |
+| D5: Alignment | 5 | This is the most natural next step for "personal AI agent infrastructure." The project's first principle is "less is more" -- and the Brain adds value by composing existing primitives rather than creating new ones. The mission says "Anthropic falls in love with our Agent" -- a self-configuring agent that asks you about your business and sets itself up is exactly the kind of simplicity-through-intelligence that showcases Omega. |
+| D6: Risk | 4 | Low breakage risk: the Brain writes new files to `~/.omega/projects/` and emits existing markers. Existing projects, skills, and schedules are unaffected. The main risk is ROLE.md quality -- if the Brain writes mediocre instructions, OMEGA becomes a mediocre domain assistant. Secondary risk: keyword trigger ambiguity ("I want to trade" might trigger Brain when user just wants to chat about trading). Both are mitigatable: quality through prompt engineering, ambiguity through explicit confirmation gate. |
+| D7: Timing | 4 | Prerequisites are met: projects system is stable (`omega-skills/src/projects.rs`), heartbeats support per-project files (`gateway/heartbeat.rs`), scheduled actions work (`gateway/process_markers.rs`), the agent execution pattern is proven (`run_build_phase()`). The topology extraction just landed (commit `86ad3c7`), meaning the agent-running infrastructure is at its most mature. No in-progress work conflicts. |
 
-**Feature Viability Score: 2.8 / 5.0**
+**Feature Viability Score: 4.0 / 5.0**
 
 ```
-FVS = (D1:3 + D2:4 + D5:4) x 2 + (D3:1 + D4:3 + D6:2 + D7:2) = 22 + 8 = 30 / 10 = 3.0
+FVS = ((D1:4 + D2:4 + D5:5) x 2 + (D3:4 + D4:3 + D6:4 + D7:4)) / 10
+    = (26 + 15) / 10
+    = 4.1
 ```
 
-Wait -- recalculating properly:
-```
-FVS = ((3 + 4 + 4) x 2 + (1 + 3 + 2 + 2)) / 10
-    = (22 + 8) / 10
-    = 3.0
-```
+**Corrected Feature Viability Score: 4.1 / 5.0**
 
-**Feature Viability Score: 3.0 / 5.0**
+## Verdict: GO
 
-## Verdict: CONDITIONAL
-
-**Override applied: D3 (Complexity) scores 1 -- verdict capped at CONDITIONAL regardless of FVS.**
-
-The feature has genuine strategic value for Omega's identity as "personal AI agent infrastructure." However, the complexity cost as described is extreme, the timing is premature (the pipeline it would abstract was literally built in the last week), and the scope is too ambitious for a single feature. This needs to be decomposed and sequenced.
+The OMEGA Brain is a high-value, low-complexity feature that composes existing primitives into a dramatically better user experience. It does not fight the architecture -- it leverages it. The MVP scope (Trigger 1 only) is tight enough to deliver real value without scope creep, and the implementation pattern is proven (single agent call via `run_build_phase()`). This is the rare feature where Necessity, Impact, and Alignment all score high while Complexity remains low.
 
 ## Detailed Analysis
 
 ### What Problem Does This Solve?
 
-The current build pipeline in `gateway/builds.rs` is a hardcoded 7-phase sequential chain. If a user wants a different agent topology (e.g., trading, research, content creation), they cannot create one -- they can only use the built-in development pipeline triggered by build keywords. This limits Omega to being a build tool rather than a general agent orchestration platform.
+OMEGA has powerful primitives for domain expertise: projects with ROLE.md, per-project heartbeats, scheduled actions, reward-based learning. But today, using them requires knowing OMEGA's file conventions. The system prompt in `pipeline.rs` (lines 858-865) already instructs OMEGA to "suggest creating a project (~/.omega/projects/<name>/ROLE.md)" -- but "suggest" means telling the user to manually create directories and write markdown files. A realtor should not need to know what a ROLE.md is.
 
-However, this is a **forward-looking** problem, not a **current** problem. Today, the build pipeline is Omega's only multi-agent use case, and it works. No user is blocked. The problem being solved is "Omega should be more than a build tool" -- which is a vision, not a deficiency.
+The gap is real and current: OMEGA already has the intelligence (Claude) and the infrastructure (projects, heartbeats, schedules) but lacks the bridge between a non-technical user's intent and the technical setup. The Brain IS that bridge.
 
 ### What Already Exists?
 
-The codebase has significant relevant infrastructure:
+The codebase has every building block the Brain needs:
 
-1. **`gateway/builds.rs`** (500 lines): Hardcoded 7-phase orchestrator with `run_build_phase()` that already provides a generic phase runner (agent name + prompt + model + max_turns). This is the natural extraction point.
+1. **Project system** (`/Users/isudoajl/ownCloud/Projects/omega/backend/crates/omega-skills/src/projects.rs`): `load_projects()` scans `~/.omega/projects/*/ROLE.md`, parses TOML/YAML frontmatter for skills, returns `Project` structs. The Brain writes files that this loader already knows how to read.
 
-2. **`gateway/builds_agents.rs`** (~1,800 lines): 8 agent definitions compiled into the binary as `const` strings. Uses an RAII `AgentFilesGuard` that writes `.claude/agents/*.md` files to disk and cleans up on drop. The guard already handles concurrent builds via a reference counter.
+2. **Per-project heartbeats** (`/Users/isudoajl/ownCloud/Projects/omega/backend/src/gateway/heartbeat.rs` lines 267-275): The heartbeat loop already checks for `~/.omega/projects/<name>/HEARTBEAT.md` and runs project-specific heartbeats. The Brain writes HEARTBEAT.md files that this system already consumes.
 
-3. **`gateway/builds_loop.rs`** (345 lines): QA loop (3 iterations) and reviewer loop (2 iterations) with chain state persistence. These are hardcoded retry patterns.
+3. **Marker processing** (`/Users/isudoajl/ownCloud/Projects/omega/backend/src/gateway/process_markers.rs`): `SCHEDULE_ACTION:`, `SCHEDULE:`, and `PROJECT_ACTIVATE:` markers are already fully implemented. The Brain's agent output includes these markers, and the existing `process_markers()` handles them.
 
-4. **`gateway/builds_parse.rs`** (~1,100 lines): All parsing for build outputs -- `ProjectBrief`, `VerificationResult`, `ReviewResult`, `BuildSummary`, `ChainState`, plus localized message templates for 8 languages.
+4. **Agent execution pattern** (`/Users/isudoajl/ownCloud/Projects/omega/backend/src/gateway/builds.rs` lines 432-458): `run_build_phase()` takes an agent name, prompt, model, and max_turns -- exactly what the Brain needs. The build-discovery agent already demonstrates a single-call agent that asks questions and produces structured output.
 
-5. **`Context.agent_name`** in `omega-core/src/context.rs`: Already supports arbitrary agent names via `--agent` flag. This is provider-agnostic.
+5. **Keyword detection** (`/Users/isudoajl/ownCloud/Projects/omega/backend/src/gateway/keywords.rs`): The `kw_match()` function and keyword constant pattern (with 8-language support) is the established way to trigger special flows.
 
-6. **Skills system** (`omega-skills/src/skills.rs`): File-based skill definitions at `~/.omega/skills/*/SKILL.md` with frontmatter parsing (TOML/YAML), trigger matching, and MCP server activation. This is the closest existing pattern for user-defined extensibility.
+6. **Confirmation gate pattern** (`/Users/isudoajl/ownCloud/Projects/omega/backend/src/gateway/pipeline.rs` lines 421-484): The build confirmation flow (store pending request with timestamp, check TTL, confirm/cancel) is directly reusable for Brain approval.
 
-7. **Projects system** (`omega-skills/src/projects.rs`): User-defined project contexts at `~/.omega/projects/*/ROLE.md`. Scoped sessions, scoped learning.
-
-The `run_build_phase()` method in `builds.rs` is already essentially a generic "run agent with prompt" function. The missing piece is not execution -- it is topology definition, sequencing logic, and user-facing creation tools.
+7. **System prompt hint** (`/Users/isudoajl/ownCloud/Projects/omega/backend/src/gateway/pipeline.rs` lines 851-865): OMEGA already tells users it can help with projects. The Brain makes this promise real.
 
 ### Complexity Assessment
 
-This feature as described requires changes to:
+The Brain follows the exact same pattern as build-discovery:
 
-- **`gateway/builds.rs`**: Complete refactor from hardcoded sequence to topology-driven execution. This file is at the 500-line limit already.
-- **`gateway/builds_agents.rs`**: Agent definitions would need to become external/configurable rather than compiled constants.
-- **`gateway/builds_loop.rs`**: Retry loops need to become topology-defined (which phases have loops, with what caps).
-- **`gateway/builds_parse.rs`**: Parsing becomes topology-dependent (different topologies produce different outputs).
-- **New: Topology definition format**: TOML/YAML schema for defining phase sequences, DAGs, parallel groups, retry policies, validation gates.
-- **New: Topology loader**: Similar to `load_skills()` but for `~/.omega/topologies/*/TOPOLOGY.md` (or similar).
-- **New: Topology runtime**: DAG executor with parallel support, conditional branching, error propagation.
-- **New: Architecture Assistant agent**: An AI agent that helps design topologies -- this is itself a significant feature.
-- **New: Security model**: User-defined agents with arbitrary prompts and tool access need sandboxing and validation.
-- **`gateway/pipeline.rs`**: The build keyword detection and confirmation flow would need to route to different topologies.
-- **`omega-core/src/config.rs`**: New configuration for topology defaults and settings.
+1. **New agent file** (~100-200 lines): A `brain-setup.md` agent definition, either bundled via `include_str!()` or placed in a new topology directory. The agent's prompt teaches it to ask domain questions, generate ROLE.md content, generate HEARTBEAT.md content, and emit schedule markers. This is the single most important piece -- the quality of this prompt determines everything.
 
-Estimated scope: 2,000-3,500 new/modified lines across 10+ files in 3+ crates. This is comparable to the entire build pipeline feature that was built over multiple iterations.
+2. **Keyword detection** (~20-30 lines in `keywords.rs`): A `BRAIN_KW` constant with triggers like "set me up", "configure omega", "I'm a [profession]", "help me manage my [business]" in 8 languages, plus a `brain_confirm_message()` function.
 
-**Ongoing maintenance burden**: Every new topology pattern (DAG, parallel, conditional) adds execution paths that must be tested, debugged, and maintained. User-defined topologies create a support surface where Omega must handle arbitrary configurations gracefully.
+3. **Pipeline integration** (~100-150 lines in `pipeline.rs`): Following the build keyword pattern: detect Brain trigger -> run Brain agent -> if agent proposes setup -> show proposal to user -> on confirmation, Brain writes files and emits markers. The Brain agent itself writes ROLE.md and HEARTBEAT.md via Claude Code's Write tool; the markers are processed by existing `process_markers()`.
+
+4. **No new crates, no new database tables, no new marker types.** The Brain composes what exists.
+
+**Estimated total: ~200-400 new lines across 2-3 files.** For context, the build-discovery feature added roughly 300 lines across similar files.
+
+**Ongoing maintenance burden: Low.** The Brain is a single agent with a prompt file. Improving Brain quality means editing the prompt, not modifying Rust code. The only Rust maintenance is the keyword list and the pipeline trigger path -- both are thin and well-tested patterns.
 
 ### Risk Assessment
 
-1. **Pipeline destabilization**: The build pipeline was built and refined across 5+ commits with safety controls, discovery, QA loops, and audit findings fixes. Refactoring it now risks regressing all of that work. The `builds_loop.rs` QA and reviewer retry logic is tightly coupled to the current phase names.
+1. **ROLE.md quality** (medium risk): The entire value of the Brain depends on writing excellent ROLE.md files. If the Brain produces generic, shallow instructions, the user's OMEGA becomes a mediocre assistant. Mitigation: the Brain's agent prompt can include examples of excellent ROLE.md files, and the user can edit after creation.
 
-2. **Security surface**: User-defined agents mean user-defined prompts with tool access. The current sandbox (`omega-sandbox`) blocks writes to OS dirs and `memory.db`, but user-defined agents could still access files in `~/.omega/workspace/`, exfiltrate data via tools, or consume excessive API credits.
+2. **Trigger ambiguity** (low risk): "I'm a realtor" might trigger the Brain when the user just wants to chat about real estate. Mitigation: require explicit confirmation (same pattern as builds), or use an explicit command like `/setup`.
 
-3. **Scope creep**: "Pluggable topology" + "DAG support" + "parallel execution" + "Architecture Assistant agent" is at least 4 distinct features bundled as one. Each alone is non-trivial.
+3. **Existing project collision** (low risk): The Brain might try to create a project that already exists. Mitigation: read existing projects first (the idea brief already specifies this), offer to update rather than overwrite.
 
-4. **Premature abstraction**: The current pipeline is the ONLY multi-agent topology in Omega. Abstracting from 1 example risks building the wrong abstraction. The classic software engineering mistake is generalizing before you have 3 concrete cases.
+4. **No breakage of existing functionality**: The Brain writes to `~/.omega/projects/` (new directories only) and emits existing markers. It cannot break existing projects, skills, schedules, or the build pipeline. The pipeline integration adds a new code path but does not modify existing ones.
 
 ## Conditions
 
-The following conditions must be met before this feature should proceed:
+None -- feature approved for pipeline entry.
 
-- [ ] **Decompose into phases**: Split this into at least 3 sequential features: (1) Extract topology abstraction from existing pipeline, (2) Add config-driven sequential topologies, (3) Add DAG/parallel support + Architecture Assistant. Each should be independently valuable.
-- [ ] **Let the current pipeline bake**: The build pipeline should be used in production for at least 2-4 weeks before abstracting it. Real usage will reveal which parts of the design are stable and which need to flex.
-- [ ] **Define 3 concrete topology examples**: Before building the abstraction, fully spec out 3 real topologies (development pipeline, trading system, and one more). This prevents premature/wrong abstraction.
-- [ ] **Scope Phase 1 tightly**: Phase 1 should ONLY extract the existing pipeline into a config-driven format. No new topology types. No Architecture Assistant. No DAG execution. Just: "the same 7-phase pipeline, but defined in a TOPOLOGY file instead of hardcoded in Rust."
-- [ ] **Security model for user-defined agents**: Before allowing user-defined agents, define the sandboxing and resource limits. This is a prerequisite, not an afterthought.
+One advisory note for the Analyst: the open questions from the idea brief (where the Brain agent lives, how triggers work, overwrite safety) should be resolved during requirements. The evaluation finds these are design decisions, not blockers.
 
 ## Alternatives Considered
 
-- **Config-driven sequential phase lists**: Define topologies as ordered lists of `(agent_name, prompt_template, retry_policy)` in TOML files at `~/.omega/topologies/*/TOPOLOGY.toml`. This delivers the "custom topologies" value without DAG complexity. Estimated effort: ~500-800 lines. **This is the recommended Phase 1.**
+- **Enhanced system prompt only**: Teach OMEGA via system prompt to create project files when users describe domains. Zero code change, but no structured question flow, no approval gate, no guaranteed file format. The AI might write a ROLE.md in the wrong location, with the wrong structure, or skip the heartbeat entirely. Verdict: too fragile for a core onboarding experience.
 
-- **Use existing Skills+Projects pattern**: Instead of a topology system, each "topology" could be a Project with a ROLE.md that teaches the AI to self-orchestrate (call tools in sequence, manage state). This is zero code change but relies on the AI's ability to follow complex multi-step instructions reliably. Fragile but free.
+- **Interactive CLI wizard**: A `omega setup` command that walks through project creation interactively in the terminal. Works for technical users but not for Telegram/WhatsApp users -- OMEGA's primary channels. Verdict: wrong interface.
 
-- **External orchestration framework**: Use LangGraph, CrewAI, or a similar framework for topology execution, with Omega providing the channel/provider infrastructure. This avoids reinventing orchestration but adds a Python dependency and breaks the "monolithic Rust" architecture.
+- **Skill-based approach**: Create a "brain" skill with an MCP server that writes files. This works architecturally but adds unnecessary indirection -- a skill is for external tool integration, not for OMEGA self-configuration. Verdict: pattern mismatch.
 
-- **Do nothing**: Keep the hardcoded pipeline. Add new hardcoded pipelines when needed (one for trading, one for research, etc.). Simple, proven, but does not scale past 3-4 topologies.
+- **Manual project creation (status quo)**: Users create `~/.omega/projects/<name>/ROLE.md` by hand. Works for the developer who built OMEGA, does not work for anyone else. Verdict: not scalable to the "Anthropic buys us" mission.
 
 ## Recommendation
 
-**Do not build this feature as described.** The scope is too large, the timing is premature, and bundling 4 features into one creates unnecessary risk.
+Build it. The OMEGA Brain is that rare feature where the value is obvious, the complexity is genuinely low (it composes existing primitives), and the alignment with the project's mission is near-perfect.
 
-Instead, pursue a phased approach:
-
-1. **Now**: Let the current build pipeline prove itself in production for 2-4 weeks.
-2. **Phase 1** (after bake period): Extract the existing pipeline into a config-driven sequential topology format. Keep the same 7 phases, same agents, same retry logic -- just externalize the definition from Rust constants into a `TOPOLOGY.toml` file.
-3. **Phase 2** (after Phase 1 works): Allow users to create custom sequential topologies via the skills-like pattern (`~/.omega/topologies/*/TOPOLOGY.toml`).
-4. **Phase 3** (if needed): Add DAG/parallel execution and the Architecture Assistant agent.
-
-Each phase is independently valuable, independently testable, and can be evaluated on its own merits.
+Key guidance for downstream agents:
+- The Brain agent prompt is the highest-leverage artifact. Spend disproportionate effort on it.
+- Follow the build-discovery pattern exactly: keyword detection -> agent call -> structured output -> confirmation gate -> execution.
+- MVP is Trigger 1 only (new project creation). Do not scope creep into Trigger 2 (restructure) or Trigger 3 (learning threshold).
+- The 8-language requirement applies to Brain keywords and confirmation messages.
+- Test with at least 3 domain scenarios: a profession (realtor), a hobby (fitness), and an existing-project case (trading, where the project already exists).
 
 ## User Decision
 

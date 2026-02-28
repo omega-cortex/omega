@@ -58,6 +58,10 @@ pub(super) const BUILD_DELIVERY_AGENT: &str =
 pub(super) const BUILD_DISCOVERY_AGENT: &str =
     include_str!("../../../topologies/development/agents/build-discovery.md");
 
+/// Brain agent for `/setup` — self-configuration from business descriptions.
+pub(super) const BRAIN_AGENT: &str =
+    include_str!("../../../topologies/development/agents/omega-brain.md");
+
 /// Name-to-content mapping for all 8 build agents (discovery + 7 pipeline phases).
 #[allow(dead_code)]
 pub(super) const BUILD_AGENTS: &[(&str, &str)] = &[
@@ -117,6 +121,24 @@ impl AgentFilesGuard {
             let path = agents_dir.join(format!("{name}.md"));
             tokio::fs::write(&path, content).await?;
         }
+        let mut counts = GUARD_REFCOUNTS.lock().unwrap();
+        *counts.entry(agents_dir.clone()).or_insert(0) += 1;
+        Ok(Self { agents_dir })
+    }
+
+    /// Write a single agent file to `<project_dir>/.claude/agents/`.
+    ///
+    /// Used by the Brain setup flow which only needs one agent,
+    /// not the full build topology. Same RAII cleanup behavior.
+    pub(super) async fn write_single(
+        project_dir: &Path,
+        agent_name: &str,
+        content: &str,
+    ) -> std::io::Result<Self> {
+        let agents_dir = project_dir.join(".claude").join("agents");
+        tokio::fs::create_dir_all(&agents_dir).await?;
+        let path = agents_dir.join(format!("{agent_name}.md"));
+        tokio::fs::write(&path, content).await?;
         let mut counts = GUARD_REFCOUNTS.lock().unwrap();
         *counts.entry(agents_dir.clone()).or_insert(0) += 1;
         Ok(Self { agents_dir })
@@ -778,5 +800,451 @@ mod tests {
                 || content.contains("line limit"),
             "Developer agent should enforce 500-line file limit"
         );
+    }
+
+    // ===================================================================
+    // REQ-BRAIN-002 (Must): Brain agent definition bundled via include_str!()
+    // ===================================================================
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: BRAIN_AGENT const is non-empty
+    #[test]
+    fn test_brain_agent_is_non_empty() {
+        assert!(
+            !BRAIN_AGENT.is_empty(),
+            "BRAIN_AGENT const must not be empty"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: BRAIN_AGENT starts with --- (YAML frontmatter)
+    #[test]
+    fn test_brain_agent_starts_with_yaml_frontmatter() {
+        assert!(
+            BRAIN_AGENT.starts_with("---"),
+            "BRAIN_AGENT must start with YAML frontmatter delimiter '---'"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: BRAIN_AGENT has closing --- frontmatter delimiter
+    #[test]
+    fn test_brain_agent_has_closing_frontmatter() {
+        let after_open = &BRAIN_AGENT[3..];
+        assert!(
+            after_open.contains("\n---"),
+            "BRAIN_AGENT must have closing YAML frontmatter delimiter '---'"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: frontmatter contains name: omega-brain
+    #[test]
+    fn test_brain_agent_frontmatter_name() {
+        let after_open = &BRAIN_AGENT[3..];
+        let close_idx = after_open
+            .find("\n---")
+            .expect("BRAIN_AGENT missing closing ---");
+        let frontmatter = &after_open[..close_idx];
+        let name_line = frontmatter
+            .lines()
+            .find(|l| l.starts_with("name:"))
+            .expect("BRAIN_AGENT must have name: in frontmatter");
+        let name_value = name_line["name:".len()..].trim();
+        assert_eq!(
+            name_value, "omega-brain",
+            "BRAIN_AGENT frontmatter name must be 'omega-brain'"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: frontmatter contains model: opus
+    #[test]
+    fn test_brain_agent_frontmatter_model() {
+        let after_open = &BRAIN_AGENT[3..];
+        let close_idx = after_open.find("\n---").unwrap();
+        let frontmatter = &after_open[..close_idx];
+        assert!(
+            frontmatter.contains("model: opus") || frontmatter.contains("model:opus"),
+            "BRAIN_AGENT frontmatter must specify model: opus"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: frontmatter contains permissionMode: bypassPermissions
+    #[test]
+    fn test_brain_agent_frontmatter_permission_mode() {
+        assert!(
+            BRAIN_AGENT.contains("permissionMode: bypassPermissions"),
+            "BRAIN_AGENT must have permissionMode: bypassPermissions"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: frontmatter contains maxTurns: 30
+    #[test]
+    fn test_brain_agent_frontmatter_max_turns() {
+        let after_open = &BRAIN_AGENT[3..];
+        let close_idx = after_open.find("\n---").unwrap();
+        let frontmatter = &after_open[..close_idx];
+        assert!(
+            frontmatter.contains("maxTurns: 30") || frontmatter.contains("maxTurns:30"),
+            "BRAIN_AGENT frontmatter must specify maxTurns: 30"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: agent body contains non-interactive instruction
+    #[test]
+    fn test_brain_agent_non_interactive() {
+        let lower = BRAIN_AGENT.to_lowercase();
+        assert!(
+            lower.contains("do not ask")
+                || lower.contains("don't ask")
+                || lower.contains("never ask")
+                || lower.contains("non-interactive"),
+            "BRAIN_AGENT must contain non-interactive instruction"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: agent body contains SETUP_QUESTIONS output format
+    #[test]
+    fn test_brain_agent_contains_setup_questions_format() {
+        assert!(
+            BRAIN_AGENT.contains("SETUP_QUESTIONS"),
+            "BRAIN_AGENT must document SETUP_QUESTIONS output format"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: agent body contains SETUP_PROPOSAL output format
+    #[test]
+    fn test_brain_agent_contains_setup_proposal_format() {
+        assert!(
+            BRAIN_AGENT.contains("SETUP_PROPOSAL"),
+            "BRAIN_AGENT must document SETUP_PROPOSAL output format"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: agent body contains SETUP_EXECUTE section
+    #[test]
+    fn test_brain_agent_contains_setup_execute_format() {
+        assert!(
+            BRAIN_AGENT.contains("SETUP_EXECUTE") || BRAIN_AGENT.contains("EXECUTE_SETUP"),
+            "BRAIN_AGENT must document SETUP_EXECUTE or EXECUTE_SETUP format"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: agent body mentions ROLE.md creation
+    #[test]
+    fn test_brain_agent_mentions_role_md() {
+        assert!(
+            BRAIN_AGENT.contains("ROLE.md"),
+            "BRAIN_AGENT must contain instructions for ROLE.md creation"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-002 (Must)
+    // Acceptance: agent body mentions HEARTBEAT.md creation
+    #[test]
+    fn test_brain_agent_mentions_heartbeat_md() {
+        assert!(
+            BRAIN_AGENT.contains("HEARTBEAT.md"),
+            "BRAIN_AGENT must contain instructions for HEARTBEAT.md creation"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-008 (Must)
+    // Acceptance: agent body mentions SCHEDULE_ACTION marker format
+    #[test]
+    fn test_brain_agent_mentions_schedule_action_marker() {
+        assert!(
+            BRAIN_AGENT.contains("SCHEDULE_ACTION"),
+            "BRAIN_AGENT must document SCHEDULE_ACTION marker format"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-009 (Should)
+    // Acceptance: agent body mentions PROJECT_ACTIVATE marker
+    #[test]
+    fn test_brain_agent_mentions_project_activate_marker() {
+        assert!(
+            BRAIN_AGENT.contains("PROJECT_ACTIVATE"),
+            "BRAIN_AGENT must document PROJECT_ACTIVATE marker"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-021 (Should)
+    // Acceptance: Brain agent has restricted tools -- no Bash, no Edit
+    #[test]
+    fn test_brain_agent_restricted_tools() {
+        let after_open = &BRAIN_AGENT[3..];
+        let close_idx = after_open.find("\n---").unwrap();
+        let frontmatter = &after_open[..close_idx];
+        let tools_line = frontmatter
+            .lines()
+            .find(|l| l.starts_with("tools:"))
+            .expect("BRAIN_AGENT must have tools: in frontmatter");
+        assert!(
+            !tools_line.contains("Bash"),
+            "BRAIN_AGENT must NOT have Bash tool"
+        );
+        assert!(
+            !tools_line.contains("Edit"),
+            "BRAIN_AGENT must NOT have Edit tool"
+        );
+        assert!(
+            tools_line.contains("Read"),
+            "BRAIN_AGENT must have Read tool"
+        );
+        assert!(
+            tools_line.contains("Write"),
+            "BRAIN_AGENT must have Write tool"
+        );
+        assert!(
+            tools_line.contains("Glob"),
+            "BRAIN_AGENT must have Glob tool"
+        );
+        assert!(
+            tools_line.contains("Grep"),
+            "BRAIN_AGENT must have Grep tool"
+        );
+    }
+
+    // Requirement: REQ-BRAIN-015 (Should)
+    // Acceptance: Brain agent definition contains at least 2 ROLE.md examples
+    #[test]
+    fn test_brain_agent_contains_role_md_examples() {
+        // The agent should contain example ROLE.md content for reference.
+        // Count occurrences of "ROLE.md" in the body (after frontmatter).
+        let after_open = &BRAIN_AGENT[3..];
+        let close_idx = after_open.find("\n---").unwrap();
+        let body = &after_open[close_idx + 4..]; // skip past closing ---
+        let role_mentions = body.matches("ROLE.md").count();
+        assert!(
+            role_mentions >= 2,
+            "BRAIN_AGENT body must reference ROLE.md at least twice (for examples), found {role_mentions}"
+        );
+    }
+
+    // ===================================================================
+    // REQ-BRAIN-003 (Must): write_single() agent lifecycle
+    // ===================================================================
+
+    // Requirement: REQ-BRAIN-003 (Must)
+    // Acceptance: write_single creates <dir>/.claude/agents/<name>.md
+    #[tokio::test]
+    async fn test_write_single_creates_agent_file() {
+        let tmp = std::env::temp_dir().join("__omega_test_write_single__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let guard = AgentFilesGuard::write_single(
+            &tmp,
+            "omega-brain",
+            "---\nname: omega-brain\n---\nTest content",
+        )
+        .await
+        .unwrap();
+
+        let agent_file = tmp.join(".claude").join("agents").join("omega-brain.md");
+        assert!(
+            agent_file.exists(),
+            "write_single must create omega-brain.md in .claude/agents/"
+        );
+        let content = std::fs::read_to_string(&agent_file).unwrap();
+        assert_eq!(
+            content, "---\nname: omega-brain\n---\nTest content",
+            "File content must match what was written"
+        );
+
+        drop(guard);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // Requirement: REQ-BRAIN-003 (Must)
+    // Acceptance: write_single RAII cleanup on drop
+    #[tokio::test]
+    async fn test_write_single_cleanup_on_drop() {
+        let tmp = std::env::temp_dir().join("__omega_test_write_single_drop__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let agents_dir = tmp.join(".claude").join("agents");
+
+        {
+            let _guard = AgentFilesGuard::write_single(&tmp, "omega-brain", "test content")
+                .await
+                .unwrap();
+            assert!(
+                agents_dir.exists(),
+                "agents dir must exist while guard alive"
+            );
+        }
+
+        assert!(
+            !agents_dir.exists(),
+            ".claude/agents/ must be removed after write_single guard is dropped"
+        );
+        let claude_dir = tmp.join(".claude");
+        assert!(
+            !claude_dir.exists(),
+            ".claude/ should be removed if empty after guard drop"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // Requirement: REQ-BRAIN-003 (Must)
+    // Acceptance: write_single ref-counting -- two guards, first drop keeps files
+    #[tokio::test]
+    async fn test_write_single_ref_counting() {
+        let tmp = std::env::temp_dir().join("__omega_test_write_single_refcount__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let agents_dir = tmp.join(".claude").join("agents");
+
+        let guard1 = AgentFilesGuard::write_single(&tmp, "omega-brain", "content1")
+            .await
+            .unwrap();
+
+        let guard2 = AgentFilesGuard::write_single(&tmp, "omega-brain", "content2")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            AgentFilesGuard::active_count_for(&agents_dir),
+            2,
+            "Two active guards must have ref count 2"
+        );
+
+        drop(guard1);
+        assert!(
+            agents_dir.exists(),
+            "agents dir must still exist after first guard dropped (ref count = 1)"
+        );
+        assert_eq!(
+            AgentFilesGuard::active_count_for(&agents_dir),
+            1,
+            "After one drop, ref count must be 1"
+        );
+
+        drop(guard2);
+        assert!(
+            !agents_dir.exists(),
+            "agents dir must be removed after last guard dropped"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // Requirement: REQ-BRAIN-003 (Must)
+    // Acceptance: write_single creates intermediate directories
+    #[tokio::test]
+    async fn test_write_single_creates_directory_hierarchy() {
+        let tmp = std::env::temp_dir().join("__omega_test_write_single_nested__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        // Do NOT pre-create the nested path.
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let nested = tmp.join("deep").join("nested");
+        assert!(!nested.exists());
+
+        let guard = AgentFilesGuard::write_single(&nested, "omega-brain", "test")
+            .await
+            .unwrap();
+
+        let agent_file = nested.join(".claude").join("agents").join("omega-brain.md");
+        assert!(
+            agent_file.exists(),
+            "write_single must create full directory hierarchy"
+        );
+
+        drop(guard);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // Requirement: REQ-BRAIN-003 (Must)
+    // Edge case: write_single only creates ONE agent file, not all BUILD_AGENTS
+    #[tokio::test]
+    async fn test_write_single_creates_only_one_file() {
+        let tmp = std::env::temp_dir().join("__omega_test_write_single_one_file__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let _guard = AgentFilesGuard::write_single(&tmp, "omega-brain", "brain content")
+            .await
+            .unwrap();
+
+        let agents_dir = tmp.join(".claude").join("agents");
+        let entries: Vec<_> = std::fs::read_dir(&agents_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+
+        assert_eq!(
+            entries.len(),
+            1,
+            "write_single must create exactly 1 file, found {}",
+            entries.len()
+        );
+        assert_eq!(
+            entries[0].file_name().to_string_lossy(),
+            "omega-brain.md",
+            "The single file must be omega-brain.md"
+        );
+
+        drop(_guard);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // Requirement: REQ-BRAIN-003 (Must)
+    // Edge case: write_single with empty content
+    #[tokio::test]
+    async fn test_write_single_with_empty_content() {
+        let tmp = std::env::temp_dir().join("__omega_test_write_single_empty__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let guard = AgentFilesGuard::write_single(&tmp, "omega-brain", "")
+            .await
+            .unwrap();
+
+        let agent_file = tmp.join(".claude").join("agents").join("omega-brain.md");
+        assert!(
+            agent_file.exists(),
+            "File must be created even with empty content"
+        );
+        let content = std::fs::read_to_string(&agent_file).unwrap();
+        assert!(content.is_empty(), "Content must be empty as provided");
+
+        drop(guard);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    // Requirement: REQ-BRAIN-003 (Must)
+    // Edge case: write_single drop idempotent when files manually removed
+    #[tokio::test]
+    async fn test_write_single_drop_idempotent() {
+        let tmp = std::env::temp_dir().join("__omega_test_write_single_idempotent__");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let guard = AgentFilesGuard::write_single(&tmp, "omega-brain", "content")
+            .await
+            .unwrap();
+
+        let agents_dir = tmp.join(".claude").join("agents");
+        // Manually remove before drop.
+        std::fs::remove_dir_all(&agents_dir).unwrap();
+
+        // Drop should NOT panic.
+        drop(guard);
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

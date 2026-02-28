@@ -74,6 +74,7 @@ fn test_parse_all_commands() {
         Command::parse("/learning"),
         Some(Command::Learning)
     ));
+    assert!(matches!(Command::parse("/setup"), Some(Command::Setup)));
     assert!(matches!(Command::parse("/help"), Some(Command::Help)));
 }
 
@@ -389,5 +390,136 @@ fn test_help_includes_learning() {
     assert!(
         result.contains("/learning"),
         "help should list /learning: {result}"
+    );
+}
+
+// ===================================================================
+// REQ-BRAIN-001 (Must): /setup command registration in Command::parse()
+// ===================================================================
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Acceptance: /setup returns Some(Command::Setup)
+#[test]
+fn test_parse_setup_command() {
+    assert!(
+        matches!(Command::parse("/setup"), Some(Command::Setup)),
+        "/setup must parse to Command::Setup"
+    );
+}
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Acceptance: /setup with description returns Some(Command::Setup)
+#[test]
+fn test_parse_setup_command_with_description() {
+    assert!(
+        matches!(Command::parse("/setup I'm a realtor"), Some(Command::Setup)),
+        "/setup with description must parse to Command::Setup"
+    );
+}
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Acceptance: /setup with long description returns Some(Command::Setup)
+#[test]
+fn test_parse_setup_command_with_long_description() {
+    assert!(
+        matches!(
+            Command::parse("/setup I'm a realtor in Lisbon, residential properties"),
+            Some(Command::Setup)
+        ),
+        "/setup with long description must parse to Command::Setup"
+    );
+}
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Acceptance: /setup@botname suffix stripped, returns Some(Command::Setup)
+#[test]
+fn test_parse_setup_command_with_botname_suffix() {
+    assert!(
+        matches!(
+            Command::parse("/setup@omega_bot I'm a realtor"),
+            Some(Command::Setup)
+        ),
+        "/setup@omega_bot must parse to Command::Setup (botname stripped)"
+    );
+}
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Acceptance: /setup@botname with no text returns Some(Command::Setup)
+#[test]
+fn test_parse_setup_command_with_botname_no_text() {
+    assert!(
+        matches!(Command::parse("/setup@omega_bot"), Some(Command::Setup)),
+        "/setup@omega_bot with no text must still parse to Command::Setup"
+    );
+}
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Acceptance: /settings does NOT match /setup (no false match on prefix collision)
+#[test]
+fn test_parse_settings_does_not_match_setup() {
+    assert!(
+        Command::parse("/settings").is_none(),
+        "/settings must NOT match /setup -- exact match required"
+    );
+}
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Acceptance: /setUp (wrong case) does NOT match
+#[test]
+fn test_parse_setup_case_sensitive() {
+    assert!(
+        Command::parse("/Setup").is_none(),
+        "/Setup (wrong case) must NOT match -- commands are case-sensitive"
+    );
+}
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Edge case: /setup with unicode description
+#[test]
+fn test_parse_setup_command_unicode_description() {
+    assert!(
+        matches!(
+            Command::parse("/setup Soy agente inmobiliario en Lisboa"),
+            Some(Command::Setup)
+        ),
+        "/setup with Spanish text must parse to Command::Setup"
+    );
+}
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Edge case: /setup with emoji description
+#[test]
+fn test_parse_setup_command_emoji_description() {
+    assert!(
+        matches!(
+            Command::parse("/setup I sell houses \u{1f3e0}\u{1f3e1}"),
+            Some(Command::Setup)
+        ),
+        "/setup with emoji text must parse to Command::Setup"
+    );
+}
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Acceptance: /setup in test_parse_all_commands (comprehensive registry check)
+// This test will need the existing test_parse_all_commands to include Setup.
+// The developer must add it to the existing test. This test is standalone validation.
+#[test]
+fn test_parse_setup_registered_in_command_enum() {
+    // Verify /setup is registered and does not break other commands.
+    assert!(matches!(Command::parse("/setup"), Some(Command::Setup)));
+    assert!(matches!(Command::parse("/status"), Some(Command::Status)));
+    assert!(matches!(Command::parse("/help"), Some(Command::Help)));
+    assert!(matches!(Command::parse("/forget"), Some(Command::Forget)));
+    assert!(Command::parse("/unknown").is_none());
+}
+
+// Requirement: REQ-BRAIN-001 (Must)
+// Acceptance: help text includes /setup
+#[test]
+fn test_help_includes_setup() {
+    let result = status::handle_help("English");
+    assert!(
+        result.contains("/setup"),
+        "help must list /setup command: {result}"
     );
 }

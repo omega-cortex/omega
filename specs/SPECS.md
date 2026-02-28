@@ -20,7 +20,7 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 
 ### Milestone 2: Binary (`backend/src/`)
 - [src-main-rs.md](src-main-rs.md) — Entry point, CLI parsing, root guard, provider/channel bootstrap
-- [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`backend/src/gateway/`) — 17-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, scheduler_action, heartbeat, heartbeat_helpers, summarizer, keywords, builds, builds_loop, builds_parse, builds_agents, builds_topology, builds_i18n
+- [src-gateway-rs.md](src-gateway-rs.md) — Gateway module (`backend/src/gateway/`) — 18-file directory module: orchestrator, pipeline, routing, markers, auth, scheduler, scheduler_action, heartbeat, heartbeat_helpers, summarizer, keywords, builds, builds_loop, builds_parse, builds_agents, builds_topology, builds_i18n, setup
 - [src-markers-rs.md](src-markers-rs.md) — Marker extraction, parsing, stripping (40+ functions extracted from gateway)
 - [src-task-confirmation-rs.md](src-task-confirmation-rs.md) — Task scheduling confirmation (anti-hallucination, duplicate detection, localized confirmation messages)
 - [src-commands-rs.md](src-commands-rs.md) — Built-in bot commands (status, memory, history, facts, forget, tasks, cancel, skills, purge, help)
@@ -89,6 +89,8 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 ### Features
 - [webhook-requirements.md](webhook-requirements.md) — Inbound webhook endpoint for external tool integration (direct + AI delivery modes)
 - [webhook-architecture.md](webhook-architecture.md) — Architecture design for inbound webhook (handler, gateway plumbing, source tracking, failure modes, security model)
+- [omega-brain-requirements.md](omega-brain-requirements.md) — OMEGA Brain self-configuration agent: `/setup` command, multi-round session, ROLE.md + HEARTBEAT.md + schedule creation via existing primitives
+- [omega-brain-architecture.md](omega-brain-architecture.md) — Architecture design for OMEGA Brain: setup.rs orchestrator, pipeline integration, session state machine, agent definition, write_single lifecycle, localized messages, failure modes, security model
 
 ### Improvements
 - [improvements/builds-routing-improvement.md](improvements/builds-routing-improvement.md) — [SUPERSEDED] Multi-phase builds pipeline replacing single-shot build execution

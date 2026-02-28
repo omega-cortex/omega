@@ -143,6 +143,51 @@ impl Gateway {
                 return;
             }
 
+            // --- /setup intercept (REQ-BRAIN-011) ---
+            if matches!(cmd, commands::Command::Setup) {
+                let first_word = clean_incoming.text.split_whitespace().next().unwrap_or("");
+                let description = if first_word.starts_with("/setup") {
+                    clean_incoming.text[first_word.len()..].trim()
+                } else {
+                    ""
+                };
+
+                if description.is_empty() {
+                    let user_lang = self
+                        .memory
+                        .get_fact(&incoming.sender_id, "preferred_language")
+                        .await
+                        .ok()
+                        .flatten()
+                        .unwrap_or_else(|| "English".to_string());
+                    self.send_text(&incoming, setup_help_message(&user_lang))
+                        .await;
+                } else {
+                    // Start typing indicator before long-running Brain call.
+                    let typing_channel = self.channels.get(&incoming.channel).cloned();
+                    let typing_target = incoming.reply_target.clone();
+                    let typing_handle =
+                        if let (Some(ch), Some(ref target)) = (&typing_channel, &typing_target) {
+                            let ch = ch.clone();
+                            let target = target.clone();
+                            let _ = ch.send_typing(&target).await;
+                            Some(tokio::spawn(async move {
+                                loop {
+                                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                                    if ch.send_typing(&target).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            }))
+                        } else {
+                            None
+                        };
+                    self.start_setup_session(&incoming, description, typing_handle)
+                        .await;
+                }
+                return;
+            }
+
             let ctx = commands::CommandContext {
                 store: &self.memory,
                 channel: &incoming.channel,
@@ -193,6 +238,20 @@ impl Gateway {
             .await
             .ok()
             .flatten();
+
+        // --- 4a-SETUP. PENDING SETUP SESSION CHECK (REQ-BRAIN-012) ---
+        let pending_setup: Option<String> = self
+            .memory
+            .get_fact(&incoming.sender_id, "pending_setup")
+            .await
+            .ok()
+            .flatten();
+
+        if let Some(setup_value) = pending_setup {
+            self.handle_setup_response(&incoming, &setup_value, typing_handle)
+                .await;
+            return;
+        }
 
         // --- 4a-DISCOVERY. PENDING DISCOVERY SESSION CHECK ---
         let pending_discovery: Option<String> = self

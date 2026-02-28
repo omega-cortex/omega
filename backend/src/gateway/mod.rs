@@ -18,6 +18,7 @@ mod process_markers;
 mod routing;
 mod scheduler;
 mod scheduler_action;
+mod setup;
 mod summarizer;
 
 use crate::markers::*;

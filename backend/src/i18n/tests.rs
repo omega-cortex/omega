@@ -62,6 +62,7 @@ fn test_all_keys_have_english_fallback() {
         "heartbeat_watchlist",
         "heartbeat_no_watchlist",
         "help_heartbeat",
+        "help_setup",
     ];
     for key in keys {
         let val = t(key, "English");
@@ -165,6 +166,7 @@ fn test_help_commands_all_languages() {
         "help_project",
         "help_whatsapp",
         "help_heartbeat",
+        "help_setup",
         "help_help",
     ];
     // All help keys should contain the command name (slash prefix)

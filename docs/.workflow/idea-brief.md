@@ -1,78 +1,169 @@
-# Idea Brief: Inbound Webhook for Utility Tool Integration
+# Idea Brief: OMEGA Brain
 
-## One-Line Summary
-A local HTTP endpoint on the existing API server that lets external utility tools push notifications and instructions to OMEGA for delivery via messaging channels.
+## Problem
 
-## Problem Statement
-OMEGA currently relies on scheduled action tasks (polling) to interact with external tools. A TODO app, CRM, or monitoring tool must either be polled on an interval or shoehorned into the scheduler. This is wasteful: a tool that detects "meeting in 5 minutes" should push that notification immediately, not wait for the next 60-second scheduler poll cycle. The push model is both more efficient and more timely.
+OMEGA is a personal AI agent infrastructure — NOT a chatbot. It has powerful primitives (projects, skills, scheduling, heartbeats, builds, lessons) that transform it into a domain expert for any business. But today, users must manually:
 
-## Current State
-Today, external tools integrate with OMEGA in three ways -- all with limitations:
+- Create project directories and write ROLE.md files
+- Find and install skills
+- Configure schedules and heartbeats
+- Understand OMEGA's internal file conventions
 
-1. **Scheduler injection** -- Insert a row into `scheduled_tasks` SQLite table with `task_type = 'action'`. Works, but requires direct SQLite access (fragile, no auth, no standard contract) and still waits for the scheduler poll interval.
-2. **Skills** -- Teach the AI about a tool via `SKILL.md`. But skills are AI-initiated (the AI calls the tool), not tool-initiated.
-3. **HTTP API** -- Axum server on port 3000 exists but only serves health checks and WhatsApp QR pairing. No general-purpose message ingestion.
+This requires technical knowledge of OMEGA's internals. A realtor shouldn't need to know what a ROLE.md is. They should say "I'm a realtor, help me manage my business" and OMEGA should configure itself.
 
-None of these give an external tool a clean, authenticated, standardized way to say: "Deliver this message to the user right now."
+## Solution
 
-## Proposed Solution
-Add a `POST /api/webhook` endpoint to the existing axum API server (`backend/src/api.rs`). External tools POST a JSON payload following a standard contract. OMEGA delivers the message via the configured channel (Telegram/WhatsApp).
+A single agent — the **OMEGA Brain** — that understands user business goals and configures OMEGA using existing primitives. One agent, one conversation, done. Not a pipeline of agents. Not a new framework. Just a smart setup agent that composes what already exists.
 
-Two delivery modes:
-- **"direct"** -- Pass-through: the message text is sent directly to the user via the channel. No AI involved. Fast, cheap, predictable.
-- **"ai"** -- Pipeline: the message is injected into the gateway's message pipeline as a synthetic `IncomingMessage`, processed by the AI (with full context, tools, markers), and the AI's response is delivered. Useful when the tool wants OMEGA to reason about the data.
+## How It Works
 
-## Target Users
-- **Primary**: External utility tools (TODO apps, CRM systems, monitoring scripts, home automation) running as background processes on the same machine.
-- **Secondary**: The Omega owner (the human) -- they receive the notifications on Telegram/WhatsApp.
+```
+User: "I'm a realtor, help me manage my business"
+  |
+  v
+Brain activates (keyword detection or explicit invocation)
+  |
+  v
+1. Asks 2-4 targeted questions about the domain
+   ("What kind of properties? Residential, commercial? What tools do you use?")
+  |
+  v
+2. Proposes a setup using existing primitives:
+   - Project with ROLE.md (the intelligence)
+   - Heartbeat items (what to monitor)
+   - Scheduled actions (recurring tasks)
+   - Skill suggestions (if applicable)
+  |
+  v
+3. User approves or modifies the proposal
+  |
+  v
+4. Brain creates everything:
+   - Writes ~/.omega/projects/<name>/ROLE.md
+   - Writes ~/.omega/projects/<name>/HEARTBEAT.md
+   - Emits SCHEDULE_ACTION markers for recurring tasks
+   - Emits PROJECT_ACTIVATE: <name>
+  |
+  v
+5. Brain gets out of the way. OMEGA operates normally.
+```
+
+## What It Composes (existing primitives only)
+
+| Brain Output | Existing Primitive | File/Marker | Codebase Location |
+|---|---|---|---|
+| Domain expert instructions | Project ROLE.md | `~/.omega/projects/<name>/ROLE.md` | `omega-skills/src/projects.rs` |
+| Monitoring checklist | Project heartbeat | `~/.omega/projects/<name>/HEARTBEAT.md` | `gateway/heartbeat.rs` |
+| Recurring tasks | Scheduled actions | `SCHEDULE_ACTION:` marker | `gateway/process_markers.rs` |
+| One-time reminders | Scheduled reminders | `SCHEDULE:` marker | `gateway/process_markers.rs` |
+| Project activation | Project switch | `PROJECT_ACTIVATE:` marker | `gateway/process_markers.rs` |
+| Skill suggestions | Skill installation | Inform user, do not auto-install | `omega-skills/src/skills.rs` |
+
+**No new infrastructure.** No new crates, no new database tables, no new marker types.
+
+## What It Does NOT Do
+
+1. **Does NOT create build pipelines or topologies** — topologies are for building software. The Brain sets up projects for daily operation.
+2. **Does NOT install skills autonomously** — suggests skills, user installs. Skills have MCP servers with security implications.
+3. **Does NOT run as a pipeline of agents** — one agent, one conversation. No analyst-architect-developer chain.
+4. **Does NOT run always-on** — event-triggered. Dormant between activations.
+5. **Does NOT design OMEGA's personality** — the Soul section in SYSTEM_PROMPT.md handles that. The Brain designs operational context.
+6. **Does NOT act without approval** — always proposes, waits for human confirmation before creating anything.
+
+## Activation Triggers
+
+### Trigger 1: First Contact (MVP)
+User describes a new business goal. Brain designs and creates the full setup.
+- "I'm a realtor" -> creates realtor project
+- "I want to trade stocks" -> creates trading project
+- "Help me manage my restaurant" -> creates restaurant project
+
+### Trigger 2: Explicit Restructure
+User asks to modify an existing setup.
+- "I also need to handle property management" -> updates realtor ROLE.md
+- "Add a morning briefing to my trading setup" -> adds schedule
+- "Restructure my project" -> reviews and proposes changes
+
+### Trigger 3: Learning Threshold (future)
+After N lessons accumulate in a project, the Brain reviews them and suggests ROLE.md adjustments. Runs via heartbeat, not on every message.
+
+## Example Scenarios
+
+### Realtor
+**Input:** "I'm a realtor in Lisbon, mostly residential"
+
+**Brain creates:**
+```
+~/.omega/projects/realtor/
+  ROLE.md:
+    - Property analysis and comparative market analysis
+    - Client communication drafting
+    - Showing preparation and property briefs
+    - Follow-up tracking via scheduled tasks
+    - Local knowledge: Lisbon neighborhoods, price ranges
+    - Rules: never fabricate data, verify before claiming
+
+  HEARTBEAT.md:
+    - Check for overdue client follow-ups
+    - Remind about today's showings
+```
+
+**Schedules:** Weekly listings review (Monday 8am), daily deal summary (9am)
+
+### Stock Trader
+**Input:** "I want to trade, I already have the ibkr-trader skill"
+
+**Brain behavior:** Reads existing `~/.omega/projects/trader/ROLE.md`, notices it already exists with comprehensive content. Proposes only additions (heartbeat, schedules) rather than rewriting.
+
+### Restaurant Manager
+**Input:** "I manage a restaurant, help me organize"
+
+**Brain creates:**
+```
+~/.omega/projects/restaurant/
+  ROLE.md:
+    - Inventory tracking and supplier communication
+    - Staff scheduling assistance
+    - Menu planning and cost analysis
+    - Customer review monitoring
+
+  HEARTBEAT.md:
+    - Check for low inventory alerts
+    - Remind about upcoming health inspections
+```
+
+**Schedules:** Daily reservations review (7am), weekly inventory check (Sunday), monthly cost analysis (1st)
 
 ## Success Criteria
-- A utility tool running locally can POST to `http://127.0.0.1:3000/api/webhook` and the user sees the message on Telegram within seconds.
-- In "direct" mode, delivery is near-instant (no AI latency).
-- In "ai" mode, the message goes through the full gateway pipeline as if the user had typed it.
-- Failed deliveries return clear HTTP error responses (not silent failures).
-- The contract is simple enough that a bash script with `curl` can use it.
+
+1. A non-technical user can describe a business goal and have a working OMEGA project in under 5 minutes
+2. The ROLE.md produced by the Brain makes OMEGA perform comparably to a manually-crafted expert ROLE.md
+3. Zero infrastructure changes — the Brain uses only existing primitives
+4. User always approves before anything is created
+5. Existing projects/skills/schedules are not disrupted
 
 ## MVP Scope
-1. **Single endpoint**: `POST /api/webhook` on the existing axum server.
-2. **Standard contract**: JSON body with `source`, `message`, `mode` ("direct" or "ai"), optional `channel` and `target`.
-3. **Bearer auth**: Reuse the existing `api_key` from `[api]` config.
-4. **Direct mode**: Look up the delivery channel and target, build an `OutgoingMessage`, call `channel.send()`.
-5. **AI mode**: Build a synthetic `IncomingMessage` and inject it into the gateway's `mpsc::Sender<IncomingMessage>`.
-6. **Audit logging**: Log webhook deliveries in the audit table.
-7. **Structured response**: Return JSON with delivery status (`delivered`, `queued`, `error`).
 
-## Explicitly Out of Scope
-- Outbound webhooks (OMEGA calling external tools on events)
-- Tool registration/discovery (tools just know the endpoint and bearer token)
-- Internet exposure (localhost only)
-- Webhook retry/queue (tool is responsible for retrying)
-- Per-tool auth tokens
-- Attachments (text payloads only for MVP)
+- **Trigger 1 only** (first contact — new business goal)
+- Creates: ROLE.md + HEARTBEAT.md + schedules
+- Mandatory approval gate before creation
+- Read existing projects to avoid duplication
+- One agent, one conversation, one call
 
-## Key Decisions
-- **Reuse existing API server**: No new HTTP listener. Just another route on axum port 3000.
-- **Two modes, not one**: "direct" avoids AI latency; "ai" gives full pipeline access.
-- **Inbound only**: Tools push to OMEGA. OMEGA does not push to tools.
-- **Channel/target routing**: Default to first configured channel + first allowed user. Optional explicit routing.
+## Open Questions
 
-## Open Questions for Analyst
-1. **Synthetic channel name vs. flag**: Should webhook messages use `channel: "webhook"` (pseudo-channel) or `channel: "telegram"` with `is_webhook: true`?
-2. **Default target resolution**: When channel/target omitted, use (a) first configured channel + first allowed user, (b) configurable default, or (c) require always?
-3. **AI mode HTTP response**: Return 202 immediately since AI pipeline is async?
-4. **Rate limiting**: Prevent runaway tools from flooding the user?
-
-## Key Files
-- `backend/src/api.rs` -- New `POST /api/webhook` handler, expanded `ApiState`
-- `backend/src/gateway/mod.rs` -- Pass `tx` sender to API server
-- `backend/crates/omega-core/src/message.rs` -- Webhook source marker on `IncomingMessage`
-
-## Existing Patterns to Follow
-- Direct delivery: same as scheduler reminders in `gateway/scheduler.rs`
-- AI pipeline injection: same as channel message forwarding in `gateway/mod.rs`
-- Auth: same bearer token check in `api.rs` `check_auth()`
+1. **Where does the Brain agent live?** As a Claude Code `--agent` invoked by the gateway? As part of the system prompt? As a skill?
+2. **How does the gateway detect Brain triggers?** Keyword detection in `keywords.rs`? A classifier call? Explicit `/setup` command?
+3. **Learning threshold value?** How many lessons before Trigger 3 fires?
+4. **Overwrite safety?** If a project already exists, should the Brain refuse, offer to update, or create alongside?
+5. **ROLE.md quality?** The entire value depends on writing excellent ROLE.md files. How do we ensure quality?
 
 ## Risks
-- **AI mode gateway integration**: Synthetic `IncomingMessage` needs sensible sender_id, reply_target for pipeline routing
-- **Response routing**: AI response must land on the right channel, not back to the webhook caller
-- **Silent delivery failures**: Channel might be down but webhook returns 200/202
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Poor ROLE.md quality | OMEGA becomes a mediocre assistant | Domain research in Brain prompt, examples of great ROLE.md, user can edit after |
+| Domain knowledge breadth | Brain can't know every business domain | Lean on Claude's general knowledge + targeted questions |
+| Session length | Brain conversation takes too many turns | Cap at 5 questions, propose with available info |
+| Keyword ambiguity | "I want to trade" triggers Brain when user just wants to chat | Require explicit confirmation before starting setup |
+| Existing project collision | Brain creates a duplicate | Always check existing projects first, offer to update |

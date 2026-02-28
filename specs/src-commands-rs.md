@@ -30,6 +30,7 @@ pub enum Command {
     Project,
     Heartbeat,
     Learning,
+    Setup,
     Skills,
     WhatsApp,
     Help,
@@ -51,6 +52,7 @@ pub enum Command {
 | `Project` | Show, activate, or deactivate a project |
 | `Heartbeat` | Show heartbeat status, interval, and watchlist items |
 | `Learning` | Show learned behavioral rules and recent outcomes |
+| `Setup` | Configure OMEGA as a domain expert (triggers Brain agent) |
 | `Skills` | List available skills and their trigger patterns |
 | `WhatsApp` | Show WhatsApp pairing status and QR code |
 | `Help` | Display all available commands |
@@ -85,6 +87,7 @@ pub enum Command {
 - `/project` → `Command::Project`
 - `/heartbeat` → `Command::Heartbeat`
 - `/learning` → `Command::Learning`
+- `/setup` → `Command::Setup`
 - `/skills` → `Command::Skills`
 - `/whatsapp` or `/wa` → `Command::WhatsApp`
 - `/help` → `Command::Help`

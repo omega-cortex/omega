@@ -490,3 +490,19 @@ fn test_system_fact_keys_contains_pending_discovery() {
         SYSTEM_FACT_KEYS
     );
 }
+
+// ===================================================================
+// REQ-BRAIN-012 (Should): SYSTEM_FACT_KEYS contains "pending_setup"
+// ===================================================================
+
+// Requirement: REQ-BRAIN-012 (Should)
+// Acceptance: "pending_setup" is in SYSTEM_FACT_KEYS so users cannot overwrite it
+#[test]
+fn test_system_fact_keys_contains_pending_setup() {
+    assert!(
+        SYSTEM_FACT_KEYS.contains(&"pending_setup"),
+        "SYSTEM_FACT_KEYS must contain 'pending_setup' to protect it from user writes. \
+         Current keys: {:?}",
+        SYSTEM_FACT_KEYS
+    );
+}
