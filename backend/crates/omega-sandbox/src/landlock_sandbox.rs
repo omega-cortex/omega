@@ -43,6 +43,14 @@ fn full_access() -> BitFlags<AccessFs> {
 /// If the kernel does not support Landlock, logs a warning and falls back
 /// to a plain command.
 pub(crate) fn protected_command(program: &str, data_dir: &std::path::Path) -> Command {
+    // Probe Landlock availability before committing to pre_exec.
+    // If the kernel doesn't support Landlock, fall back to a plain command
+    // (code-level enforcement still protects via is_read_blocked/is_write_blocked).
+    if !landlock_available() {
+        warn!("landlock: not supported by this kernel; falling back to code-level protection");
+        return Command::new(program);
+    }
+
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let data_dir_owned = data_dir.to_path_buf();
 
@@ -59,6 +67,11 @@ pub(crate) fn protected_command(program: &str, data_dir: &std::path::Path) -> Co
     }
 
     cmd
+}
+
+/// Check if the kernel supports Landlock by probing the ABI version file.
+fn landlock_available() -> bool {
+    std::path::Path::new("/sys/kernel/security/landlock/abi_version").exists()
 }
 
 /// Minimal access — blocks both reads and writes via Landlock intersection.
