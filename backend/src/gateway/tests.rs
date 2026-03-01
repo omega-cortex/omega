@@ -19,8 +19,8 @@ fn test_prompts_default_welcome_all_languages() {
         let msg = prompts.welcome.get(*lang);
         assert!(msg.is_some(), "welcome for {lang} should exist");
         assert!(
-            msg.unwrap().contains("*OMEGA*"),
-            "welcome for {lang} should mention *OMEGA*"
+            msg.unwrap().contains("*OMEGA \u{03a9}*"),
+            "welcome for {lang} should mention *OMEGA \u{03a9}*"
         );
     }
 }
@@ -30,7 +30,7 @@ fn test_prompts_default_welcome_fallback() {
     let prompts = Prompts::default();
     let default = prompts.welcome.get("English").cloned().unwrap_or_default();
     let msg = prompts.welcome.get("Klingon").unwrap_or(&default);
-    assert!(msg.contains("*OMEGA*"));
+    assert!(msg.contains("*OMEGA \u{03a9}*"));
     assert!(msg.contains("honor"));
 }
 

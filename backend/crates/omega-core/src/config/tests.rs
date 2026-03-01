@@ -487,8 +487,8 @@ fn test_heartbeat_checklist_instructs_silent_suppression() {
         "heartbeat_checklist must instruct silent skipping of learned-rule-blocked items"
     );
     assert!(
-        prompts.heartbeat_checklist.contains("HEARTBEAT_REMOVE:"),
-        "heartbeat_checklist must instruct permanent removal of suppressed items"
+        prompts.heartbeat_checklist.contains("HEARTBEAT_OK"),
+        "heartbeat_checklist must instruct HEARTBEAT_OK when all items suppressed"
     );
     // Must NOT contain the old "acknowledge briefly" wording that caused verbose suppression.
     assert!(

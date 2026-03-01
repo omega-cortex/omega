@@ -216,7 +216,7 @@ mod tests {
     fn test_template_contains_standard_sections() {
         let template = bundled_workspace_claude();
         assert!(
-            template.contains("# OMEGA Workspace"),
+            template.contains("# OMEGA \u{03a9} Workspace"),
             "should have main heading"
         );
         assert!(

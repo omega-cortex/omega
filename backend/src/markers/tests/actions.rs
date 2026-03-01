@@ -106,7 +106,7 @@ fn test_append_bug_report_creates_file() {
     append_bug_report(tmp.to_str().unwrap(), "Cannot read heartbeat interval").unwrap();
 
     let content = std::fs::read_to_string(tmp.join("BUG.md")).unwrap();
-    assert!(content.contains("# OMEGA Bug Reports"));
+    assert!(content.contains("# OMEGA \u{03a9} Bug Reports"));
     assert!(content.contains("- **Cannot read heartbeat interval**"));
 
     let _ = std::fs::remove_dir_all(&tmp);
