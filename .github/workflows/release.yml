@@ -60,7 +60,8 @@ jobs:
         working-directory: backend
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }}
+            CROSS_CONTAINER_OPTS="--volume ${{ github.workspace }}/prompts:/prompts:ro --volume ${{ github.workspace }}/topologies:/topologies:ro --volume ${{ github.workspace }}/skills:/skills:ro" \
+              cross build --release --target ${{ matrix.target }}
           else
             cargo build --release --target ${{ matrix.target }}
           fi
