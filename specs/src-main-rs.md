@@ -49,7 +49,7 @@ The main entry point for the Omega binary. Orchestrates CLI argument parsing, ro
 
 **Fields:**
 - `command: Commands` — Subcommand to execute (Start, Status, Ask, Init)
-- `config: String` — Path to TOML config file (default: "config.toml")
+- `config: String` — Path to TOML config file (default: "~/.omega/config.toml")
 
 **Attributes:**
 - `#[derive(Parser)]` — Enables clap CLI parsing
@@ -156,7 +156,7 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
 - **About:** "Ω Omega — Personal AI Agent Infrastructure"
 
 ### Global Options
-- `-c, --config <CONFIG>` — Config file path (default: "config.toml")
+- `-c, --config <CONFIG>` — Config file path (default: "~/.omega/config.toml")
 
 ### Subcommands
 

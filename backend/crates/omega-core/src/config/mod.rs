@@ -319,8 +319,10 @@ pub fn patch_heartbeat_interval(config_path: &str, minutes: u64) {
 /// Load configuration from a TOML file.
 ///
 /// Falls back to defaults if the file does not exist.
+/// Supports `~` expansion in the path (e.g. `~/.omega/config.toml`).
 pub fn load(path: &str) -> Result<Config, OmegaError> {
-    let path = Path::new(path);
+    let expanded = shellexpand(path);
+    let path = Path::new(&expanded);
     if !path.exists() {
         tracing::info!(
             "Config file not found at {}, using defaults",

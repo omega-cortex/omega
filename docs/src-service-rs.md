@@ -215,8 +215,8 @@ WantedBy=default.target
 | Path | Resolution |
 |------|-----------|
 | Binary | `std::env::current_exe()` + `canonicalize()` — always absolute |
-| Config | `Path::canonicalize()` on the `-c` flag value — must exist |
-| Working directory | Parent of the config file |
+| Config | `shellexpand()` + `Path::canonicalize()` on the `-c` flag value — must exist |
+| Working directory | `~/.omega` (data directory, not source directory) |
 | Data directory | `~/.omega` via `shellexpand` |
 | Service file | OS-specific, derived from `$HOME` |
 
@@ -225,7 +225,7 @@ WantedBy=default.target
 ## Troubleshooting
 
 ### "config file not found — run `omega init` first"
-The config file specified via `-c` (default: `config.toml`) doesn't exist. Run `omega init` to create it, or specify the correct path.
+The config file specified via `-c` (default: `~/.omega/config.toml`) doesn't exist. Run `omega init` to create it, or specify the correct path.
 
 ### "cannot determine home directory"
 The `HOME` environment variable is not set. This is unusual — check your shell environment.

@@ -38,7 +38,7 @@ struct Cli {
     command: Commands,
 
     /// Path to config file.
-    #[arg(short, long, default_value = "config.toml")]
+    #[arg(short, long, default_value = "~/.omega/config.toml")]
     config: String,
 }
 
@@ -156,7 +156,9 @@ async fn main() -> anyhow::Result<()> {
 
 /// Start the OMEGA Ω agent.
 async fn cmd_start(config_path: &str) -> anyhow::Result<()> {
-    let config_path_owned = config_path.to_string();
+    // Expand ~ once so all downstream consumers (load, migrate, heartbeat patch) get an absolute path.
+    let config_path = shellexpand(config_path);
+    let config_path_owned = config_path.clone();
     let mut cfg = tokio::task::spawn_blocking(move || config::load(&config_path_owned))
         .await
         .map_err(|e| anyhow::anyhow!("config load task panicked: {e}"))??;
@@ -316,7 +318,7 @@ async fn cmd_start(config_path: &str) -> anyhow::Result<()> {
 /// Check system health and provider availability.
 async fn cmd_status(config_path: &str) -> anyhow::Result<()> {
     init_stdout_tracing("error");
-    let cp = config_path.to_string();
+    let cp = shellexpand(config_path);
     let cfg = tokio::task::spawn_blocking(move || config::load(&cp))
         .await
         .map_err(|e| anyhow::anyhow!("config load task panicked: {e}"))??;
@@ -367,7 +369,7 @@ async fn cmd_ask(config_path: &str, message: Vec<String>) -> anyhow::Result<()> 
     }
 
     let prompt = message.join(" ");
-    let cp = config_path.to_string();
+    let cp = shellexpand(config_path);
     let cfg = tokio::task::spawn_blocking(move || config::load(&cp))
         .await
         .map_err(|e| anyhow::anyhow!("config load task panicked: {e}"))??;

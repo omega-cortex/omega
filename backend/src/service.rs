@@ -140,19 +140,16 @@ pub fn install(config_path: &str) -> anyhow::Result<()> {
     let binary_str = binary.display().to_string();
     cliclack::log::info(format!("Binary: {binary_str}"))?;
 
-    // 2. Resolve config path — bail if missing.
-    let config_abs = Path::new(config_path).canonicalize().map_err(|_| {
+    // 2. Resolve config path (expand ~ first) — bail if missing.
+    let config_expanded = omega_core::shellexpand(config_path);
+    let config_abs = Path::new(&config_expanded).canonicalize().map_err(|_| {
         anyhow::anyhow!("config file '{config_path}' not found — run `omega init` first")
     })?;
     let config_str = config_abs.display().to_string();
     cliclack::log::info(format!("Config: {config_str}"))?;
 
-    // 3. Working directory = parent of config file.
-    let working_dir = config_abs
-        .parent()
-        .unwrap_or(Path::new("/"))
-        .display()
-        .to_string();
+    // 3. Working directory = ~/.omega (data dir, not source directory).
+    let working_dir = omega_core::shellexpand("~/.omega");
 
     // 4. Data directory.
     let data_dir = omega_core::shellexpand("~/.omega");
@@ -326,18 +323,15 @@ pub fn install_quiet(config_path: &str) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("cannot resolve binary path: {e}"))?;
     let binary_str = binary.display().to_string();
 
-    // 2. Resolve config path.
-    let config_abs = Path::new(config_path).canonicalize().map_err(|_| {
+    // 2. Resolve config path (expand ~ first).
+    let config_expanded = omega_core::shellexpand(config_path);
+    let config_abs = Path::new(&config_expanded).canonicalize().map_err(|_| {
         anyhow::anyhow!("config file '{config_path}' not found — run `omega init` first")
     })?;
     let config_str = config_abs.display().to_string();
 
-    // 3. Working directory = parent of config file.
-    let working_dir = config_abs
-        .parent()
-        .unwrap_or(Path::new("/"))
-        .display()
-        .to_string();
+    // 3. Working directory = ~/.omega (data dir, not source directory).
+    let working_dir = omega_core::shellexpand("~/.omega");
 
     // 4. Data directory.
     let data_dir = omega_core::shellexpand("~/.omega");

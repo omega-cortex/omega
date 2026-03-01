@@ -110,11 +110,12 @@ pub async fn run() -> anyhow::Result<()> {
     // 8. Google Workspace setup.
     let google_email = init_wizard::run_google_setup()?;
 
-    // 9. Generate config.toml.
-    let config_path = "config.toml";
+    // 9. Generate config.toml at ~/.omega/config.toml.
+    let config_path_expanded = shellexpand("~/.omega/config.toml");
+    let config_path = config_path_expanded.as_str();
     if Path::new(config_path).exists() {
         init_style::omega_warning(
-            "config.toml already exists — skipping.\nDelete it and run 'omega init' again to regenerate.",
+            "~/.omega/config.toml already exists — skipping.\nDelete it and run 'omega init' again to regenerate.",
         )?;
     } else {
         let user_ids: Vec<i64> = user_id.into_iter().collect();
@@ -126,7 +127,7 @@ pub async fn run() -> anyhow::Result<()> {
             google_email.as_deref(),
         );
         std::fs::write(config_path, config)?;
-        init_style::omega_success("Generated config.toml")?;
+        init_style::omega_success("Generated ~/.omega/config.toml")?;
     }
 
     // 11. Offer service installation.
@@ -135,7 +136,7 @@ pub async fn run() -> anyhow::Result<()> {
         .interact()?;
 
     let service_installed = if install_service {
-        match service::install(config_path) {
+        match service::install("~/.omega/config.toml") {
             Ok(()) => true,
             Err(e) => {
                 init_style::omega_warning(&format!("Service install failed: {e}"))?;
@@ -148,8 +149,9 @@ pub async fn run() -> anyhow::Result<()> {
     };
 
     // 12. Next steps.
-    let mut steps =
-        String::from("1. Review config.toml\n2. Run: omega start\n3. Send a message to your bot");
+    let mut steps = String::from(
+        "1. Review ~/.omega/config.toml\n2. Run: omega start\n3. Send a message to your bot",
+    );
     if whatsapp_enabled {
         steps.push_str("\n4. WhatsApp is linked and ready!");
     }
@@ -268,12 +270,15 @@ pub fn run_noninteractive(
     }
 
     // 6. Bail if config.toml already exists.
-    let config_path = "config.toml";
+    let config_path_expanded = shellexpand("~/.omega/config.toml");
+    let config_path = config_path_expanded.as_str();
     if Path::new(config_path).exists() {
-        anyhow::bail!("config.toml already exists — delete it first or use a different directory");
+        anyhow::bail!(
+            "~/.omega/config.toml already exists — delete it first or use a different directory"
+        );
     }
 
-    // 7. Generate and write config.toml.
+    // 7. Generate and write config.toml at ~/.omega/.
     let config = generate_config(
         telegram_token,
         &user_ids,
@@ -282,7 +287,7 @@ pub fn run_noninteractive(
         google_email,
     );
     std::fs::write(config_path, &config)?;
-    init_style::omega_success("Generated: config.toml")?;
+    init_style::omega_success("Generated: ~/.omega/config.toml")?;
 
     // 8. Deploy bundled prompts and skills.
     omega_core::config::install_bundled_prompts("~/.omega");
@@ -297,7 +302,7 @@ pub fn run_noninteractive(
     init_style::omega_success(&format!("Workspace: {}", ws.display()))?;
 
     // 10. Install system service (non-interactive).
-    match service::install_quiet(config_path) {
+    match service::install_quiet("~/.omega/config.toml") {
         Ok(()) => init_style::omega_success("Service: installed and activated")?,
         Err(e) => init_style::omega_warning(&format!(
             "Service install failed: {e}\nInstall later with: omega service install"
@@ -305,7 +310,7 @@ pub fn run_noninteractive(
     }
 
     // 11. Summary.
-    let mut summary = format!("Config: {config_path}\nStart: omega start");
+    let mut summary = "Config: ~/.omega/config.toml\nStart: omega start".to_string();
     if google_credentials.is_some() && google_email.is_some() {
         summary.push_str(&format!(
             "\nGoogle OAuth: complete post-deployment with:\n  gog auth add {} --services gmail,calendar,drive,contacts,docs,sheets",

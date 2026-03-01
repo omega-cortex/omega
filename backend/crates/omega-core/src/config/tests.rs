@@ -528,3 +528,50 @@ fn test_system_fact_keys_contains_pending_setup() {
         SYSTEM_FACT_KEYS
     );
 }
+
+// ===================================================================
+// REQ-CFG-005: config::load() expands tilde in path
+// ===================================================================
+
+#[test]
+fn test_load_expands_tilde_path() {
+    // Create a config file under $HOME so we can reference it with a tilde path.
+    let home = std::env::var("HOME").unwrap();
+    let test_dir = std::path::PathBuf::from(&home).join(".omega_test_cfg_tilde");
+    let _ = std::fs::remove_dir_all(&test_dir);
+    std::fs::create_dir_all(&test_dir).unwrap();
+
+    let cfg_path = test_dir.join("config.toml");
+    std::fs::write(
+        &cfg_path,
+        r#"[omega]
+name = "TildeTest"
+data_dir = "~/.omega"
+"#,
+    )
+    .unwrap();
+
+    // Load with absolute path should work (baseline).
+    let cfg = load(cfg_path.to_str().unwrap()).unwrap();
+    assert_eq!(cfg.omega.name, "TildeTest");
+
+    // Load with tilde path — needs shellexpand in load().
+    let tilde_path = "~/.omega_test_cfg_tilde/config.toml";
+    let cfg2 = load(tilde_path).unwrap();
+    assert_eq!(
+        cfg2.omega.name, "TildeTest",
+        "load() must expand ~ in config path — REQ-CFG-005"
+    );
+
+    let _ = std::fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_load_tilde_path_falls_back_to_defaults() {
+    // A tilde path pointing to a non-existent file should fall back to defaults.
+    let cfg = load("~/.omega/__nonexistent_test_config__.toml").unwrap();
+    assert_eq!(
+        cfg.omega.data_dir, "~/.omega",
+        "should return defaults when tilde-path file does not exist"
+    );
+}

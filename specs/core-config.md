@@ -304,8 +304,9 @@ pub fn load(path: &str) -> Result<Config, OmegaError>
 
 ### Behavior
 
-1. Converts `path` to a `std::path::Path`.
-2. If the file does not exist:
+1. Expands `~` in `path` via `shellexpand()` (e.g. `~/.omega/config.toml` → `/Users/<user>/.omega/config.toml`).
+2. Converts the expanded path to a `std::path::Path`.
+3. If the file does not exist:
    - Logs an info-level message via `tracing`.
    - Returns a fully-defaulted `Config` with `claude_code` explicitly set to `Some(ClaudeCodeConfig::default())`, and `heartbeat` and `scheduler` set to their defaults.
 3. If the file exists:
