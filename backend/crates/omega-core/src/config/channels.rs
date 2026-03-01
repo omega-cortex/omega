@@ -29,7 +29,7 @@ pub struct TelegramConfig {
 pub struct WhatsAppConfig {
     #[serde(default)]
     pub enabled: bool,
-    /// Allowed phone numbers (e.g. `["5511999887766"]`). Empty = allow all.
+    /// Allowed phone numbers (e.g. `["5511999887766"]`). Empty = deny all.
     #[serde(default)]
     pub allowed_users: Vec<String>,
     /// OpenAI API key for Whisper voice transcription. Presence = voice enabled.

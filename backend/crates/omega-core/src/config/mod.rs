@@ -20,6 +20,7 @@ use defaults::*;
 /// Top-level Omega configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
     pub omega: OmegaConfig,
     #[serde(default)]
     pub auth: AuthConfig,

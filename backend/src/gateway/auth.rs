@@ -36,8 +36,9 @@ fn check_auth_inner(channel_config: &ChannelConfig, incoming: &IncomingMessage) 
 
             match allowed {
                 Some(users) if users.is_empty() => {
-                    // Empty list with auth enabled = deny all.
-                    Some("no users configured in whatsapp allowed_users".to_string())
+                    // Empty list = allow all. WhatsApp has no upfront user IDs —
+                    // the phone number is only known after first message.
+                    None
                 }
                 Some(users) => {
                     if users.contains(&incoming.sender_id) {
@@ -254,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn whatsapp_empty_allowed_users_denied() {
+    fn whatsapp_empty_allowed_users_allows_all() {
         let config = ChannelConfig {
             telegram: None,
             whatsapp: Some(WhatsAppConfig {
@@ -265,10 +266,9 @@ mod tests {
         };
         let result = check_auth_inner(&config, &msg("whatsapp", "5511999887766"));
         assert!(
-            result.is_some(),
-            "Empty allowed_users should deny all whatsapp users"
+            result.is_none(),
+            "Empty allowed_users should allow all whatsapp users"
         );
-        assert!(result.unwrap().contains("no users configured"));
     }
 
     #[test]
