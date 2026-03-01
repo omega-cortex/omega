@@ -73,7 +73,9 @@ Gateway::run() spawns:
 
 A **project** is a named scope defined by a `ROLE.md` file at `~/.omega/projects/<name>/ROLE.md`. The file has TOML/YAML frontmatter with optional skill declarations and a markdown body with the project's role instructions.
 
-**Activation**: A project is activated by setting the `active_project` user fact (via `/project <name>` command or `PROJECT_ACTIVATE:` marker). Deactivation deletes that fact.
+**Activation**: A project is activated by setting the `active_project` user fact (via `/project <name>` command or `PROJECT_ACTIVATE:` marker). Deactivation deletes that fact and creates a `.disabled` marker file to stop its heartbeat.
+
+**Switching**: `/project change <name>` switches conversation context without deactivating the old project's heartbeat. The old project keeps being monitored while the conversation scope changes to the new one.
 
 **What project scoping affects**:
 - **Conversations**: `build_context()` filters conversations by `project` column. Active project conversations are separate from "no project" conversations.
@@ -89,7 +91,7 @@ A **project** is a named scope defined by a `ROLE.md` file at `~/.omega/projects
 **Yes.** The heartbeat system runs in two phases:
 
 1. **Global heartbeat**: Reads `~/.omega/prompts/HEARTBEAT.md`, classifies items into groups, executes each group.
-2. **Per-project heartbeats**: `run_project_heartbeats()` scans all users who have an `active_project` fact, checks if `~/.omega/projects/<name>/HEARTBEAT.md` exists, and runs a single-call heartbeat for each project.
+2. **Per-project heartbeats**: `run_project_heartbeats()` scans the `~/.omega/projects/` directory for all projects that have a `HEARTBEAT.md` file and do NOT have a `.disabled` marker. `/project off` creates `.disabled` (stops both heartbeat and conversation context). `/project change <name>` switches conversation context without creating `.disabled` for the old project, so its heartbeat continues.
 
 Per-project heartbeats get:
 - The project's `ROLE.md` instructions in the system prompt

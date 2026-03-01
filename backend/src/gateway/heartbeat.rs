@@ -3,7 +3,7 @@
 //! A fast Sonnet classification groups related checklist items by domain.
 //! Each group gets its own focused Opus session **in parallel**.
 //! Falls back to a single call when all items belong to the same domain.
-//! After global heartbeat, runs project-specific heartbeats for active projects.
+//! After global heartbeat, runs project-specific heartbeats for all projects with a HEARTBEAT.md.
 
 use super::heartbeat_helpers::{
     build_enrichment, build_system_prompt, process_heartbeat_markers, send_heartbeat_result,
@@ -67,7 +67,7 @@ impl Gateway {
     ///
     /// Skips the provider call entirely when no checklist is configured.
     /// After the global heartbeat, runs project-specific heartbeats for
-    /// active projects that have their own HEARTBEAT.md.
+    /// all projects that have their own HEARTBEAT.md (filesystem-based discovery).
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn heartbeat_loop(
         provider: Arc<dyn Provider>,
@@ -167,25 +167,29 @@ impl Gateway {
             let sender_id = &config.reply_target;
             let channel_name = &config.channel;
 
-            // --- Collect active projects with their own HEARTBEAT.md ---
-            // Used to strip project sections from the global heartbeat,
-            // preventing duplicate execution (REQ-HBDUP-001).
-            let active_projects = memory
-                .get_all_facts_by_key("active_project")
-                .await
-                .unwrap_or_default();
-            let mut projects_with_heartbeat: Vec<String> = Vec::new();
-            {
-                let mut seen = std::collections::HashSet::new();
-                for (_sid, pname) in &active_projects {
-                    if !pname.is_empty()
-                        && seen.insert(pname.clone())
-                        && read_project_heartbeat_file(pname).is_some()
-                    {
-                        projects_with_heartbeat.push(pname.clone());
-                    }
-                }
-            }
+            // --- Discover ALL projects with a HEARTBEAT.md file ---
+            // Filesystem-based: heartbeats run regardless of active_project state,
+            // so `/project off` only exits conversation context, not monitoring.
+            let projects_with_heartbeat: Vec<String> = {
+                let dir = format!("{}/projects", omega_core::config::shellexpand(&data_dir));
+                let mut names: Vec<String> = std::fs::read_dir(&dir)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().is_dir())
+                    .filter(|e| !e.path().join(".disabled").exists())
+                    .filter_map(|e| {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        if read_project_heartbeat_file(&name).is_some() {
+                            Some(name)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                names.sort(); // deterministic order
+                names
+            };
 
             // --- Global heartbeat ---
             if let Some(checklist) = read_heartbeat_file()
@@ -289,13 +293,7 @@ impl Gateway {
             }
 
             // --- Project heartbeats ---
-            // Reuse active_projects already collected above.
-            let mut seen_projects = std::collections::HashSet::new();
-            for (_sender_id, project_name) in &active_projects {
-                if project_name.is_empty() || !seen_projects.insert(project_name.clone()) {
-                    continue;
-                }
-
+            for project_name in &projects_with_heartbeat {
                 // Check if this project has its own HEARTBEAT.md.
                 let project_checklist = match read_project_heartbeat_file(project_name)
                     .and_then(|c| filter_suppressed_sections(&c, Some(project_name)))

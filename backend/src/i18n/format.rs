@@ -145,6 +145,20 @@ pub fn active_project(lang: &str, name: &str) -> String {
     }
 }
 
+/// Format the project switched confirmation (context changed, old keeps monitoring).
+pub fn project_switched(lang: &str, new_name: &str, old_name: &str) -> String {
+    match lang {
+        "Spanish" => format!("Cambiado a '{new_name}'. '{old_name}' sigue siendo monitoreado."),
+        "Portuguese" => format!("Mudou para '{new_name}'. '{old_name}' continua sendo monitorado."),
+        "French" => format!("Pass\u{00e9} \u{00e0} '{new_name}'. '{old_name}' continue d'\u{00ea}tre surveill\u{00e9}."),
+        "German" => format!("Gewechselt zu '{new_name}'. '{old_name}' wird weiterhin \u{00fc}berwacht."),
+        "Italian" => format!("Passato a '{new_name}'. '{old_name}' continua a essere monitorato."),
+        "Dutch" => format!("Overgeschakeld naar '{new_name}'. '{old_name}' wordt nog steeds gemonitord."),
+        "Russian" => format!("\u{041f}\u{0435}\u{0440}\u{0435}\u{043a}\u{043b}\u{044e}\u{0447}\u{0435}\u{043d}\u{043e} \u{043d}\u{0430} '{new_name}'. '{old_name}' \u{043f}\u{0440}\u{043e}\u{0434}\u{043e}\u{043b}\u{0436}\u{0430}\u{0435}\u{0442} \u{043e}\u{0442}\u{0441}\u{043b}\u{0435}\u{0436}\u{0438}\u{0432}\u{0430}\u{0442}\u{044c}\u{0441}\u{044f}."),
+        _ => format!("Switched to '{new_name}'. '{old_name}' continues being monitored."),
+    }
+}
+
 /// Format the "Scheduled N tasks:" header.
 pub fn tasks_confirmed(lang: &str, n: usize) -> String {
     match lang {

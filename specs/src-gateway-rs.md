@@ -366,7 +366,7 @@ If sandbox:        + sandbox constraint (unchanged)
 1. Loop forever, reading the interval from the shared `AtomicU64` on each iteration. Sleep is **clock-aligned**.
 2. Check active hours; skip if outside window.
 3. **Global heartbeat:** Read checklist from `~/.omega/prompts/HEARTBEAT.md` via `read_heartbeat_file()`. If present, execute via classify-then-route (same as before).
-4. **Per-project heartbeat:** Query `get_all_facts_by_key("active_project")` to find all users with active projects. For each `(sender_id, project_name)`, read `~/.omega/projects/<project_name>/HEARTBEAT.md` via `read_project_heartbeat_file()`. If present, build project-scoped enrichment (lessons and outcomes filtered to project) and execute. Project name is threaded through all marker processing (`store_outcome`, `store_lesson`, `create_task` all receive the project).
+4. **Per-project heartbeat:** Discover projects via filesystem scan of `~/.omega/projects/` — all directories containing a `HEARTBEAT.md` file get heartbeat execution, regardless of `active_project` conversation state. For each project, read `~/.omega/projects/<project_name>/HEARTBEAT.md` via `read_project_heartbeat_file()`. If present, build project-scoped enrichment (lessons and outcomes filtered to project) and execute. Project name is threaded through all marker processing (`store_outcome`, `store_lesson`, `create_task` all receive the project).
 5. **Build enrichment and system prompt** via `build_enrichment()` and `build_system_prompt()` — for project heartbeats, enrichment is scoped to the project.
 6. **Classify checklist** via `classify_heartbeat_groups()` — fast Sonnet call (no tools) that returns `None` for DIRECT or `Some(Vec<String>)` for grouped domains.
 7. **DIRECT path (None):** Single Opus call via `execute_heartbeat_group()` with the full checklist. Result handled by `send_heartbeat_result()`.
@@ -621,7 +621,7 @@ If sandbox:        + sandbox constraint (unchanged)
 **Stage 5: Process Markers**
 - After SILENT suppression check:
 - Call `self.process_markers(&incoming, &mut response.text, active_project.as_deref())` — a unified method that extracts and processes all markers from the provider response. The `active_project` is threaded through so all side effects (task creation, outcome/lesson storage, heartbeat file writes) are project-scoped. This same method is called on each step result in `execute_steps()`, ensuring markers work in both direct and multi-step paths.
-- Markers processed in order: SCHEDULE, SCHEDULE_ACTION, PROJECT_ACTIVATE/DEACTIVATE, WHATSAPP_QR, LANG_SWITCH, REWARD, LESSON, HEARTBEAT_ADD/REMOVE/INTERVAL, SKILL_IMPROVE.
+- Markers processed in order: SCHEDULE, SCHEDULE_ACTION, PROJECT_DEACTIVATE (creates `.disabled`), PROJECT_ACTIVATE (removes `.disabled`), WHATSAPP_QR, LANG_SWITCH, REWARD, LESSON, HEARTBEAT_ADD/REMOVE/INTERVAL, SKILL_IMPROVE.
 - Each marker is stripped from the response text after processing.
 
 **Stage 6: Store Exchange in Memory (Lines 579-582)**
@@ -835,11 +835,12 @@ If sandbox:        + sandbox constraint (unchanged)
 **Markers processed (in order):**
 1. SCHEDULE — create reminder task
 2. SCHEDULE_ACTION — create action task
-3. PROJECT_ACTIVATE / PROJECT_DEACTIVATE — activate/deactivate project
-4. WHATSAPP_QR — trigger WhatsApp QR pairing
-5. LANG_SWITCH — persist language preference
-6. PERSONALITY — set/reset personality preference (conversational `/personality`)
-7. FORGET_CONVERSATION — close current conversation (conversational `/forget`)
+3. PROJECT_DEACTIVATE — create `.disabled` marker + deactivate project (processed BEFORE ACTIVATE)
+4. PROJECT_ACTIVATE — remove `.disabled` marker + activate project
+5. WHATSAPP_QR — trigger WhatsApp QR pairing
+6. LANG_SWITCH — persist language preference
+7. PERSONALITY — set/reset personality preference (conversational `/personality`)
+8. FORGET_CONVERSATION — close current conversation (conversational `/forget`)
 8. CANCEL_TASK — cancel scheduled tasks by ID prefix (conversational `/cancel`), processes ALL markers via `extract_all_cancel_tasks()`, pushes `MarkerResult::TaskCancelled` or `MarkerResult::TaskCancelFailed` per task
 9. UPDATE_TASK — update fields of pending tasks by ID prefix (description, due_at, repeat; empty fields keep existing values), processes ALL markers via `extract_all_update_tasks()`, pushes `MarkerResult::TaskUpdated` or `MarkerResult::TaskUpdateFailed` per task
 10. PURGE_FACTS — delete all non-system facts, preserving system keys (conversational `/purge`)

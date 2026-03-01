@@ -272,7 +272,8 @@ The AI embeds structured commands in its response. The gateway extracts, execute
 | `HEARTBEAT_INTERVAL: minutes` | Change heartbeat frequency |
 | `SKILL_IMPROVE: name \| lesson` | Append lesson to skill's SKILL.md |
 | `BUG_REPORT: description` | Append to ~/.omega/BUG.md |
-| `PROJECT_ACTIVATE: name` | Switch active project |
+| `PROJECT_ACTIVATE: name` | Switch active project + remove `.disabled` marker |
+| `PROJECT_DEACTIVATE` | Deactivate project + create `.disabled` marker |
 | `PURGE_FACTS` | Delete all non-system user facts |
 
 ### 6.3 Store in Memory
@@ -394,7 +395,7 @@ OMEGA's reward-based learning system is project-aware. Every outcome (`REWARD:` 
 2. **Context building** passes `active_project` to `build_context()`, which loads project-scoped outcomes and lessons
 3. **System prompt** includes a `[Project: name]` badge when a project is active
 4. **Marker processing** passes `active_project` to `process_markers()`, which tags all emitted `REWARD:`, `LESSON:`, `SCHEDULE:`, and `SCHEDULE_ACTION:` markers with the project
-5. **Heartbeat loop** runs per-project heartbeats for active projects that have their own `HEARTBEAT.md`
+5. **Heartbeat loop** runs per-project heartbeats for projects that have their own `HEARTBEAT.md` and do NOT have a `.disabled` marker file (filesystem-based discovery). `/project off` creates `.disabled` (stops heartbeat); `/project change <name>` switches context without disabling the old project's heartbeat
 6. **Action tasks** inherit the project scope and execute with the project's `ROLE.md` context
 
 ### Isolation Model

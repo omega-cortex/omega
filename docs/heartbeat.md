@@ -231,7 +231,7 @@ The extraction of helpers keeps the main loop readable while concentrating reusa
 
 ## Per-Project Heartbeats
 
-After running the global heartbeat (`~/.omega/prompts/HEARTBEAT.md`), the heartbeat loop iterates all active projects that have their own heartbeat checklist:
+After running the global heartbeat (`~/.omega/prompts/HEARTBEAT.md`), the heartbeat loop discovers ALL projects with their own heartbeat checklist via filesystem scan (independent of conversation state):
 
 ```
 ~/.omega/projects/<project-name>/HEARTBEAT.md
@@ -239,8 +239,9 @@ After running the global heartbeat (`~/.omega/prompts/HEARTBEAT.md`), the heartb
 
 ### How It Works
 
-1. **Scan active projects** -- The heartbeat queries all users' `active_project` facts via `get_all_facts_by_key("active_project")` to find projects with engaged users
-2. **Check for HEARTBEAT.md** -- For each active project, check if `~/.omega/projects/<name>/HEARTBEAT.md` exists and has content
+1. **Scan project directories** -- The heartbeat scans `~/.omega/projects/` for all subdirectories that do NOT have a `.disabled` marker file. `/project off` creates this marker (stops heartbeat + clears conversation context). `/project change <name>` switches conversation context without creating `.disabled` for the old project, so its heartbeat continues.
+2. **Check for .disabled marker** -- Projects with `~/.omega/projects/<name>/.disabled` are skipped entirely. The marker is created by `/project off` and `PROJECT_DEACTIVATE`, and removed by `/project <name>` and `PROJECT_ACTIVATE:`.
+3. **Check for HEARTBEAT.md** -- For each non-disabled project directory, check if `~/.omega/projects/<name>/HEARTBEAT.md` exists and has content
 3. **Load ROLE.md** -- The project's `ROLE.md` is prepended to the system prompt, giving the AI project-specific role context
 4. **Scoped enrichment** -- Lessons and outcomes are loaded with the project filter: project-specific entries first, general entries fill the rest. Enrichment is injected before the checklist template so learned rules frame behavior
 5. **Execute** -- The same classify-then-route pattern applies: Sonnet groups items by domain, Opus executes groups in parallel
@@ -248,7 +249,7 @@ After running the global heartbeat (`~/.omega/prompts/HEARTBEAT.md`), the heartb
 
 ### Example
 
-If user has `active_project = "omega-trader"` and `~/.omega/projects/omega-trader/HEARTBEAT.md` contains:
+If `~/.omega/projects/omega-trader/HEARTBEAT.md` exists and contains:
 
 ```markdown
 - Check BTC price movement in the last 4 hours
@@ -256,7 +257,7 @@ If user has `active_project = "omega-trader"` and `~/.omega/projects/omega-trade
 ```
 
 The heartbeat will:
-1. **Deduplicate:** Strip any sections from the global `HEARTBEAT.md` whose names match active projects with their own `HEARTBEAT.md` (case-insensitive, hyphens/underscores normalized to spaces). If all sections are stripped, the global phase is skipped entirely.
+1. **Deduplicate:** Strip any sections from the global `HEARTBEAT.md` whose names match projects with their own `HEARTBEAT.md` (case-insensitive, hyphens/underscores normalized to spaces). If all sections are stripped, the global phase is skipped entirely.
 2. Run the remaining global `~/.omega/prompts/HEARTBEAT.md` items (if any survive deduplication and suppression)
 3. Then run the `omega-trader` heartbeat with the trading project's `ROLE.md` context and project-scoped lessons/outcomes
 

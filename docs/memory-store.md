@@ -373,7 +373,7 @@ The five scheduler-related methods on the store:
 Three additional methods support the heartbeat loop's context-aware check-ins:
 
 - **`get_all_facts()`** -- Returns all facts across all users (excluding internal `welcomed` markers), ordered by key. Used by the heartbeat to give the AI awareness of who it's monitoring for.
-- **`get_all_facts_by_key(key)`** -- Returns all facts with a specific key across all users (e.g., `get_all_facts_by_key("active_project")` to find all users with an active project). Used by the heartbeat to discover which projects need per-project heartbeat execution.
+- **`get_all_facts_by_key(key)`** -- Returns all facts with a specific key across all users (e.g., `get_all_facts_by_key("active_project")` to find all users with an active project). Available for cross-user queries; heartbeat discovery now uses filesystem scanning instead.
 - **`get_all_recent_summaries(limit)`** -- Returns recent closed conversation summaries across all users, ordered newest-first. Used by the heartbeat with `limit = 3` to give the AI context about recent user activity.
 
 ## Reward-Based Learning

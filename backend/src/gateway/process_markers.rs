@@ -119,10 +119,37 @@ impl Gateway {
         }
         *text = strip_schedule_action_markers(text);
 
-        // PROJECT_ACTIVATE / PROJECT_DEACTIVATE
+        // PROJECT_DEACTIVATE must run BEFORE PROJECT_ACTIVATE so that combined
+        // markers (deactivate old + activate new) read the old project name first.
+        let fresh_projects = omega_skills::load_projects(&self.data_dir);
+        if has_project_deactivate(text) {
+            // Create .disabled marker for current project to stop its heartbeat.
+            if let Ok(Some(current)) = self
+                .memory
+                .get_fact(&incoming.sender_id, "active_project")
+                .await
+            {
+                if let Some(proj) = fresh_projects.iter().find(|p| p.name == current) {
+                    let _ = std::fs::write(proj.path.join(".disabled"), "");
+                }
+            }
+            if let Err(e) = self
+                .memory
+                .delete_fact(&incoming.sender_id, "active_project")
+                .await
+            {
+                error!("failed to deactivate project: {e}");
+            } else {
+                info!("project deactivated");
+            }
+            *text = strip_project_markers(text);
+        }
         if let Some(project_name) = extract_project_activate(text) {
-            let fresh_projects = omega_skills::load_projects(&self.data_dir);
             if omega_skills::get_project_instructions(&fresh_projects, &project_name).is_some() {
+                // Remove .disabled marker so heartbeat runs for this project.
+                if let Some(proj) = fresh_projects.iter().find(|p| p.name == project_name) {
+                    let _ = std::fs::remove_file(proj.path.join(".disabled"));
+                }
                 if let Err(e) = self
                     .memory
                     .store_fact(&incoming.sender_id, "active_project", &project_name)
@@ -134,18 +161,6 @@ impl Gateway {
                 }
             } else {
                 warn!("project activate marker for unknown project: {project_name}");
-            }
-            *text = strip_project_markers(text);
-        }
-        if has_project_deactivate(text) {
-            if let Err(e) = self
-                .memory
-                .delete_fact(&incoming.sender_id, "active_project")
-                .await
-            {
-                error!("failed to deactivate project: {e}");
-            } else {
-                info!("project deactivated");
             }
             *text = strip_project_markers(text);
         }

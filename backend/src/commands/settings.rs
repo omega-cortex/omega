@@ -146,16 +146,51 @@ pub(super) async fn handle_project(
     }
 
     if arg == "off" {
-        // Deactivate — session persists in SQLite for later resume.
+        // Deactivate — create .disabled marker to stop heartbeat, then delete fact.
+        if let Ok(Some(current)) = store.get_fact(sender_id, "active_project").await {
+            if let Some(proj) = projects.iter().find(|p| p.name == current) {
+                let _ = std::fs::write(proj.path.join(".disabled"), "");
+            }
+        }
         match store.delete_fact(sender_id, "active_project").await {
             Ok(true) => i18n::t("project_deactivated", lang).to_string(),
             Ok(false) => i18n::t("no_active_project", lang).to_string(),
             Err(e) => format!("Error: {e}"),
         }
+    } else if let Some(new_name) = arg.strip_prefix("change ").map(|s| s.trim()) {
+        // Switch conversation context without disabling old project's heartbeat.
+        if new_name.is_empty() {
+            return i18n::t("project_change_usage", lang).to_string();
+        }
+        if omega_skills::get_project_instructions(projects, new_name).is_none() {
+            return i18n::project_not_found(lang, new_name);
+        }
+        // Remove .disabled for new project (ensure heartbeat runs).
+        if let Some(proj) = projects.iter().find(|p| p.name == new_name) {
+            let _ = std::fs::remove_file(proj.path.join(".disabled"));
+        }
+        let old_name = store
+            .get_fact(sender_id, "active_project")
+            .await
+            .ok()
+            .flatten();
+        match store
+            .store_fact(sender_id, "active_project", new_name)
+            .await
+        {
+            Ok(()) => match old_name {
+                Some(old) => i18n::project_switched(lang, new_name, &old),
+                None => i18n::project_activated(lang, new_name),
+            },
+            Err(e) => format!("Error: {e}"),
+        }
     } else {
-        // Activate — old project's session persists for future resume.
+        // Activate — remove .disabled marker to ensure heartbeat runs.
         if omega_skills::get_project_instructions(projects, &arg).is_none() {
             return i18n::project_not_found(lang, &arg);
+        }
+        if let Some(proj) = projects.iter().find(|p| p.name == arg) {
+            let _ = std::fs::remove_file(proj.path.join(".disabled"));
         }
         match store.store_fact(sender_id, "active_project", &arg).await {
             Ok(()) => i18n::project_activated(lang, &arg),
