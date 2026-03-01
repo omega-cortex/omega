@@ -1,47 +1,44 @@
-# Functionalities: Markers
+# Functionalities: Process Markers + Shared Markers
 
 ## Overview
-The marker protocol allows AI responses to contain structured side-effect instructions. The gateway extracts markers, processes them (creating tasks, storing facts, modifying files), then strips them before sending the response to the user. This is the primary mechanism for AI autonomy.
+
+The marker system is a protocol between AI responses and the gateway. The AI embeds structured markers in its response text (e.g., `SCHEDULE: ...`, `PROJECT_ACTIVATE: ...`), which the gateway extracts, processes (creating tasks, updating state), and strips before sending the cleaned response to the user.
 
 ## Functionalities
 
 | # | Name | Type | Location | Description | Dependencies |
 |---|------|------|----------|-------------|--------------|
-| 1 | extract_all_schedule_markers() | Function | backend/src/markers/schedule.rs:12 | Extracts all SCHEDULE: lines from response text | -- |
-| 2 | parse_schedule_line() | Function | backend/src/markers/schedule.rs:20 | Parses `SCHEDULE: desc \| ISO datetime \| repeat` into (desc, due_at, repeat) | -- |
-| 3 | strip_schedule_marker() | Function | backend/src/markers/schedule.rs:36 | Strips all SCHEDULE: lines from response text | -- |
-| 4 | extract_all_schedule_action_markers() | Function | backend/src/markers/schedule.rs:58 | Extracts all SCHEDULE_ACTION: lines | -- |
-| 5 | parse_schedule_action_line() | Function | backend/src/markers/schedule.rs:66 | Parses `SCHEDULE_ACTION: desc \| ISO datetime \| repeat` | -- |
-| 6 | strip_schedule_action_marker() | Function | backend/src/markers/schedule.rs:~80 | Strips all SCHEDULE_ACTION: lines | -- |
-| 7 | extract_inline_marker_value() | Function | backend/src/markers/mod.rs:~10 | Extracts value for a named inline marker (e.g., LANG_SWITCH: value) | -- |
-| 8 | strip_inline_marker() | Function | backend/src/markers/mod.rs:~20 | Strips a single named inline marker from text | -- |
-| 9 | strip_all_remaining_markers() | Function | backend/src/markers/mod.rs:~30 | Safety net: strips any remaining known markers (catches inline markers from small models) | -- |
-| 10 | LANG_SWITCH marker | Protocol | backend/src/markers/protocol.rs | Switches user's preferred_language fact | Memory |
-| 11 | PERSONALITY marker | Protocol | backend/src/markers/protocol.rs | Sets user's personality fact | Memory |
-| 12 | FORGET_CONVERSATION marker | Protocol | backend/src/markers/protocol.rs | Closes current conversation (triggers summarization) | Memory |
-| 13 | CANCEL_TASK marker | Protocol | backend/src/markers/protocol.rs | Cancels a task by ID prefix | Memory |
-| 14 | UPDATE_TASK marker | Protocol | backend/src/markers/protocol.rs | Updates a task's description | Memory |
-| 15 | PURGE_FACTS marker | Protocol | backend/src/markers/protocol.rs | Deletes all non-system facts | Memory |
-| 16 | PROJECT_ACTIVATE marker | Protocol | backend/src/markers/protocol.rs | Activates a project by setting active_project fact | Memory |
-| 17 | PROJECT_DEACTIVATE marker | Protocol | backend/src/markers/protocol.rs | Deactivates current project | Memory |
-| 18 | BUILD_PROPOSAL marker | Protocol | backend/src/markers/protocol.rs | Proposes a build request (enters confirmation gate) | Gateway |
-| 19 | WHATSAPP_QR marker | Protocol | backend/src/markers/protocol.rs | Triggers WhatsApp QR pairing flow | WhatsApp channel |
-| 20 | HEARTBEAT_ADD/REMOVE/INTERVAL markers | Protocol | backend/src/markers/heartbeat.rs | Add/remove items from heartbeat watchlist; change interval | Filesystem, config |
-| 21 | SKILL_IMPROVE marker | Protocol | backend/src/markers/actions.rs | Appends lesson to skill's ## Lessons Learned section | Skills, filesystem |
-| 22 | BUG_REPORT marker | Protocol | backend/src/markers/actions.rs | Appends bug description to {data_dir}/BUG.md | Filesystem |
-| 23 | ACTION_OUTCOME marker | Protocol | backend/src/markers/actions.rs | Enum: Success or Failed(String); used by action tasks for verification | Scheduler |
-| 24 | REWARD marker | Protocol | backend/src/markers/actions.rs | `REWARD: score\|domain\|lesson` (score -1 to +1); stores outcome | Memory |
-| 25 | LESSON marker | Protocol | backend/src/markers/actions.rs | `LESSON: domain\|rule`; stores distilled behavioral rule | Memory |
-| 26 | HeartbeatAction enum | Enum | backend/src/markers/heartbeat.rs:~5 | Add(String), Remove(String), SetInterval(u64) | -- |
+| 1 | process_markers() | Service | `backend/src/gateway/process_markers.rs:17` | Extracts and processes all markers from provider response text. Handles 18+ marker types in sequence | All marker extractors/processors |
+| 2 | SCHEDULE marker | Marker | `backend/src/gateway/process_markers.rs:27` | Creates reminder tasks from SCHEDULE markers (description, due_at, repeat) | Store::create_task |
+| 3 | SCHEDULE_ACTION marker | Marker | `backend/src/gateway/process_markers.rs:75` | Creates action tasks from SCHEDULE_ACTION markers (provider-executed, not user-facing) | Store::create_task |
+| 4 | PROJECT_DEACTIVATE marker | Marker | `backend/src/gateway/process_markers.rs:125` | Deactivates current project: writes .disabled marker, deletes active_project fact | Store::delete_fact |
+| 5 | PROJECT_ACTIVATE marker | Marker | `backend/src/gateway/process_markers.rs:147` | Activates a project: removes .disabled marker, stores active_project fact, emits MarkerResult::ProjectActivated | Store::store_fact |
+| 6 | BUILD_PROPOSAL marker | Marker | `backend/src/gateway/process_markers.rs:172` | Stores a build proposal as pending_build_request fact for user confirmation | Store::store_fact |
+| 7 | WHATSAPP_QR marker | Marker | `backend/src/gateway/process_markers.rs:190` | Triggers WhatsApp QR pairing flow | handle_whatsapp_qr |
+| 8 | LANG_SWITCH marker | Marker | `backend/src/gateway/process_markers.rs:196` | Updates user's preferred_language fact | Store::store_fact |
+| 9 | PERSONALITY marker | Marker | `backend/src/gateway/process_markers.rs:210` | Sets or resets user personality preference | Store::store_fact / delete_fact |
+| 10 | FORGET_CONVERSATION marker | Marker | `backend/src/gateway/process_markers.rs:234` | Closes current conversation and clears CLI session | Store::close_current_conversation, clear_session |
+| 11 | PURGE_FACTS marker | Marker | `backend/src/gateway/process_markers.rs:255` | Purges all non-system facts for sender, preserving SYSTEM_FACT_KEYS | Store::delete_facts, store_fact |
+| 12 | HEARTBEAT_ADD/REMOVE/INTERVAL markers | Marker | `backend/src/gateway/process_markers.rs:261` | Modifies heartbeat checklist and interval, persists to config.toml | apply_heartbeat_changes, patch_heartbeat_interval |
+| 13 | HEARTBEAT_SUPPRESS/UNSUPPRESS markers | Marker | `backend/src/gateway/process_markers.rs:287` | Suppresses/unsuppresses heartbeat checklist sections | apply_suppress_actions |
+| 14 | SKILL_IMPROVE marker | Marker | `backend/src/gateway/process_markers.rs:373` | Updates skill files with learned lessons | apply_skill_improve |
+| 15 | BUG_REPORT marker | Marker | `backend/src/gateway/process_markers.rs:395` | Appends bug report to BUG.md file | append_bug_report |
+| 16 | send_task_confirmation() | Service | `backend/src/gateway/process_markers.rs:323` | Anti-hallucination: formats confirmation with actual DB results, detects similar existing tasks | format_task_confirmation, descriptions_are_similar |
+| 17 | process_purge_facts() | Service | `backend/src/gateway/process_markers.rs:415` | Purges user facts while preserving system-managed keys | Store::get_facts, delete_facts |
+| 18 | process_improvement_markers() | Service | `backend/src/gateway/process_markers.rs:373` | Processes SKILL_IMPROVE and BUG_REPORT markers | apply_skill_improve, append_bug_report |
+| 19 | process_task_and_learning_markers() | Service | `backend/src/gateway/shared_markers.rs:15` | Shared processing for CANCEL_TASK, UPDATE_TASK, REWARD, LESSON markers across pipeline/action/heartbeat | Store::cancel_task, update_task, store_outcome, store_lesson |
+| 20 | Marker module (extract/strip) | Library | `backend/src/markers/mod.rs` | Marker extraction, parsing, and stripping organized into submodules: schedule, protocol, heartbeat, actions, helpers | -- |
+| 21 | extract_inline_marker_value() | Utility | `backend/src/markers/mod.rs:28` | Generic inline marker value extraction (line-start + inline fallback) | -- |
+| 22 | strip_inline_marker() | Utility | `backend/src/markers/mod.rs:60` | Generic inline marker stripping (line-start removes whole line, inline keeps prefix) | -- |
+| 23 | strip_all_remaining_markers() | Utility | `backend/src/markers/mod.rs:88` | Safety net: strips any of 21 known marker prefixes still remaining in text | -- |
 
 ## Internal Dependencies
-- process_markers() [gateway] -> all extract/parse/strip functions
-- SCHEDULE markers -> create_task() [memory]
-- HEARTBEAT markers -> apply_heartbeat_changes() -> filesystem + config
-- REWARD/LESSON -> store_outcome() / store_lesson() [memory]
-- SKILL_IMPROVE -> filesystem (appends to SKILL.md)
-- BUG_REPORT -> filesystem (appends to BUG.md)
+
+- process_markers() calls all individual marker extractors/processors in sequence
+- process_task_and_learning_markers() is shared across process_markers(), scheduler_action, heartbeat_helpers
+- send_task_confirmation() uses task_confirmation::format_task_confirmation()
+- All marker extraction/stripping functions are in markers/* submodules
 
 ## Dead Code / Unused
-- **extract_schedule_marker()**: `backend/src/markers/schedule.rs:4` -- marked `#[allow(dead_code)]`, superseded by `extract_all_schedule_markers()`
-- **extract_schedule_action_marker()**: `backend/src/markers/schedule.rs:50` -- marked `#[allow(dead_code)]`, superseded by `extract_all_schedule_action_markers()`
+
+- `#[allow(dead_code)]` on schedule marker parsing helpers (`backend/src/markers/schedule.rs:4,50`) -- struct fields constructed but some not read directly

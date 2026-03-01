@@ -1,31 +1,30 @@
 # Functionalities: Heartbeat
 
 ## Overview
-The heartbeat system provides autonomous periodic check-ins. It reads checklist files (global + per-project), classifies items into semantic groups, executes each group via the AI provider, processes resulting markers, and delivers findings to the user. It operates entirely without user input.
+
+The heartbeat system performs periodic AI check-ins on a clock-aligned schedule. It uses a fast model (Sonnet) to classify checklist items into domain groups, then executes each group in parallel with the complex model (Opus). Project-specific heartbeats are also supported.
 
 ## Functionalities
 
 | # | Name | Type | Location | Description | Dependencies |
 |---|------|------|----------|-------------|--------------|
-| 1 | heartbeat_loop() | Background Loop | backend/src/gateway/heartbeat.rs:~10 | Clock-aligned periodic loop; checks active hours; runs global then per-project heartbeats | Config, provider, memory |
-| 2 | classify_heartbeat_groups() | Method | backend/src/gateway/heartbeat.rs:~80 | Classifies checklist items into semantic groups via Sonnet; returns DIRECT for <=3 items or same domain | Provider |
-| 3 | execute_heartbeat_group() | Method | backend/src/gateway/heartbeat.rs:~120 | Builds enrichment + checklist prompt, calls provider via Opus, processes markers; returns None if HEARTBEAT_OK | Provider, memory, markers |
-| 4 | run_project_heartbeats() | Method | backend/src/gateway/heartbeat.rs:~160 | Discovers projects via filesystem scan of `~/.omega/projects/`; skips projects with `.disabled` marker file; checks for per-project HEARTBEAT.md; runs single-call heartbeat per project | Filesystem |
-| 5 | build_enrichment() | Function | backend/src/gateway/heartbeat_helpers.rs:~10 | Loads all facts + recent summaries (3) + lessons (project-scoped) + outcomes (24h, project-scoped) for context | Memory |
-| 6 | build_system_prompt() | Function | backend/src/gateway/heartbeat_helpers.rs:~40 | Identity + Soul + System + current time + optional project ROLE.md | Prompts, projects |
-| 7 | process_heartbeat_markers() | Function | backend/src/gateway/heartbeat_helpers.rs:~70 | Handles SCHEDULE, SCHEDULE_ACTION, HEARTBEAT_ADD/REMOVE/INTERVAL, CANCEL_TASK, UPDATE_TASK, REWARD, LESSON; all project-tagged | Markers, memory |
-| 8 | send_heartbeat_result() | Function | backend/src/gateway/heartbeat_helpers.rs:~120 | Audits the heartbeat interaction and sends result to configured channel | Audit, channel |
-| 9 | read_heartbeat_file() | Function | backend/src/markers/heartbeat.rs:~5 | Reads ~/.omega/prompts/HEARTBEAT.md | Filesystem |
-| 10 | read_project_heartbeat_file() | Function | backend/src/markers/heartbeat.rs:~15 | Reads ~/.omega/projects/<name>/HEARTBEAT.md | Filesystem |
-| 11 | apply_heartbeat_changes() | Function | backend/src/markers/heartbeat.rs:~25 | Applies Add/Remove/SetInterval actions to heartbeat files; project-aware; duplicate prevention; case-insensitive matching | Filesystem, config |
-| 12 | /heartbeat command | Handler | backend/src/commands/settings.rs:172 | Shows heartbeat status (enabled/disabled), interval, and current watchlist items | Config, filesystem, i18n |
+| 1 | heartbeat_loop() | Background Task | `backend/src/gateway/heartbeat.rs` | Clock-aligned heartbeat loop: quiet hours jump-ahead, wall-clock re-snap after system sleep, global + project heartbeats, interval notification via Notify | Provider, Channels, HeartbeatConfig |
+| 2 | next_clock_boundary() | Utility | `backend/src/gateway/heartbeat.rs:31` | Computes next clock-aligned boundary given current minute and interval | -- |
+| 3 | classify_heartbeat_groups() | Service | `backend/src/gateway/heartbeat.rs` | Fast Sonnet classification of checklist items into domain groups for parallel execution | Provider |
+| 4 | execute_heartbeat_group() | Service | `backend/src/gateway/heartbeat.rs` | Executes a single heartbeat domain group with Opus, processes markers | Provider |
+| 5 | is_nothing_to_report() | Utility | `backend/src/gateway/heartbeat.rs` | Detects "nothing to report" / HEARTBEAT_OK responses | -- |
+| 6 | Project heartbeats | Service | `backend/src/gateway/heartbeat.rs` | Filesystem-based discovery of project-specific HEARTBEAT.md files, executes each project heartbeat | load_projects, read_project_heartbeat_file |
+| 7 | build_enrichment() | Service | `backend/src/gateway/heartbeat_helpers.rs` | Builds enrichment context (lessons, outcomes, profile) for heartbeat execution | Store |
+| 8 | build_system_prompt() | Service | `backend/src/gateway/heartbeat_helpers.rs` | Builds system prompt for heartbeat execution | Prompts |
+| 9 | process_heartbeat_markers() | Service | `backend/src/gateway/heartbeat_helpers.rs` | Processes markers from heartbeat responses (SCHEDULE, HEARTBEAT_*, CANCEL/UPDATE/REWARD/LESSON, PROJECT) | shared_markers |
+| 10 | send_heartbeat_result() | Service | `backend/src/gateway/heartbeat_helpers.rs` | Sends heartbeat results to channel, skipping HEARTBEAT_OK responses | Channel |
 
 ## Internal Dependencies
-- heartbeat_loop() -> classify_heartbeat_groups() -> execute_heartbeat_group()
-- heartbeat_loop() -> run_project_heartbeats()
-- execute_heartbeat_group() -> build_enrichment() + build_system_prompt() + process_heartbeat_markers()
-- process_heartbeat_markers() -> apply_heartbeat_changes() (for HEARTBEAT_ADD/REMOVE/INTERVAL)
-- apply_heartbeat_changes() -> patch_heartbeat_interval() (persists to config.toml)
+
+- heartbeat_loop() calls classify_heartbeat_groups() -> execute_heartbeat_group() for global heartbeat
+- heartbeat_loop() iterates projects with HEARTBEAT.md for project heartbeats
+- process_heartbeat_markers() reuses shared_markers::process_task_and_learning_markers()
 
 ## Dead Code / Unused
-None detected.
+
+- None detected.
