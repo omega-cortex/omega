@@ -17,6 +17,10 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             name: omega-linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: omega-linux-aarch64
+            cross: true
           - target: aarch64-apple-darwin
             os: macos-14
             name: omega-darwin-aarch64
@@ -45,12 +49,21 @@ jobs:
           toolchain: nightly-2025-12-01
 
       - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !matrix.cross
         run: sudo apt-get update && sudo apt-get install -y pkg-config libsqlite3-dev
+
+      - name: Install cross (for cross-compilation)
+        if: matrix.cross
+        run: cargo install cross --locked
 
       - name: Build release binary
         working-directory: backend
-        run: cargo build --release --target ${{ matrix.target }}
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
 
       - name: Package binary
         run: |
