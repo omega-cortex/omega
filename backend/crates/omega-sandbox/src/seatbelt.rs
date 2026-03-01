@@ -37,6 +37,7 @@ fn build_profile(data_dir: &Path) -> String {
   (subpath "/private/etc")
   (subpath "/Library")
   (subpath "{data_data_str}")
+  (literal "{config_str}")
 )
 (deny file-read*
   (subpath "{data_data_str}")
@@ -131,6 +132,20 @@ mod tests {
         assert!(
             after_read.contains("/home/user/.omega/data"),
             "should block reads to data dir"
+        );
+    }
+
+    #[test]
+    fn test_profile_blocks_config_writes() {
+        let data_dir = PathBuf::from("/home/user/.omega");
+        let profile = build_profile(&data_dir);
+        // config.toml should appear in the write-deny block.
+        let write_deny_pos = profile.find("(deny file-write*").unwrap();
+        let read_deny_pos = profile.find("(deny file-read*").unwrap();
+        let write_section = &profile[write_deny_pos..read_deny_pos];
+        assert!(
+            write_section.contains("config.toml"),
+            "should block writes to config.toml"
         );
     }
 

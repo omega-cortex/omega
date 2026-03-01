@@ -68,6 +68,17 @@ impl ToolExecutor {
         }
     }
 
+    /// Set the config file path for read protection.
+    ///
+    /// When set, the sandbox will block AI tool reads to this path,
+    /// protecting API keys and secrets even when config lives outside `data_dir`.
+    /// Standard `{data_dir}/config.toml` is always protected regardless.
+    #[allow(dead_code)]
+    pub fn with_config_path(mut self, config_path: PathBuf) -> Self {
+        self.config_path = Some(config_path);
+        self
+    }
+
     /// Connect to MCP servers and discover their tools.
     pub async fn connect_mcp_servers(&mut self, servers: &[McpServer]) {
         for server in servers {
@@ -151,6 +162,21 @@ impl ToolExecutor {
         self.mcp_tool_map.clear();
     }
 
+    /// Resolve a path string to a normalized absolute path.
+    ///
+    /// Relative paths are joined against `workspace_path` and then
+    /// lexically normalized (removing `.` and `..` components) to
+    /// prevent sandbox bypass via traversal (e.g., `../../data/memory.db`).
+    fn resolve_path(&self, path_str: &str) -> PathBuf {
+        let p = Path::new(path_str);
+        let joined = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            self.workspace_path.join(p)
+        };
+        normalize_path(&joined)
+    }
+
     // --- Built-in tool implementations ---
 
     async fn exec_bash(&self, args: &Value) -> ToolResult {
@@ -219,7 +245,9 @@ impl ToolExecutor {
             };
         }
 
-        let path = Path::new(path_str);
+        // Resolve relative paths against workspace to prevent sandbox bypass.
+        let path = self.resolve_path(path_str);
+        let path = path.as_path();
         if omega_sandbox::is_read_blocked(path, &self.data_dir, self.config_path.as_deref()) {
             return ToolResult {
                 content: format!("Read denied: {} is a protected path", path.display()),
@@ -251,7 +279,9 @@ impl ToolExecutor {
             };
         }
 
-        let path = Path::new(path_str);
+        // Resolve relative paths against workspace to prevent sandbox bypass.
+        let path = self.resolve_path(path_str);
+        let path = path.as_path();
         if omega_sandbox::is_write_blocked(path, &self.data_dir) {
             return ToolResult {
                 content: format!("Write denied: {} is a protected path", path.display(),),
@@ -307,7 +337,9 @@ impl ToolExecutor {
             };
         }
 
-        let path = Path::new(path_str);
+        // Resolve relative paths against workspace to prevent sandbox bypass.
+        let path = self.resolve_path(path_str);
+        let path = path.as_path();
         if omega_sandbox::is_write_blocked(path, &self.data_dir) {
             return ToolResult {
                 content: format!("Write denied: {} is a protected path", path.display(),),
@@ -350,6 +382,26 @@ impl ToolExecutor {
             },
         }
     }
+}
+
+/// Lexically normalize a path by resolving `.` and `..` components.
+///
+/// Unlike `fs::canonicalize`, this works on non-existent paths. Essential
+/// for preventing sandbox bypass via `../../` traversal on paths that
+/// don't exist on disk.
+fn normalize_path(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::CurDir => {}
+            other => normalized.push(other),
+        }
+    }
+    normalized
 }
 
 /// Truncate output to at most `max_bytes` bytes at a valid UTF-8 char boundary,
@@ -643,6 +695,69 @@ mod tests {
             .await;
         assert!(result.is_error);
         assert!(result.content.contains("Unknown tool"));
+    }
+
+    #[test]
+    fn test_resolve_path_absolute() {
+        let executor = ToolExecutor::new(PathBuf::from("/home/user/.omega/workspace"));
+        let resolved = executor.resolve_path("/tmp/test.txt");
+        assert_eq!(resolved, PathBuf::from("/tmp/test.txt"));
+    }
+
+    #[test]
+    fn test_resolve_path_relative() {
+        let executor = ToolExecutor::new(PathBuf::from("/home/user/.omega/workspace"));
+        let resolved = executor.resolve_path("test.txt");
+        assert_eq!(
+            resolved,
+            PathBuf::from("/home/user/.omega/workspace/test.txt")
+        );
+    }
+
+    #[test]
+    fn test_resolve_path_traversal_normalized() {
+        let executor = ToolExecutor::new(PathBuf::from("/home/user/.omega/workspace"));
+        // ../data/memory.db from workspace = /home/user/.omega/data/memory.db
+        let resolved = executor.resolve_path("../data/memory.db");
+        assert_eq!(resolved, PathBuf::from("/home/user/.omega/data/memory.db"));
+        // The sandbox blocks this because it's under {data_dir}/data/.
+
+        // ../../ goes past .omega entirely
+        let resolved2 = executor.resolve_path("../../data/memory.db");
+        assert_eq!(resolved2, PathBuf::from("/home/user/data/memory.db"));
+    }
+
+    #[tokio::test]
+    async fn test_exec_read_denied_relative_traversal() {
+        let executor = ToolExecutor::new(PathBuf::from("/home/user/.omega/workspace"));
+        // ../data/memory.db resolves to /home/user/.omega/data/memory.db (protected).
+        let result = executor
+            .exec_read(&serde_json::json!({"file_path": "../data/memory.db"}))
+            .await;
+        assert!(result.is_error);
+        assert!(result.content.contains("denied"));
+    }
+
+    #[tokio::test]
+    async fn test_exec_write_denied_config_toml() {
+        let executor = ToolExecutor::new(PathBuf::from("/home/user/.omega/workspace"));
+        let result = executor
+            .exec_write(
+                &serde_json::json!({"file_path": "/home/user/.omega/config.toml", "content": "x"}),
+            )
+            .await;
+        assert!(result.is_error);
+        assert!(result.content.contains("denied"));
+    }
+
+    #[test]
+    fn test_with_config_path() {
+        let executor = ToolExecutor::new(PathBuf::from("/tmp"))
+            .with_config_path(PathBuf::from("/opt/omega/config.toml"));
+        assert_eq!(
+            executor.config_path,
+            Some(PathBuf::from("/opt/omega/config.toml"))
+        );
     }
 
     #[test]

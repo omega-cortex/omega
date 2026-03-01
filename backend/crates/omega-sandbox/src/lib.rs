@@ -63,8 +63,8 @@ pub fn is_write_blocked(path: &Path, data_dir: &Path) -> bool {
     let abs = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        // Relative paths can't be resolved without a cwd, treat as not blocked.
-        return false;
+        // Fail closed: relative paths could bypass protection via traversal.
+        return true;
     };
 
     // Resolve symlinks for both target and protected paths.
@@ -74,6 +74,12 @@ pub fn is_write_blocked(path: &Path, data_dir: &Path) -> bool {
     // Block writes to OMEGA's core data directory (memory.db, etc.).
     let data_data = try_canonicalize(&data_dir.join("data"));
     if resolved.starts_with(&data_data) {
+        return true;
+    }
+
+    // Block writes to OMEGA's config file (API keys, auth settings).
+    let config_file = try_canonicalize(&data_dir.join("config.toml"));
+    if resolved == config_file {
         return true;
     }
 
@@ -117,8 +123,8 @@ pub fn is_read_blocked(path: &Path, data_dir: &Path, config_path: Option<&Path>)
     let abs = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        // Relative paths can't be resolved without a cwd, treat as not blocked.
-        return false;
+        // Fail closed: relative paths could bypass protection via traversal.
+        return true;
     };
 
     // Resolve symlinks for both target and protected paths.
@@ -238,7 +244,21 @@ mod tests {
     #[test]
     fn test_is_write_blocked_relative_path() {
         let data_dir = PathBuf::from("/home/user/.omega");
-        assert!(!is_write_blocked(Path::new("relative/path"), &data_dir));
+        // Relative paths are blocked (fail closed) to prevent traversal bypass.
+        assert!(is_write_blocked(Path::new("relative/path"), &data_dir));
+        assert!(is_write_blocked(
+            Path::new("../../data/memory.db"),
+            &data_dir
+        ));
+    }
+
+    #[test]
+    fn test_is_write_blocked_config_toml() {
+        let data_dir = PathBuf::from("/home/user/.omega");
+        assert!(is_write_blocked(
+            Path::new("/home/user/.omega/config.toml"),
+            &data_dir
+        ));
     }
 
     #[test]
@@ -311,8 +331,10 @@ mod tests {
     #[test]
     fn test_is_read_blocked_relative_path() {
         let data_dir = PathBuf::from("/home/user/.omega");
-        assert!(!is_read_blocked(
-            Path::new("relative/path"),
+        // Relative paths are blocked (fail closed) to prevent traversal bypass.
+        assert!(is_read_blocked(Path::new("relative/path"), &data_dir, None));
+        assert!(is_read_blocked(
+            Path::new("../../data/memory.db"),
             &data_dir,
             None
         ));

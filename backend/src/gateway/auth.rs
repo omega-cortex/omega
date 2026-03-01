@@ -19,8 +19,8 @@ impl Gateway {
 
                 match allowed {
                     Some(users) if users.is_empty() => {
-                        // Empty list = allow all (for easy testing).
-                        None
+                        // Empty list with auth enabled = deny all.
+                        Some("no users configured in telegram allowed_users".to_string())
                     }
                     Some(users) => {
                         let sender_id: i64 = incoming.sender_id.parse().unwrap_or(-1);
@@ -44,7 +44,10 @@ impl Gateway {
                     .map(|wa| &wa.allowed_users);
 
                 match allowed {
-                    Some(users) if users.is_empty() => None,
+                    Some(users) if users.is_empty() => {
+                        // Empty list with auth enabled = deny all.
+                        Some("no users configured in whatsapp allowed_users".to_string())
+                    }
                     Some(users) => {
                         if users.contains(&incoming.sender_id) {
                             None
