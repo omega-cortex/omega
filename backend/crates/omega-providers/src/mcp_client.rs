@@ -6,9 +6,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::process::Stdio;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tracing::{debug, warn};
+
+/// Maximum time to wait for a single MCP request/response round-trip.
+const MCP_REQUEST_TIMEOUT_SECS: u64 = 120;
 
 /// A tool definition discovered from an MCP server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,6 +177,9 @@ impl McpClient {
     }
 
     /// Send a JSON-RPC request (with id) and read the response.
+    ///
+    /// Times out after [`MCP_REQUEST_TIMEOUT_SECS`] to prevent infinite hangs
+    /// from misbehaving servers.
     async fn request(
         &mut self,
         method: &str,
@@ -193,13 +200,35 @@ impl McpClient {
         self.stdin.write_all(line.as_bytes()).await?;
         self.stdin.flush().await?;
 
-        // Read lines until we get a response with our id.
+        // Read lines until we get a response with our id, with a timeout guard.
+        let server_name = self.server_name.clone();
+        let result = tokio::time::timeout(
+            Duration::from_secs(MCP_REQUEST_TIMEOUT_SECS),
+            Self::read_response(&mut self.stdout, id, &server_name, method),
+        )
+        .await;
+
+        match result {
+            Ok(inner) => inner,
+            Err(_) => Err(anyhow::anyhow!(
+                "mcp: '{}' timed out waiting for response to {method} (>{MCP_REQUEST_TIMEOUT_SECS}s)",
+                self.server_name
+            )),
+        }
+    }
+
+    /// Read stdout lines until a JSON-RPC response matching `id` arrives.
+    async fn read_response(
+        stdout: &mut tokio::io::Lines<BufReader<ChildStdout>>,
+        id: u64,
+        server_name: &str,
+        method: &str,
+    ) -> Result<Value, anyhow::Error> {
         loop {
-            let raw = self
-                .stdout
+            let raw = stdout
                 .next_line()
                 .await?
-                .ok_or_else(|| anyhow::anyhow!("mcp: '{}' stdout closed", self.server_name))?;
+                .ok_or_else(|| anyhow::anyhow!("mcp: '{server_name}' stdout closed"))?;
 
             // Skip empty lines.
             let trimmed = raw.trim();
@@ -220,8 +249,7 @@ impl McpClient {
 
             if let Some(err) = resp.error {
                 return Err(anyhow::anyhow!(
-                    "mcp: '{}' error on {method}: {}",
-                    self.server_name,
+                    "mcp: '{server_name}' error on {method}: {}",
                     err.message
                 ));
             }

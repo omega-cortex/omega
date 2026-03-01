@@ -247,6 +247,9 @@ pub async fn process_heartbeat_markers(
         text = strip_suppress_section_markers(&text);
     }
 
+    // Safety net: strip any remaining markers the individual strip functions missed.
+    text = strip_all_remaining_markers(&text);
+
     text
 }
 

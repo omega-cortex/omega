@@ -319,7 +319,7 @@ If sandbox:        + sandbox constraint (unchanged)
 4. Inject `ACTION_OUTCOME:` verification instruction into system prompt.
 5. Invoke provider with full tool/MCP access.
 6. Parse `ACTION_OUTCOME:` marker from response (`Success`, `Failed(reason)`, or missing).
-7. Process response markers (SCHEDULE, SCHEDULE_ACTION, CANCEL_TASK, UPDATE_TASK, PROJECT_ACTIVATE/DEACTIVATE, FORGET_CONVERSATION, REWARD, LESSON, HEARTBEAT) — all with `project` scope from the parent task. PROJECT_ACTIVATE sets the `active_project` fact (after verifying the project exists). PROJECT_DEACTIVATE deletes it. FORGET_CONVERSATION closes the current project-scoped conversation and clears the session.
+7. Process response markers (SCHEDULE, SCHEDULE_ACTION, CANCEL_TASK, UPDATE_TASK, PROJECT_ACTIVATE/DEACTIVATE, FORGET_CONVERSATION, REWARD, LESSON, HEARTBEAT) — all with `project` scope from the parent task. PROJECT_ACTIVATE sets the `active_project` fact (after verifying the project exists). PROJECT_DEACTIVATE deletes it. FORGET_CONVERSATION closes the current project-scoped conversation and clears the session. Ends with `strip_all_remaining_markers()` safety net.
 8. Write audit log entry with `[ACTION]` prefix, elapsed time, status.
 9. On success (or missing marker): call `complete_task()`, send response.
 10. On failure: call `fail_task()` (up to `MAX_ACTION_RETRIES=3` retries, 2-minute delay), notify user.
@@ -375,7 +375,7 @@ If sandbox:        + sandbox constraint (unchanged)
 ### Heartbeat Helper Functions (heartbeat_helpers.rs)
 
 #### `async fn process_heartbeat_markers(text, memory, sender_id, channel_name, interval, project) -> String`
-**Purpose:** Process all markers in a heartbeat response (SCHEDULE, SCHEDULE_ACTION, HEARTBEAT_*, CANCEL_TASK, UPDATE_TASK, REWARD, LESSON). REWARD markers are stored via `store_outcome()` with `project` scope and source=`"heartbeat"`. LESSON markers are stored via `store_lesson()` with `project` scope. HEARTBEAT_ADD/REMOVE calls `apply_heartbeat_changes()` with `project` scope (writes to per-project file when project is non-empty). Returns text with all markers stripped. Shared by both single-call and per-group paths.
+**Purpose:** Process all markers in a heartbeat response (SCHEDULE, SCHEDULE_ACTION, HEARTBEAT_*, CANCEL_TASK, UPDATE_TASK, REWARD, LESSON, HEARTBEAT_SUPPRESS_SECTION, HEARTBEAT_UNSUPPRESS_SECTION). REWARD markers are stored via `store_outcome()` with `project` scope and source=`"heartbeat"`. LESSON markers are stored via `store_lesson()` with `project` scope. HEARTBEAT_ADD/REMOVE calls `apply_heartbeat_changes()` with `project` scope (writes to per-project file when project is non-empty). Ends with `strip_all_remaining_markers()` as a safety net to catch any markers that individual strip functions missed. Returns text with all markers stripped. Shared by both single-call and per-group paths.
 
 #### `async fn build_enrichment(memory, project) -> String`
 **Purpose:** Build enrichment context from user facts, recent conversation summaries, learned lessons (via `get_all_lessons(project)`), and recent outcomes (via `get_all_recent_outcomes(24, 20, project)`). When `project` is `Some`, outcomes and lessons are scoped to the project (project-specific first, then general fill). Computed once and shared across all groups.

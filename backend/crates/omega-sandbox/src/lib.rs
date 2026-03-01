@@ -19,7 +19,7 @@
 //! enforcement in HTTP provider tool executors (protects memory.db and
 //! config.toml on all platforms).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -45,12 +45,19 @@ pub fn protected_command(program: &str, data_dir: &Path) -> Command {
     platform_command(program, data_dir)
 }
 
+/// Best-effort path canonicalization. Returns the canonicalized path or the
+/// original if canonicalization fails (file doesn't exist yet, permissions, etc.).
+fn try_canonicalize(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
 /// Check if a write to the given path should be blocked.
 ///
 /// Returns `true` if the path targets a protected location:
 /// - Dangerous OS directories (`/System`, `/bin`, `/sbin`, `/usr/bin`, etc.)
 /// - OMEGA's core data directory (`{data_dir}/data/`) — protects memory.db
 ///
+/// Resolves symlinks before comparison to prevent bypass via symlink chains.
 /// Used by the HTTP provider `ToolExecutor` for code-level enforcement.
 pub fn is_write_blocked(path: &Path, data_dir: &Path) -> bool {
     let abs = if path.is_absolute() {
@@ -60,11 +67,13 @@ pub fn is_write_blocked(path: &Path, data_dir: &Path) -> bool {
         return false;
     };
 
-    let path_str = abs.to_string_lossy();
+    // Resolve symlinks for both target and protected paths.
+    let resolved = try_canonicalize(&abs);
+    let path_str = resolved.to_string_lossy();
 
     // Block writes to OMEGA's core data directory (memory.db, etc.).
-    let data_data = data_dir.join("data");
-    if abs.starts_with(&data_data) {
+    let data_data = try_canonicalize(&data_dir.join("data"));
+    if resolved.starts_with(&data_data) {
         return true;
     }
 
@@ -100,9 +109,11 @@ pub fn is_write_blocked(path: &Path, data_dir: &Path) -> bool {
 /// Returns `true` if the path targets a protected location:
 /// - OMEGA's core data directory (`{data_dir}/data/`) — protects memory.db
 /// - OMEGA's config file (`{data_dir}/config.toml`) — protects API keys
+/// - The actual config file at `config_path` (may differ from data_dir) — protects secrets
 ///
+/// Resolves symlinks before comparison to prevent bypass via symlink chains.
 /// Used by the HTTP provider `ToolExecutor` for code-level enforcement.
-pub fn is_read_blocked(path: &Path, data_dir: &Path) -> bool {
+pub fn is_read_blocked(path: &Path, data_dir: &Path, config_path: Option<&Path>) -> bool {
     let abs = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -110,16 +121,27 @@ pub fn is_read_blocked(path: &Path, data_dir: &Path) -> bool {
         return false;
     };
 
+    // Resolve symlinks for both target and protected paths.
+    let resolved = try_canonicalize(&abs);
+
     // Block reads to OMEGA's core data directory (memory.db, etc.).
-    let data_data = data_dir.join("data");
-    if abs.starts_with(&data_data) {
+    let data_data = try_canonicalize(&data_dir.join("data"));
+    if resolved.starts_with(&data_data) {
         return true;
     }
 
-    // Block reads to OMEGA's config file (API keys, secrets).
-    let config_file = data_dir.join("config.toml");
-    if abs == config_file {
+    // Block reads to OMEGA's config file in data_dir (API keys, secrets).
+    let config_in_data = try_canonicalize(&data_dir.join("config.toml"));
+    if resolved == config_in_data {
         return true;
+    }
+
+    // Block reads to the actual config file (may live outside data_dir).
+    if let Some(cp) = config_path {
+        let resolved_config = try_canonicalize(cp);
+        if resolved == resolved_config {
+            return true;
+        }
     }
 
     false
@@ -224,11 +246,13 @@ mod tests {
         let data_dir = PathBuf::from("/home/user/.omega");
         assert!(is_read_blocked(
             Path::new("/home/user/.omega/data/memory.db"),
-            &data_dir
+            &data_dir,
+            None
         ));
         assert!(is_read_blocked(
             Path::new("/home/user/.omega/data/"),
-            &data_dir
+            &data_dir,
+            None
         ));
     }
 
@@ -237,7 +261,25 @@ mod tests {
         let data_dir = PathBuf::from("/home/user/.omega");
         assert!(is_read_blocked(
             Path::new("/home/user/.omega/config.toml"),
-            &data_dir
+            &data_dir,
+            None
+        ));
+    }
+
+    #[test]
+    fn test_is_read_blocked_external_config() {
+        let data_dir = PathBuf::from("/home/user/.omega");
+        let ext_config = PathBuf::from("/opt/omega/config.toml");
+        assert!(is_read_blocked(
+            Path::new("/opt/omega/config.toml"),
+            &data_dir,
+            Some(ext_config.as_path())
+        ));
+        // Non-matching path still allowed.
+        assert!(!is_read_blocked(
+            Path::new("/opt/omega/other.toml"),
+            &data_dir,
+            Some(ext_config.as_path())
         ));
     }
 
@@ -246,11 +288,13 @@ mod tests {
         let data_dir = PathBuf::from("/home/user/.omega");
         assert!(!is_read_blocked(
             Path::new("/home/user/.omega/workspace/test.txt"),
-            &data_dir
+            &data_dir,
+            None
         ));
         assert!(!is_read_blocked(
             Path::new("/home/user/.omega/skills/test/SKILL.md"),
-            &data_dir
+            &data_dir,
+            None
         ));
     }
 
@@ -259,13 +303,18 @@ mod tests {
         let data_dir = PathBuf::from("/home/user/.omega");
         assert!(!is_read_blocked(
             Path::new("/home/user/.omega/stores/trading/store.db"),
-            &data_dir
+            &data_dir,
+            None
         ));
     }
 
     #[test]
     fn test_is_read_blocked_relative_path() {
         let data_dir = PathBuf::from("/home/user/.omega");
-        assert!(!is_read_blocked(Path::new("relative/path"), &data_dir));
+        assert!(!is_read_blocked(
+            Path::new("relative/path"),
+            &data_dir,
+            None
+        ));
     }
 }

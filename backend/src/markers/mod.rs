@@ -108,6 +108,7 @@ pub fn strip_all_remaining_markers(text: &str) -> String {
         "LESSON:",
         "HEARTBEAT_SUPPRESS_SECTION:",
         "HEARTBEAT_UNSUPPRESS_SECTION:",
+        "BUILD_PROPOSAL:",
     ];
     let mut result = text.to_string();
     for marker in MARKERS {

@@ -13,6 +13,12 @@
 
 Minimal MCP (Model Context Protocol) client over stdio transport. Implements JSON-RPC 2.0 over newline-delimited JSON on stdin/stdout. No external MCP crate — raw protocol using tokio async I/O and serde_json. Used by `ToolExecutor` to connect to MCP servers declared in skills and inject their tools into agentic provider loops.
 
+## Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `MCP_REQUEST_TIMEOUT_SECS` | `120` | Maximum seconds to wait for a JSON-RPC response before aborting |
+
 ## Struct: `McpClient`
 
 | Field | Type | Description |
@@ -126,7 +132,11 @@ pub async fn shutdown(mut self)
 
 ### `request(method, params) -> Result<Value, anyhow::Error>`
 
-Assigns the next monotonic ID, serializes a `JsonRpcRequest` to a newline-terminated string, writes it to stdin, flushes, then reads stdout lines until a response with the matching ID is received. Returns `resp.result` (or `Value::Null` if absent).
+Assigns the next monotonic ID, serializes a `JsonRpcRequest` to a newline-terminated string, writes it to stdin, flushes, then reads stdout lines until a response with the matching ID is received. The entire read loop is wrapped in `tokio::time::timeout(MCP_REQUEST_TIMEOUT_SECS)` — if the server does not respond within the timeout, returns an error instead of hanging indefinitely. Returns `resp.result` (or `Value::Null` if absent).
+
+### `read_response(stdout, id, server_name, method) -> Result<Value, anyhow::Error>`
+
+Static async helper extracted from `request()`. Reads lines from `stdout` until a JSON-RPC response with the matching `id` is found. Skips non-JSON lines and mismatched IDs. Returns the `result` field or maps the `error` field to `anyhow::Error`. Called by `request()` inside a timeout guard.
 
 ### `notify(method, params) -> Result<(), anyhow::Error>`
 

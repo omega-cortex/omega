@@ -18,7 +18,7 @@ Centralized marker extraction, parsing, and stripping for the gateway protocol. 
 ### Generic Helpers
 - `extract_inline_marker_value(text, prefix)` -- Extract value after marker prefix, handles both line-start and inline positions
 - `strip_inline_marker(text, prefix)` -- Remove marker from text, handles both line-start (removes entire line) and inline (removes marker to end of line)
-- `strip_all_remaining_markers(text)` -- Safety net: strips all known markers still present in text
+- `strip_all_remaining_markers(text)` -- Safety net: strips all 22 known markers still present in text (including BUILD_PROPOSAL:)
 
 ### Per-Marker Functions
 Each marker type has extract/parse/strip/has functions:

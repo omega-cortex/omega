@@ -54,6 +54,7 @@ Executes built-in tools and routes MCP tool calls to the correct server.
 |-------|------|-------------|
 | `workspace_path` | `PathBuf` | Sandbox working directory (`~/.omega/workspace/`) |
 | `data_dir` | `PathBuf` | Omega data directory (`~/.omega/`); derived as parent of `workspace_path` |
+| `config_path` | `Option<PathBuf>` | Actual config file path (may live outside `data_dir`); used by `is_read_blocked()` to protect secrets |
 | `mcp_clients` | `HashMap<String, McpClient>` | Connected MCP servers keyed by server name |
 | `mcp_tool_map` | `HashMap<String, String>` | Maps tool name to the server name that provides it |
 
@@ -61,10 +62,18 @@ Executes built-in tools and routes MCP tool calls to the correct server.
 
 ### `new(workspace_path) -> Self`
 
-Creates a new `ToolExecutor`. Derives `data_dir` as the parent of `workspace_path` (falls back to `workspace_path` itself if no parent). Both MCP maps start empty.
+Creates a new `ToolExecutor`. Derives `data_dir` as the parent of `workspace_path` (falls back to `workspace_path` itself if no parent). `config_path` starts as `None`. Both MCP maps start empty.
 
 ```rust
 pub fn new(workspace_path: PathBuf) -> Self
+```
+
+### `with_config_path(config_path) -> Self`
+
+Builder method. Sets the actual config file path so `is_read_blocked()` can protect it even when the config lives outside `data_dir`.
+
+```rust
+pub fn with_config_path(mut self, config_path: PathBuf) -> Self
 ```
 
 ### `connect_mcp_servers(servers: &[McpServer])`
@@ -103,14 +112,20 @@ pub async fn shutdown_mcp(&mut self)
 
 | Tool | Required Params | Optional Params | Behavior |
 |------|----------------|-----------------|----------|
-| `bash` | `command: String` | — | Executes via `bash -c <command>` in `workspace_path` using `protected_command()`. Captures stdout + stderr combined. Returns exit-code string if both are empty. Truncated to `MAX_BASH_OUTPUT`. `is_error` set when exit status is non-zero. Times out after `BASH_TIMEOUT_SECS`. |
-| `read` | `file_path: String` | — | Reads file as UTF-8 string via `tokio::fs::read_to_string`. No sandbox restriction on reads. Truncated to `MAX_READ_OUTPUT`. |
+| `bash` | `command: String` | — | Executes via `bash -c <command>` in `workspace_path` using `protected_command()`. Child process has `kill_on_drop(true)` — automatically killed if the future is dropped (prevents orphan processes on timeout). Captures stdout + stderr combined. Returns exit-code string if both are empty. Truncated to `MAX_BASH_OUTPUT`. `is_error` set when exit status is non-zero. Times out after `BASH_TIMEOUT_SECS`. |
+| `read` | `file_path: String` | — | Reads file as UTF-8 string via `tokio::fs::read_to_string`. Sandbox restriction: `is_read_blocked(path, data_dir, config_path)` prevents reads of `{data_dir}/data/`, `{data_dir}/config.toml`, and the external `config_path`. Truncated to `MAX_READ_OUTPUT`. |
 | `write` | `file_path: String`, `content: String` | — | Writes (creates or overwrites) file after `is_write_blocked()` check. Creates parent directories with `create_dir_all`. Returns byte count on success. |
 | `edit` | `file_path: String`, `old_string: String`, `new_string: String` | — | Reads file, finds first occurrence of `old_string`, replaces it with `new_string`, writes back. Fails if `old_string` not found. `is_write_blocked()` checked before write. Reports occurrence count in success message. |
 
-## Path Validation: `is_write_blocked(path, data_dir) -> bool`
+## Path Validation
+
+### `is_write_blocked(path, data_dir) -> bool`
 
 Uses the always-on blocklist approach to check whether a write to the given path should be blocked. Writes to dangerous system directories and OMEGA's core database are blocked. Writes to the workspace (`~/.omega/workspace/`), the data directory (`~/.omega/`), and `/tmp` are allowed. For relative paths, the path is resolved against `workspace_path` before checking.
+
+### `is_read_blocked(path, data_dir, config_path) -> bool`
+
+Checks whether a read from the given path should be blocked. Blocks reads to `{data_dir}/data/` (memory.db), `{data_dir}/config.toml` (API keys), and the external `config_path` if set. Used by the `read` tool to prevent credential exfiltration.
 
 ## Helper Functions
 

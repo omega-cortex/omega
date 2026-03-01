@@ -68,13 +68,21 @@ Builds a `tokio::process::Command` with OS-level system protection applied. Alwa
 - `program` — the binary to wrap (e.g., `"claude"`)
 - `data_dir` — the Omega data directory (e.g., `~/.omega/`). Writes to `{data_dir}/data/` are blocked to protect memory.db. All other paths under `data_dir` remain writable.
 
+**Internal function: `try_canonicalize`**
+
+```rust
+fn try_canonicalize(path: &Path) -> PathBuf
+```
+
+Best-effort path canonicalization. Resolves symlinks and returns the canonical path, or returns the original path if canonicalization fails (file doesn't exist yet, permission errors, etc.). Used by `is_write_blocked` and `is_read_blocked` to prevent symlink-based bypass attacks.
+
 **Public function: `is_write_blocked`**
 
 ```rust
 pub fn is_write_blocked(path: &Path, data_dir: &Path) -> bool
 ```
 
-Code-level write enforcement for HTTP provider tool executors. Returns `true` if the path targets a protected location:
+Code-level write enforcement for HTTP provider tool executors. Resolves symlinks via `try_canonicalize()` before comparison. Returns `true` if the path targets a protected location:
 - Dangerous OS directories (`/System`, `/bin`, `/sbin`, `/usr/bin`, `/usr/sbin`, `/usr/lib`, `/usr/libexec`, `/private/etc`, `/Library`, `/etc`, `/boot`, `/proc`, `/sys`, `/dev`)
 - OMEGA's core data directory (`{data_dir}/data/`)
 
@@ -85,12 +93,13 @@ Used by the `ToolExecutor` in HTTP-based providers (OpenAI, Anthropic, Ollama, O
 **Public function: `is_read_blocked`**
 
 ```rust
-pub fn is_read_blocked(path: &Path, data_dir: &Path) -> bool
+pub fn is_read_blocked(path: &Path, data_dir: &Path, config_path: Option<&Path>) -> bool
 ```
 
-Code-level read enforcement for HTTP provider tool executors. Returns `true` if the path targets a protected location:
+Code-level read enforcement for HTTP provider tool executors. Resolves symlinks via `try_canonicalize()` before comparison. Returns `true` if the path targets a protected location:
 - OMEGA's core data directory (`{data_dir}/data/`) — protects memory.db
 - OMEGA's config file (`{data_dir}/config.toml`) — protects API keys
+- The actual config file at `config_path` (may live outside `data_dir`) — protects secrets when config is not co-located with data
 
 Relative paths return `false` (cannot be resolved without a cwd).
 
@@ -197,7 +206,7 @@ Code-level enforcement via `is_read_blocked()` and `is_write_blocked()` provides
 
 ## Tests
 
-### `lib.rs` tests (11)
+### `lib.rs` tests (12)
 - `test_protected_command_returns_command` — returns a valid command
 - `test_is_write_blocked_data_dir` — blocks writes to `{data_dir}/data/`
 - `test_is_write_blocked_allows_workspace` — allows writes to workspace, skills
@@ -206,6 +215,7 @@ Code-level enforcement via `is_read_blocked()` and `is_write_blocked()` provides
 - `test_is_write_blocked_relative_path` — relative paths return false
 - `test_is_read_blocked_data_dir` — blocks reads to `{data_dir}/data/`
 - `test_is_read_blocked_config` — blocks reads to `{data_dir}/config.toml`
+- `test_is_read_blocked_external_config` — blocks reads to external config_path, allows non-matching
 - `test_is_read_blocked_allows_workspace` — allows reads to workspace, skills
 - `test_is_read_blocked_allows_stores` — allows reads to stores/
 - `test_is_read_blocked_relative_path` — relative paths return false

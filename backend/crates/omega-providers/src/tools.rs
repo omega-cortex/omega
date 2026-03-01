@@ -43,6 +43,7 @@ pub struct ToolResult {
 pub struct ToolExecutor {
     workspace_path: PathBuf,
     data_dir: PathBuf,
+    config_path: Option<PathBuf>,
     mcp_clients: HashMap<String, McpClient>,
     mcp_tool_map: HashMap<String, String>,
 }
@@ -61,9 +62,19 @@ impl ToolExecutor {
         Self {
             workspace_path,
             data_dir,
+            config_path: None,
             mcp_clients: HashMap::new(),
             mcp_tool_map: HashMap::new(),
         }
+    }
+
+    /// Set the path to the actual config.toml containing secrets.
+    ///
+    /// When set, the sandbox also blocks reads to this path (even if it
+    /// lives outside `data_dir`).
+    pub fn with_config_path(mut self, config_path: PathBuf) -> Self {
+        self.config_path = Some(config_path);
+        self
     }
 
     /// Connect to MCP servers and discover their tools.
@@ -165,8 +176,10 @@ impl ToolExecutor {
         let mut cmd = omega_sandbox::protected_command("bash", &self.data_dir);
         cmd.arg("-c").arg(command);
         cmd.current_dir(&self.workspace_path);
+        // Kill the child process when the handle is dropped (e.g. on timeout).
+        cmd.kill_on_drop(true);
 
-        // Capture output with timeout.
+        // Capture output with timeout. kill_on_drop ensures no orphan processes.
         match tokio::time::timeout(
             std::time::Duration::from_secs(BASH_TIMEOUT_SECS),
             cmd.output(),
@@ -216,7 +229,7 @@ impl ToolExecutor {
         }
 
         let path = Path::new(path_str);
-        if omega_sandbox::is_read_blocked(path, &self.data_dir) {
+        if omega_sandbox::is_read_blocked(path, &self.data_dir, self.config_path.as_deref()) {
             return ToolResult {
                 content: format!("Read denied: {} is a protected path", path.display()),
                 is_error: true,
