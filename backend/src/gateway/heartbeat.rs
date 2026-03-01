@@ -83,6 +83,7 @@ impl Gateway {
         audit: AuditLogger,
         provider_name: String,
         data_dir: String,
+        config_path: String,
     ) {
         loop {
             let mins = interval.load(Ordering::Relaxed);
@@ -212,6 +213,7 @@ impl Gateway {
                             channel_name.clone(),
                             interval.clone(),
                             String::new(),
+                            config_path.clone(),
                         )
                         .await;
                         send_heartbeat_result(
@@ -245,6 +247,7 @@ impl Gateway {
                                 channel_name.clone(),
                                 interval.clone(),
                                 String::new(),
+                                config_path.clone(),
                             )));
                         }
 
@@ -319,6 +322,7 @@ impl Gateway {
                     channel_name.clone(),
                     interval.clone(),
                     project_name.clone(),
+                    config_path.clone(),
                 )
                 .await;
                 send_heartbeat_result(
@@ -400,6 +404,7 @@ async fn execute_heartbeat_group(
     channel_name: String,
     interval: Arc<AtomicU64>,
     project: String,
+    config_path: String,
 ) -> Option<(String, i64)> {
     // Enrichment (facts, lessons, outcomes) goes BEFORE the checklist so learned
     // behavioral rules frame the AI's approach before it encounters detailed instructions.
@@ -429,6 +434,7 @@ async fn execute_heartbeat_group(
         &channel_name,
         &interval,
         &project,
+        &config_path,
     )
     .await;
 

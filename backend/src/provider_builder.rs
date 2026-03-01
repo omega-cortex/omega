@@ -51,7 +51,7 @@ pub fn build_provider(
                     oc.base_url.clone(),
                     oc.model.clone(),
                     ws,
-                )),
+                )?),
                 m.clone(),
                 m,
             ))
@@ -69,7 +69,7 @@ pub fn build_provider(
                     oc.api_key.clone(),
                     oc.model.clone(),
                     ws,
-                )),
+                )?),
                 m.clone(),
                 m,
             ))
@@ -85,7 +85,7 @@ pub fn build_provider(
                     ac.api_key.clone(),
                     ac.model.clone(),
                     ws,
-                )),
+                )?),
                 m.clone(),
                 m,
             ))
@@ -101,7 +101,7 @@ pub fn build_provider(
                     oc.api_key.clone(),
                     oc.model.clone(),
                     ws,
-                )),
+                )?),
                 m.clone(),
                 m,
             ))
@@ -118,7 +118,7 @@ pub fn build_provider(
                     gc.api_key.clone(),
                     gc.model.clone(),
                     ws,
-                )),
+                )?),
                 m.clone(),
                 m,
             ))

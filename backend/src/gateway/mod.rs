@@ -14,12 +14,15 @@ mod heartbeat;
 mod heartbeat_helpers;
 mod keywords;
 mod pipeline;
+mod pipeline_builds;
 mod process_markers;
+mod prompt_builder;
 mod routing;
 mod scheduler;
 mod scheduler_action;
 mod setup;
 mod setup_response;
+mod shared_markers;
 mod summarizer;
 
 use crate::markers::*;
@@ -209,6 +212,7 @@ impl Gateway {
             let sched_audit = AuditLogger::new(self.memory.pool().clone());
             let sched_provider_name = self.provider.name().to_string();
             let sched_data_dir = self.data_dir.clone();
+            let sched_config_path = self.config_path.clone();
             let sched_active_start = self.heartbeat_config.active_start.clone();
             let sched_active_end = self.heartbeat_config.active_end.clone();
             Some(tokio::spawn(async move {
@@ -225,6 +229,7 @@ impl Gateway {
                     sched_audit,
                     sched_provider_name,
                     sched_data_dir,
+                    sched_config_path,
                     sched_active_start,
                     sched_active_end,
                 )
@@ -249,6 +254,7 @@ impl Gateway {
             let hb_audit = AuditLogger::new(self.memory.pool().clone());
             let hb_provider_name = self.provider.name().to_string();
             let hb_data_dir = self.data_dir.clone();
+            let hb_config_path = self.config_path.clone();
             Some(tokio::spawn(async move {
                 Self::heartbeat_loop(
                     hb_provider,
@@ -264,6 +270,7 @@ impl Gateway {
                     hb_audit,
                     hb_provider_name,
                     hb_data_dir,
+                    hb_config_path,
                 )
                 .await;
             }))

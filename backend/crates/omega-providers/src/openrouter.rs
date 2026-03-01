@@ -29,16 +29,20 @@ pub struct OpenRouterProvider {
 
 impl OpenRouterProvider {
     /// Create from config values.
-    pub fn from_config(api_key: String, model: String, workspace_path: Option<PathBuf>) -> Self {
-        Self {
+    pub fn from_config(
+        api_key: String,
+        model: String,
+        workspace_path: Option<PathBuf>,
+    ) -> Result<Self, OmegaError> {
+        Ok(Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .build()
-                .expect("failed to build HTTP client"),
+                .map_err(|e| OmegaError::Provider(format!("failed to build HTTP client: {e}")))?,
             api_key,
             model,
             workspace_path,
-        }
+        })
     }
 }
 
@@ -172,7 +176,8 @@ mod tests {
             "sk-or-test".into(),
             "anthropic/claude-sonnet-4".into(),
             None,
-        );
+        )
+        .unwrap();
         assert_eq!(p.name(), "openrouter");
         assert!(p.requires_api_key());
     }

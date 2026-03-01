@@ -26,12 +26,13 @@ impl ClaudeCodeProvider {
 
         // Agent mode: --agent <name> before -p.
         // When agent_name is set, skip --resume (agent mode does not use sessions).
-        let use_agent = agent_name.is_some_and(|n| !n.is_empty());
+        let agent = agent_name.filter(|n| !n.is_empty());
 
-        if use_agent {
+        if let Some(name) = agent {
             args.push("--agent".to_string());
-            args.push(agent_name.unwrap().to_string());
+            args.push(name.to_string());
         }
+        let use_agent = agent.is_some();
 
         args.push("-p".to_string());
         args.push(prompt.to_string());

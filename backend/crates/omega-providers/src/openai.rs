@@ -36,17 +36,17 @@ impl OpenAiProvider {
         api_key: String,
         model: String,
         workspace_path: Option<PathBuf>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, OmegaError> {
+        Ok(Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .build()
-                .expect("failed to build HTTP client"),
+                .map_err(|e| OmegaError::Provider(format!("failed to build HTTP client: {e}")))?,
             base_url,
             api_key,
             model,
             workspace_path,
-        }
+        })
     }
 }
 
@@ -423,7 +423,8 @@ mod tests {
             "sk-test".into(),
             "gpt-4o".into(),
             None,
-        );
+        )
+        .unwrap();
         assert_eq!(p.name(), "openai");
         assert!(p.requires_api_key());
     }

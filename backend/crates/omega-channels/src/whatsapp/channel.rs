@@ -8,8 +8,13 @@ use omega_core::{
     message::{IncomingMessage, OutgoingMessage},
     traits::Channel,
 };
-use tracing::info;
+use tracing::{info, warn};
 use wacore_binary::jid::Jid;
+
+/// Maximum number of sent message IDs to track.
+/// When exceeded, the set is cleared to prevent unbounded memory growth
+/// from echoes that never arrive.
+const MAX_SENT_IDS: usize = 1000;
 
 impl WhatsAppChannel {
     /// Send a photo (image bytes) with a caption to a JID.
@@ -49,7 +54,14 @@ impl WhatsAppChannel {
         };
 
         let msg_id = retry_send(client, &jid, msg).await?;
-        self.sent_ids.lock().await.insert(msg_id);
+        {
+            let mut ids = self.sent_ids.lock().await;
+            if ids.len() >= MAX_SENT_IDS {
+                warn!("whatsapp: sent_ids reached {MAX_SENT_IDS}, clearing stale entries");
+                ids.clear();
+            }
+            ids.insert(msg_id);
+        }
 
         Ok(())
     }
@@ -74,7 +86,14 @@ impl WhatsAppChannel {
             };
             let msg_id = retry_send(client, &jid, msg).await?;
             // Track sent message ID to ignore our own echo.
-            self.sent_ids.lock().await.insert(msg_id);
+            {
+                let mut ids = self.sent_ids.lock().await;
+                if ids.len() >= MAX_SENT_IDS {
+                    warn!("whatsapp: sent_ids reached {MAX_SENT_IDS}, clearing stale entries");
+                    ids.clear();
+                }
+                ids.insert(msg_id);
+            }
         }
 
         Ok(())

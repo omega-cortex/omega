@@ -36,6 +36,7 @@ impl Gateway {
         audit: AuditLogger,
         provider_name: String,
         data_dir: String,
+        config_path: String,
         active_start: String,
         active_end: String,
     ) {
@@ -97,6 +98,7 @@ impl Gateway {
                                 &audit,
                                 &provider_name,
                                 &data_dir,
+                                &config_path,
                             )
                             .await;
                             continue; // Action tasks handle their own completion.

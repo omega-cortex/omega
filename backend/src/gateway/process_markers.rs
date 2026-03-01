@@ -233,76 +233,6 @@ impl Gateway {
             *text = strip_forget_marker(text);
         }
 
-        // CANCEL_TASK — process ALL markers
-        for id_prefix in extract_all_cancel_tasks(text) {
-            match self
-                .memory
-                .cancel_task(&id_prefix, &incoming.sender_id)
-                .await
-            {
-                Ok(true) => {
-                    info!("task cancelled via marker: {id_prefix}");
-                    marker_results.push(MarkerResult::TaskCancelled {
-                        id_prefix: id_prefix.clone(),
-                    });
-                }
-                Ok(false) => {
-                    warn!("no matching task for cancel marker: {id_prefix}");
-                    marker_results.push(MarkerResult::TaskCancelFailed {
-                        id_prefix: id_prefix.clone(),
-                        reason: "no matching task".to_string(),
-                    });
-                }
-                Err(e) => {
-                    error!("failed to cancel task via marker: {e}");
-                    marker_results.push(MarkerResult::TaskCancelFailed {
-                        id_prefix: id_prefix.clone(),
-                        reason: e.to_string(),
-                    });
-                }
-            }
-        }
-        *text = strip_cancel_task(text);
-
-        // UPDATE_TASK — process ALL markers
-        for update_line in extract_all_update_tasks(text) {
-            if let Some((id_prefix, desc, due_at, repeat)) = parse_update_task_line(&update_line) {
-                match self
-                    .memory
-                    .update_task(
-                        &id_prefix,
-                        &incoming.sender_id,
-                        desc.as_deref(),
-                        due_at.as_deref(),
-                        repeat.as_deref(),
-                    )
-                    .await
-                {
-                    Ok(true) => {
-                        info!("task updated via marker: {id_prefix}");
-                        marker_results.push(MarkerResult::TaskUpdated {
-                            id_prefix: id_prefix.clone(),
-                        });
-                    }
-                    Ok(false) => {
-                        warn!("no matching task for update marker: {id_prefix}");
-                        marker_results.push(MarkerResult::TaskUpdateFailed {
-                            id_prefix: id_prefix.clone(),
-                            reason: "no matching task".to_string(),
-                        });
-                    }
-                    Err(e) => {
-                        error!("failed to update task via marker: {e}");
-                        marker_results.push(MarkerResult::TaskUpdateFailed {
-                            id_prefix: id_prefix.clone(),
-                            reason: e.to_string(),
-                        });
-                    }
-                }
-            }
-        }
-        *text = strip_update_task(text);
-
         // PURGE_FACTS
         if has_purge_marker(text) {
             self.process_purge_facts(&incoming.sender_id).await;
@@ -350,42 +280,16 @@ impl Gateway {
         // SKILL_IMPROVE + BUG_REPORT
         self.process_improvement_markers(text, &mut marker_results);
 
-        // REWARD — process ALL markers (project-tagged)
-        for reward_line in extract_all_rewards(text) {
-            if let Some((score, domain, lesson)) = parse_reward_line(&reward_line) {
-                match self
-                    .memory
-                    .store_outcome(
-                        &incoming.sender_id,
-                        &domain,
-                        score,
-                        &lesson,
-                        "conversation",
-                        project,
-                    )
-                    .await
-                {
-                    Ok(()) => info!("outcome recorded: {score:+} | {domain} | {lesson}"),
-                    Err(e) => error!("failed to store outcome: {e}"),
-                }
-            }
-        }
-        *text = strip_reward_markers(text);
-
-        // LESSON — process ALL markers (project-tagged)
-        for lesson_line in extract_all_lessons(text) {
-            if let Some((domain, rule)) = parse_lesson_line(&lesson_line) {
-                match self
-                    .memory
-                    .store_lesson(&incoming.sender_id, &domain, &rule, project)
-                    .await
-                {
-                    Ok(()) => info!("lesson stored: {domain} | {rule}"),
-                    Err(e) => error!("failed to store lesson: {e}"),
-                }
-            }
-        }
-        *text = strip_lesson_markers(text);
+        // CANCEL_TASK + UPDATE_TASK + REWARD + LESSON (shared across pipelines).
+        let shared_results = super::shared_markers::process_task_and_learning_markers(
+            text,
+            &self.memory,
+            &incoming.sender_id,
+            project,
+            "conversation",
+        )
+        .await;
+        marker_results.extend(shared_results);
 
         // Safety net: strip any markers still remaining (catches inline markers
         // from small models that don't put them on their own line).

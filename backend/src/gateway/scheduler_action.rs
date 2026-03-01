@@ -44,6 +44,7 @@ pub(super) async fn execute_action_task(
     audit: &AuditLogger,
     provider_name: &str,
     data_dir: &str,
+    config_path: &str,
 ) {
     info!("scheduler: executing action task {id}: {description}");
     let started = Instant::now();
@@ -191,6 +192,8 @@ pub(super) async fn execute_action_task(
                 project,
                 heartbeat_interval,
                 heartbeat_notify,
+                data_dir,
+                config_path,
             )
             .await;
 
@@ -341,6 +344,8 @@ async fn process_action_markers(
     project: &str,
     heartbeat_interval: &Arc<AtomicU64>,
     heartbeat_notify: &Arc<Notify>,
+    data_dir: &str,
+    config_path: &str,
 ) {
     // SCHEDULE markers.
     for sched_line in extract_all_schedule_markers(text) {
@@ -405,6 +410,7 @@ async fn process_action_markers(
         for action in &hb_actions {
             if let HeartbeatAction::SetInterval(mins) = action {
                 heartbeat_interval.store(*mins, Ordering::Relaxed);
+                omega_core::config::patch_heartbeat_interval(config_path, *mins);
                 heartbeat_notify.notify_one();
                 info!("heartbeat: interval changed to {mins} minutes (via scheduler)");
             }
@@ -412,41 +418,16 @@ async fn process_action_markers(
         *text = strip_heartbeat_markers(text);
     }
 
-    // CANCEL_TASK markers.
-    for id_prefix in extract_all_cancel_tasks(text) {
-        match store.cancel_task(&id_prefix, sender_id).await {
-            Ok(true) => info!("action task cancelled task: {id_prefix}"),
-            Ok(false) => warn!("action task: no matching task to cancel: {id_prefix}"),
-            Err(e) => error!("action task: failed to cancel task: {e}"),
-        }
-    }
-    *text = strip_cancel_task(text);
-
-    // UPDATE_TASK markers.
-    for update_line in extract_all_update_tasks(text) {
-        if let Some((id_prefix, desc, due_at, repeat)) = parse_update_task_line(&update_line) {
-            match store
-                .update_task(
-                    &id_prefix,
-                    sender_id,
-                    desc.as_deref(),
-                    due_at.as_deref(),
-                    repeat.as_deref(),
-                )
-                .await
-            {
-                Ok(true) => info!("action task updated task: {id_prefix}"),
-                Ok(false) => warn!("action task: no matching task to update: {id_prefix}"),
-                Err(e) => error!("action task: failed to update task: {e}"),
-            }
-        }
-    }
-    *text = strip_update_task(text);
+    // CANCEL_TASK + UPDATE_TASK + REWARD + LESSON (shared across pipelines).
+    let _ = super::shared_markers::process_task_and_learning_markers(
+        text, store, sender_id, project, "action",
+    )
+    .await;
 
     // PROJECT_ACTIVATE / PROJECT_DEACTIVATE markers.
     if let Some(project_name) = extract_project_activate(text) {
-        let data_dir = omega_core::config::shellexpand("~/.omega");
-        let fresh_projects = omega_skills::load_projects(&data_dir);
+        let data_path = omega_core::config::shellexpand(data_dir);
+        let fresh_projects = omega_skills::load_projects(&data_path);
         if omega_skills::get_project_instructions(&fresh_projects, &project_name).is_some() {
             if let Err(e) = store
                 .store_fact(sender_id, "active_project", &project_name)
@@ -477,31 +458,6 @@ async fn process_action_markers(
         *text = strip_forget_marker(text);
         info!("action task: forgot conversation for project '{project}'");
     }
-
-    // REWARD + LESSON markers (project-tagged).
-    for rl in extract_all_rewards(text) {
-        if let Some((score, domain, lesson)) = parse_reward_line(&rl) {
-            if let Err(e) = store
-                .store_outcome(sender_id, &domain, score, &lesson, "action", project)
-                .await
-            {
-                error!("action task: store outcome: {e}");
-            } else {
-                info!("action task outcome: {score:+} | {domain} | {lesson}");
-            }
-        }
-    }
-    *text = strip_reward_markers(text);
-    for ll in extract_all_lessons(text) {
-        if let Some((domain, rule)) = parse_lesson_line(&ll) {
-            if let Err(e) = store.store_lesson(sender_id, &domain, &rule, project).await {
-                error!("action task: store lesson: {e}");
-            } else {
-                info!("action task lesson: {domain} | {rule}");
-            }
-        }
-    }
-    *text = strip_lesson_markers(text);
 
     // Safety net: strip any remaining markers the individual strip functions missed.
     *text = strip_all_remaining_markers(text);

@@ -107,6 +107,7 @@ pub async fn process_heartbeat_markers(
     channel_name: &str,
     interval: &Arc<AtomicU64>,
     project: &str,
+    config_path: &str,
 ) -> String {
     for sched_line in extract_all_schedule_markers(&text) {
         if let Some((desc, due, rep)) = parse_schedule_line(&sched_line) {
@@ -173,67 +174,18 @@ pub async fn process_heartbeat_markers(
         for action in &hb_actions {
             if let HeartbeatAction::SetInterval(mins) = action {
                 interval.store(*mins, Ordering::Relaxed);
+                omega_core::config::patch_heartbeat_interval(config_path, *mins);
                 info!("heartbeat: interval changed to {mins} minutes (via heartbeat loop)");
             }
         }
         text = strip_heartbeat_markers(&text);
     }
 
-    for id_prefix in extract_all_cancel_tasks(&text) {
-        match memory.cancel_task(&id_prefix, sender_id).await {
-            Ok(true) => info!("heartbeat cancelled task: {id_prefix}"),
-            Ok(false) => warn!("heartbeat: no matching task to cancel: {id_prefix}"),
-            Err(e) => error!("heartbeat: failed to cancel task: {e}"),
-        }
-    }
-    text = strip_cancel_task(&text);
-
-    for update_line in extract_all_update_tasks(&text) {
-        if let Some((id_prefix, desc, due_at, repeat)) = parse_update_task_line(&update_line) {
-            match memory
-                .update_task(
-                    &id_prefix,
-                    sender_id,
-                    desc.as_deref(),
-                    due_at.as_deref(),
-                    repeat.as_deref(),
-                )
-                .await
-            {
-                Ok(true) => info!("heartbeat updated task: {id_prefix}"),
-                Ok(false) => warn!("heartbeat: no matching task to update: {id_prefix}"),
-                Err(e) => error!("heartbeat: failed to update task: {e}"),
-            }
-        }
-    }
-    text = strip_update_task(&text);
-
-    // REWARD + LESSON markers (project-tagged).
-    for reward_line in extract_all_rewards(&text) {
-        if let Some((score, domain, lesson)) = parse_reward_line(&reward_line) {
-            match memory
-                .store_outcome(sender_id, &domain, score, &lesson, "heartbeat", project)
-                .await
-            {
-                Ok(()) => info!("heartbeat outcome: {score:+} | {domain} | {lesson}"),
-                Err(e) => error!("heartbeat: failed to store outcome: {e}"),
-            }
-        }
-    }
-    text = strip_reward_markers(&text);
-
-    for lesson_line in extract_all_lessons(&text) {
-        if let Some((domain, rule)) = parse_lesson_line(&lesson_line) {
-            match memory
-                .store_lesson(sender_id, &domain, &rule, project)
-                .await
-            {
-                Ok(()) => info!("heartbeat lesson: {domain} | {rule}"),
-                Err(e) => error!("heartbeat: failed to store lesson: {e}"),
-            }
-        }
-    }
-    text = strip_lesson_markers(&text);
+    // CANCEL_TASK + UPDATE_TASK + REWARD + LESSON (shared across pipelines).
+    let _ = super::shared_markers::process_task_and_learning_markers(
+        &mut text, memory, sender_id, project, "heartbeat",
+    )
+    .await;
 
     // HEARTBEAT_SUPPRESS_SECTION / HEARTBEAT_UNSUPPRESS_SECTION
     let suppress_actions = extract_suppress_section_markers(&text);

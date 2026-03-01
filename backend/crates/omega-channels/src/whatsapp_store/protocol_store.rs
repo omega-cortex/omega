@@ -206,18 +206,22 @@ impl ProtocolStore for SqlxWhatsAppStore {
     }
 
     async fn consume_forget_marks(&self, group_jid: &str) -> Result<Vec<String>> {
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
+
         let rows: Vec<(String,)> =
             sqlx::query_as("SELECT participant FROM wa_forget_sender_keys WHERE group_jid = ?")
                 .bind(group_jid)
-                .fetch_all(&self.pool)
+                .fetch_all(&mut *tx)
                 .await
                 .map_err(db_err)?;
 
         sqlx::query("DELETE FROM wa_forget_sender_keys WHERE group_jid = ?")
             .bind(group_jid)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(db_err)?;
+
+        tx.commit().await.map_err(db_err)?;
 
         Ok(rows.into_iter().map(|(s,)| s).collect())
     }

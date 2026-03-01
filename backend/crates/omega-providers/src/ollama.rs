@@ -25,16 +25,20 @@ pub struct OllamaProvider {
 
 impl OllamaProvider {
     /// Create from config values.
-    pub fn from_config(base_url: String, model: String, workspace_path: Option<PathBuf>) -> Self {
-        Self {
+    pub fn from_config(
+        base_url: String,
+        model: String,
+        workspace_path: Option<PathBuf>,
+    ) -> Result<Self, OmegaError> {
+        Ok(Self {
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .build()
-                .expect("failed to build HTTP client"),
+                .map_err(|e| OmegaError::Provider(format!("failed to build HTTP client: {e}")))?,
             base_url,
             model,
             workspace_path,
-        }
+        })
     }
 }
 
@@ -372,7 +376,8 @@ mod tests {
 
     #[test]
     fn test_ollama_provider_name() {
-        let p = OllamaProvider::from_config("http://localhost:11434".into(), "llama3".into(), None);
+        let p = OllamaProvider::from_config("http://localhost:11434".into(), "llama3".into(), None)
+            .unwrap();
         assert_eq!(p.name(), "ollama");
         assert!(!p.requires_api_key());
     }

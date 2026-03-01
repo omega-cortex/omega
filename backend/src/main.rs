@@ -23,6 +23,7 @@ use omega_providers::claude_code::ClaudeCodeProvider;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
@@ -271,7 +272,7 @@ async fn cmd_start(config_path: &str) -> anyhow::Result<()> {
     }
 
     // Build and run gateway.
-    println!("OMEGA Ω — Starting agent...");
+    info!("OMEGA Ω — Starting agent...");
     let gw = Arc::new(gateway::Gateway::new(
         provider,
         channels,

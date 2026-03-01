@@ -47,6 +47,17 @@ struct WebhookRequest {
     target: Option<String>,
 }
 
+/// Constant-time string comparison to prevent timing attacks on API token validation.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.bytes()
+        .zip(b.bytes())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
+}
+
 /// Check bearer token auth. Returns `None` if authorized, `Some(response)` if rejected.
 fn check_auth(headers: &HeaderMap, api_key: &Option<String>) -> Option<(StatusCode, Json<Value>)> {
     let key = match api_key {
@@ -75,7 +86,7 @@ fn check_auth(headers: &HeaderMap, api_key: &Option<String>) -> Option<(StatusCo
     };
 
     match value.strip_prefix("Bearer ") {
-        Some(token) if token == key => None, // Authorized.
+        Some(token) if constant_time_eq(token, key) => None, // Authorized.
         _ => Some((
             StatusCode::UNAUTHORIZED,
             Json(json!({"error": "invalid token"})),
