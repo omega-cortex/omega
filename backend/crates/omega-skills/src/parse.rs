@@ -62,13 +62,17 @@ pub(crate) fn extract_bins_from_metadata(meta: &str) -> Vec<String> {
 }
 
 /// Check whether a CLI tool exists on `$PATH`.
+///
+/// Uses a pure-Rust PATH search instead of spawning a `which` subprocess
+/// to avoid blocking I/O in the async runtime.
 pub(crate) fn which_exists(tool: &str) -> bool {
-    std::process::Command::new("which")
-        .arg(tool)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
+    std::env::var_os("PATH")
+        .map(|paths| {
+            std::env::split_paths(&paths).any(|dir| {
+                let candidate = dir.join(tool);
+                candidate.is_file()
+            })
+        })
         .unwrap_or(false)
 }
 

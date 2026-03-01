@@ -50,7 +50,9 @@ impl TelegramChannel {
                         )));
                     }
                 } else {
-                    warn!("telegram send got {status}: {error_text}");
+                    return Err(OmegaError::Channel(format!(
+                        "telegram send failed ({status}): {error_text}"
+                    )));
                 }
             }
         }
@@ -86,8 +88,11 @@ impl TelegramChannel {
             .map_err(|e| OmegaError::Channel(format!("telegram sendPhoto failed: {e}")))?;
 
         if !resp.status().is_success() {
+            let status = resp.status();
             let error_text = resp.text().await.unwrap_or_default();
-            warn!("telegram sendPhoto error: {error_text}");
+            return Err(OmegaError::Channel(format!(
+                "telegram sendPhoto failed ({status}): {error_text}"
+            )));
         }
 
         Ok(())

@@ -110,7 +110,10 @@ async fn check_telegram(tg: &omega_core::config::TelegramConfig) -> CheckResult 
 
     // Call getMe to verify the token.
     let url = format!("https://api.telegram.org/bot{}/getMe", tg.bot_token);
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
     match client.get(&url).send().await {
         Ok(resp) => {
             if resp.status().is_success() {

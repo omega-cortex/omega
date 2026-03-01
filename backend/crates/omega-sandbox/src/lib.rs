@@ -69,7 +69,6 @@ pub fn is_write_blocked(path: &Path, data_dir: &Path) -> bool {
 
     // Resolve symlinks for both target and protected paths.
     let resolved = try_canonicalize(&abs);
-    let path_str = resolved.to_string_lossy();
 
     // Block writes to OMEGA's core data directory (memory.db, etc.).
     let data_data = try_canonicalize(&data_dir.join("data"));
@@ -84,6 +83,8 @@ pub fn is_write_blocked(path: &Path, data_dir: &Path) -> bool {
     }
 
     // Block writes to dangerous OS directories.
+    // Uses Path::starts_with (component-aware) instead of string prefix matching
+    // to prevent false positives like "/binaries/test" matching "/bin".
     let blocked_prefixes: &[&str] = &[
         "/System",
         "/bin",
@@ -102,7 +103,7 @@ pub fn is_write_blocked(path: &Path, data_dir: &Path) -> bool {
     ];
 
     for prefix in blocked_prefixes {
-        if path_str.starts_with(prefix) {
+        if resolved.starts_with(prefix) {
             return true;
         }
     }
@@ -239,6 +240,13 @@ mod tests {
             Path::new("/usr/local/bin/something"),
             &data_dir
         ));
+    }
+
+    #[test]
+    fn test_is_write_blocked_no_string_prefix_false_positive() {
+        // Path::starts_with is component-aware: "/binaries" should NOT match "/bin".
+        let data_dir = PathBuf::from("/home/user/.omega");
+        assert!(!is_write_blocked(Path::new("/binaries/test"), &data_dir));
     }
 
     #[test]

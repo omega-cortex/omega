@@ -133,7 +133,7 @@ impl Gateway {
             .flatten();
 
         // --- 3a. COMMAND DISPATCH ---
-        let projects = omega_skills::load_projects(&self.data_dir);
+        let projects = &self.projects;
         if let Some(cmd) = commands::Command::parse(&clean_incoming.text) {
             if matches!(cmd, commands::Command::Forget) {
                 let response = self
@@ -196,7 +196,7 @@ impl Gateway {
                 uptime: &self.uptime,
                 provider_name: self.provider.name(),
                 skills: &self.skills,
-                projects: &projects,
+                projects,
                 heartbeat_enabled: self.heartbeat_config.enabled,
                 heartbeat_interval_mins: self.heartbeat_interval.load(Ordering::Relaxed),
                 active_project: active_project.as_deref(),
@@ -303,7 +303,7 @@ impl Gateway {
             &incoming,
             &msg_lower,
             active_project.as_deref(),
-            &projects,
+            projects,
             needs_scheduling,
             needs_projects,
             needs_builds,

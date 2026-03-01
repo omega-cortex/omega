@@ -9,7 +9,9 @@ mod device_store;
 mod protocol_store;
 mod signal_store;
 
-use sqlx::{Pool, Sqlite, SqlitePool};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+use sqlx::{Pool, Sqlite};
+use std::str::FromStr;
 
 /// SQLx-backed WhatsApp session store.
 pub struct SqlxWhatsAppStore {
@@ -19,7 +21,14 @@ pub struct SqlxWhatsAppStore {
 impl SqlxWhatsAppStore {
     /// Create a new store and initialize the schema.
     pub async fn new(db_path: &str) -> std::result::Result<Self, sqlx::Error> {
-        let pool = SqlitePool::connect(&format!("sqlite:{db_path}?mode=rwc")).await?;
+        let opts = SqliteConnectOptions::from_str(&format!("sqlite:{db_path}"))?
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal);
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect_with(opts)
+            .await?;
         Self::init_schema(&pool).await?;
         Ok(Self { pool })
     }

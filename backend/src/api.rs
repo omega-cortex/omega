@@ -48,14 +48,21 @@ struct WebhookRequest {
 }
 
 /// Constant-time string comparison to prevent timing attacks on API token validation.
+///
+/// Always iterates over the maximum length of both inputs to avoid leaking
+/// length information through timing side channels.
 fn constant_time_eq(a: &str, b: &str) -> bool {
-    if a.len() != b.len() {
-        return false;
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    let len_match = a.len() == b.len();
+    let max_len = a.len().max(b.len());
+    let mut result = 0u8;
+    for i in 0..max_len {
+        let byte_a = a.get(i).copied().unwrap_or(0xFF);
+        let byte_b = b.get(i).copied().unwrap_or(0x00);
+        result |= byte_a ^ byte_b;
     }
-    a.bytes()
-        .zip(b.bytes())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
+    result == 0 && len_match
 }
 
 /// Check bearer token auth. Returns `None` if authorized, `Some(response)` if rejected.
@@ -266,6 +273,10 @@ pub async fn serve(
     } else {
         Some(config.api_key.clone())
     };
+
+    if api_key.is_none() {
+        warn!("API server running without authentication — set api.api_key in config.toml");
+    }
 
     let state = ApiState {
         channels,

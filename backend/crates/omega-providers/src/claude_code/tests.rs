@@ -343,11 +343,11 @@ fn test_build_run_cli_args_agent_name_with_session_id() {
 }
 
 // Requirement: REQ-BAP-004 (Must)
-// Security: agent_name with path traversal characters
+// Security: agent_name with path traversal characters must be rejected
 #[test]
 fn test_build_run_cli_args_agent_name_path_traversal() {
-    // The CLI receives the agent name as-is; it's the agent file writer's
-    // job to sanitize. But run_cli must not crash.
+    // Agent names with path separators or ".." are rejected to prevent
+    // path traversal attacks via the --agent flag.
     let args = ClaudeCodeProvider::build_run_cli_args(
         "Begin.",
         &[],
@@ -358,11 +358,45 @@ fn test_build_run_cli_args_agent_name_path_traversal() {
         None,
         Some("../../../etc/passwd"),
     );
-    let agent_idx = args.iter().position(|a| a == "--agent").unwrap();
-    assert_eq!(
-        args[agent_idx + 1],
-        "../../../etc/passwd",
-        "agent_name is passed through as-is (validation is elsewhere)"
+    assert!(
+        !args.contains(&"--agent".to_string()),
+        "Path traversal agent_name must NOT emit --agent flag"
+    );
+}
+
+#[test]
+fn test_build_run_cli_args_agent_name_with_slash() {
+    let args = ClaudeCodeProvider::build_run_cli_args(
+        "Begin.",
+        &[],
+        100,
+        &[],
+        "",
+        false,
+        None,
+        Some("foo/bar"),
+    );
+    assert!(
+        !args.contains(&"--agent".to_string()),
+        "Agent name with forward slash must NOT emit --agent flag"
+    );
+}
+
+#[test]
+fn test_build_run_cli_args_agent_name_with_backslash() {
+    let args = ClaudeCodeProvider::build_run_cli_args(
+        "Begin.",
+        &[],
+        100,
+        &[],
+        "",
+        false,
+        None,
+        Some("foo\\bar"),
+    );
+    assert!(
+        !args.contains(&"--agent".to_string()),
+        "Agent name with backslash must NOT emit --agent flag"
     );
 }
 

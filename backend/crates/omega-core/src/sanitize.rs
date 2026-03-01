@@ -25,27 +25,39 @@ pub fn sanitize(input: &str) -> SanitizeResult {
     let mut text = input.to_string();
     let mut warnings = Vec::new();
 
-    // 1. Strip role impersonation tags.
+    // 1. Strip role impersonation tags (case-insensitive).
     //    Patterns like [System], [Assistant], <|system|>, <<SYS>>, etc.
-    let role_patterns = [
-        ("[System]", "[Sys\u{200B}tem]"),
-        ("[SYSTEM]", "[SYS\u{200B}TEM]"),
-        ("[Assistant]", "[Assis\u{200B}tant]"),
-        ("[ASSISTANT]", "[ASSIS\u{200B}TANT]"),
+    //    Each entry: (lowercase pattern to detect, neutralized replacement).
+    let role_patterns: &[(&str, &str)] = &[
+        ("[system]", "[Sys\u{200B}tem]"),
+        ("[assistant]", "[Assis\u{200B}tant]"),
         ("<|system|>", "<|sys\u{200B}tem|>"),
         ("<|assistant|>", "<|assis\u{200B}tant|>"),
         ("<|im_start|>", "<|im_\u{200B}start|>"),
         ("<|im_end|>", "<|im_\u{200B}end|>"),
-        ("<<SYS>>", "<<S\u{200B}YS>>"),
-        ("<</SYS>>", "<</S\u{200B}YS>>"),
-        ("### System:", "### Sys\u{200B}tem:"),
-        ("### Assistant:", "### Assis\u{200B}tant:"),
+        ("<<sys>>", "<<S\u{200B}YS>>"),
+        ("<</sys>>", "<</S\u{200B}YS>>"),
+        ("### system:", "### Sys\u{200B}tem:"),
+        ("### assistant:", "### Assis\u{200B}tant:"),
     ];
 
-    for (pattern, replacement) in &role_patterns {
-        if text.contains(pattern) {
-            text = text.replace(pattern, replacement);
-            warnings.push(format!("neutralized role tag: {pattern}"));
+    for (pattern_lower, replacement) in role_patterns {
+        let text_lower_check = text.to_lowercase();
+        if text_lower_check.contains(pattern_lower) {
+            // Replace all case-insensitive occurrences by scanning the lowercase copy
+            // for positions and splicing the replacement into the original text.
+            let mut result = String::with_capacity(text.len());
+            let pat_len = pattern_lower.len();
+            let mut search_start = 0;
+            while let Some(pos) = text_lower_check[search_start..].find(pattern_lower) {
+                let abs_pos = search_start + pos;
+                result.push_str(&text[search_start..abs_pos]);
+                result.push_str(replacement);
+                search_start = abs_pos + pat_len;
+            }
+            result.push_str(&text[search_start..]);
+            text = result;
+            warnings.push(format!("neutralized role tag: {pattern_lower}"));
         }
     }
 

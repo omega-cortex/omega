@@ -2,67 +2,65 @@
 
 use super::Gateway;
 use omega_channels::whatsapp;
+use omega_core::config::ChannelConfig;
 use omega_core::message::IncomingMessage;
 use tracing::warn;
+
+/// Core auth logic — pure function operating on config, testable without a full Gateway.
+fn check_auth_inner(channel_config: &ChannelConfig, incoming: &IncomingMessage) -> Option<String> {
+    match incoming.channel.as_str() {
+        "telegram" => {
+            let allowed = channel_config.telegram.as_ref().map(|tg| &tg.allowed_users);
+
+            match allowed {
+                Some(users) if users.is_empty() => {
+                    // Empty list with auth enabled = deny all.
+                    Some("no users configured in telegram allowed_users".to_string())
+                }
+                Some(users) => {
+                    let sender_id: i64 = incoming.sender_id.parse().unwrap_or(-1);
+                    if users.contains(&sender_id) {
+                        None
+                    } else {
+                        Some(format!(
+                            "telegram user {} not in allowed_users",
+                            incoming.sender_id
+                        ))
+                    }
+                }
+                None => Some("telegram channel not configured".to_string()),
+            }
+        }
+        "whatsapp" => {
+            let allowed = channel_config.whatsapp.as_ref().map(|wa| &wa.allowed_users);
+
+            match allowed {
+                Some(users) if users.is_empty() => {
+                    // Empty list with auth enabled = deny all.
+                    Some("no users configured in whatsapp allowed_users".to_string())
+                }
+                Some(users) => {
+                    if users.contains(&incoming.sender_id) {
+                        None
+                    } else {
+                        Some(format!(
+                            "whatsapp user {} not in allowed_users",
+                            incoming.sender_id
+                        ))
+                    }
+                }
+                None => Some("whatsapp channel not configured".to_string()),
+            }
+        }
+        other => Some(format!("unknown channel: {other}")),
+    }
+}
 
 impl Gateway {
     /// Check if an incoming message is authorized.
     /// Returns `None` if allowed, `Some(reason)` if denied.
     pub(super) fn check_auth(&self, incoming: &IncomingMessage) -> Option<String> {
-        match incoming.channel.as_str() {
-            "telegram" => {
-                let allowed = self
-                    .channel_config
-                    .telegram
-                    .as_ref()
-                    .map(|tg| &tg.allowed_users);
-
-                match allowed {
-                    Some(users) if users.is_empty() => {
-                        // Empty list with auth enabled = deny all.
-                        Some("no users configured in telegram allowed_users".to_string())
-                    }
-                    Some(users) => {
-                        let sender_id: i64 = incoming.sender_id.parse().unwrap_or(-1);
-                        if users.contains(&sender_id) {
-                            None
-                        } else {
-                            Some(format!(
-                                "telegram user {} not in allowed_users",
-                                incoming.sender_id
-                            ))
-                        }
-                    }
-                    None => Some("telegram channel not configured".to_string()),
-                }
-            }
-            "whatsapp" => {
-                let allowed = self
-                    .channel_config
-                    .whatsapp
-                    .as_ref()
-                    .map(|wa| &wa.allowed_users);
-
-                match allowed {
-                    Some(users) if users.is_empty() => {
-                        // Empty list with auth enabled = deny all.
-                        Some("no users configured in whatsapp allowed_users".to_string())
-                    }
-                    Some(users) => {
-                        if users.contains(&incoming.sender_id) {
-                            None
-                        } else {
-                            Some(format!(
-                                "whatsapp user {} not in allowed_users",
-                                incoming.sender_id
-                            ))
-                        }
-                    }
-                    None => Some("whatsapp channel not configured".to_string()),
-                }
-            }
-            other => Some(format!("unknown channel: {other}")),
-        }
+        check_auth_inner(&self.channel_config, incoming)
     }
 
     /// Handle the WHATSAPP_QR flow: use the running bot's event stream for pairing.
@@ -166,5 +164,118 @@ impl Gateway {
                     .await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omega_core::config::{TelegramConfig, WhatsAppConfig};
+
+    /// Build a minimal `IncomingMessage` for testing auth.
+    fn msg(channel: &str, sender_id: &str) -> IncomingMessage {
+        IncomingMessage {
+            id: uuid::Uuid::new_v4(),
+            channel: channel.to_string(),
+            sender_id: sender_id.to_string(),
+            sender_name: None,
+            text: String::new(),
+            timestamp: chrono::Utc::now(),
+            reply_to: None,
+            attachments: vec![],
+            reply_target: None,
+            is_group: false,
+            source: None,
+        }
+    }
+
+    #[test]
+    fn telegram_valid_user_allowed() {
+        let config = ChannelConfig {
+            telegram: Some(TelegramConfig {
+                enabled: true,
+                bot_token: String::new(),
+                allowed_users: vec![12345],
+                whisper_api_key: None,
+            }),
+            whatsapp: None,
+        };
+        let result = check_auth_inner(&config, &msg("telegram", "12345"));
+        assert!(result.is_none(), "Valid telegram user should be allowed");
+    }
+
+    #[test]
+    fn telegram_invalid_user_denied() {
+        let config = ChannelConfig {
+            telegram: Some(TelegramConfig {
+                enabled: true,
+                bot_token: String::new(),
+                allowed_users: vec![12345],
+                whisper_api_key: None,
+            }),
+            whatsapp: None,
+        };
+        let result = check_auth_inner(&config, &msg("telegram", "99999"));
+        assert!(result.is_some(), "Invalid telegram user should be denied");
+        assert!(result.unwrap().contains("not in allowed_users"));
+    }
+
+    #[test]
+    fn telegram_empty_allowed_users_denied() {
+        let config = ChannelConfig {
+            telegram: Some(TelegramConfig {
+                enabled: true,
+                bot_token: String::new(),
+                allowed_users: vec![],
+                whisper_api_key: None,
+            }),
+            whatsapp: None,
+        };
+        let result = check_auth_inner(&config, &msg("telegram", "12345"));
+        assert!(
+            result.is_some(),
+            "Empty allowed_users should deny all telegram users"
+        );
+        assert!(result.unwrap().contains("no users configured"));
+    }
+
+    #[test]
+    fn whatsapp_valid_user_allowed() {
+        let config = ChannelConfig {
+            telegram: None,
+            whatsapp: Some(WhatsAppConfig {
+                enabled: true,
+                allowed_users: vec!["5511999887766".to_string()],
+                whisper_api_key: None,
+            }),
+        };
+        let result = check_auth_inner(&config, &msg("whatsapp", "5511999887766"));
+        assert!(result.is_none(), "Valid whatsapp user should be allowed");
+    }
+
+    #[test]
+    fn whatsapp_empty_allowed_users_denied() {
+        let config = ChannelConfig {
+            telegram: None,
+            whatsapp: Some(WhatsAppConfig {
+                enabled: true,
+                allowed_users: vec![],
+                whisper_api_key: None,
+            }),
+        };
+        let result = check_auth_inner(&config, &msg("whatsapp", "5511999887766"));
+        assert!(
+            result.is_some(),
+            "Empty allowed_users should deny all whatsapp users"
+        );
+        assert!(result.unwrap().contains("no users configured"));
+    }
+
+    #[test]
+    fn unknown_channel_denied() {
+        let config = ChannelConfig::default();
+        let result = check_auth_inner(&config, &msg("discord", "user123"));
+        assert!(result.is_some(), "Unknown channel should be denied");
+        assert!(result.unwrap().contains("unknown channel"));
     }
 }

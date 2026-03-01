@@ -24,10 +24,13 @@ impl WhatsAppChannel {
         image: &[u8],
         caption: &str,
     ) -> Result<(), OmegaError> {
-        let client_guard = self.client.lock().await;
-        let client = client_guard
-            .as_ref()
-            .ok_or_else(|| OmegaError::Channel("whatsapp client not connected".into()))?;
+        let client = {
+            let guard = self.client.lock().await;
+            guard
+                .as_ref()
+                .ok_or_else(|| OmegaError::Channel("whatsapp client not connected".into()))?
+                .clone()
+        };
 
         let jid: Jid = jid_str
             .parse()
@@ -53,7 +56,7 @@ impl WhatsAppChannel {
             ..Default::default()
         };
 
-        let msg_id = retry_send(client, &jid, msg).await?;
+        let msg_id = retry_send(&client, &jid, msg).await?;
         {
             let mut ids = self.sent_ids.lock().await;
             if ids.len() >= MAX_SENT_IDS {
@@ -68,10 +71,13 @@ impl WhatsAppChannel {
 
     /// Send a text message to a JID string (phone@s.whatsapp.net).
     async fn send_text(&self, jid_str: &str, text: &str) -> Result<(), OmegaError> {
-        let client_guard = self.client.lock().await;
-        let client = client_guard
-            .as_ref()
-            .ok_or_else(|| OmegaError::Channel("whatsapp client not connected".into()))?;
+        let client = {
+            let guard = self.client.lock().await;
+            guard
+                .as_ref()
+                .ok_or_else(|| OmegaError::Channel("whatsapp client not connected".into()))?
+                .clone()
+        };
 
         let jid: Jid = jid_str
             .parse()
@@ -84,7 +90,7 @@ impl WhatsAppChannel {
                 conversation: Some(chunk.to_string()),
                 ..Default::default()
             };
-            let msg_id = retry_send(client, &jid, msg).await?;
+            let msg_id = retry_send(&client, &jid, msg).await?;
             // Track sent message ID to ignore our own echo.
             {
                 let mut ids = self.sent_ids.lock().await;
@@ -115,8 +121,11 @@ impl Channel for WhatsAppChannel {
     }
 
     async fn send_typing(&self, target: &str) -> Result<(), OmegaError> {
-        let client_guard = self.client.lock().await;
-        if let Some(ref client) = *client_guard {
+        let client = {
+            let guard = self.client.lock().await;
+            guard.as_ref().cloned()
+        };
+        if let Some(ref client) = client {
             let jid: Jid = target.parse().map_err(|e| {
                 OmegaError::Channel(format!("invalid whatsapp JID '{target}': {e}"))
             })?;

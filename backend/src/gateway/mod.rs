@@ -58,6 +58,8 @@ pub struct Gateway {
     pub(super) prompts: Prompts,
     pub(super) data_dir: String,
     pub(super) skills: Vec<omega_skills::Skill>,
+    /// Cached project list — loaded once at startup to avoid per-message filesystem I/O.
+    pub(super) projects: Vec<omega_skills::Project>,
     pub(super) uptime: Instant,
     /// Fast model for classification and direct responses (Sonnet).
     pub(super) model_fast: String,
@@ -95,6 +97,7 @@ impl Gateway {
         let audit = AuditLogger::new(memory.pool().clone());
         let heartbeat_interval = Arc::new(AtomicU64::new(heartbeat_config.interval_minutes));
         let heartbeat_notify = Arc::new(Notify::new());
+        let projects = omega_skills::load_projects(&data_dir);
         Self {
             provider,
             channels,
@@ -108,6 +111,7 @@ impl Gateway {
             prompts,
             data_dir,
             skills,
+            projects,
             uptime: Instant::now(),
             model_fast,
             model_complex,

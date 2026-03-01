@@ -93,12 +93,21 @@ fn apply_landlock(home: &str, data_dir: &std::path::Path) -> Result<(), anyhow::
     }
 
     // Restrict data dir (memory.db) — Refer-only blocks reads and writes.
+    // Ensure the directory exists so the Landlock rule is always applied.
+    // Without this, a first-run scenario where ~/.omega/data/ hasn't been
+    // created yet would skip the restriction entirely, leaving memory.db
+    // unprotected once the directory is later created by another component.
     let data_data = data_dir.join("data");
+    let _ = std::fs::create_dir_all(&data_data);
     if data_data.exists() {
         ruleset = ruleset.add_rules(path_beneath_rules(&[data_data], refer_only()))?;
     }
 
     // Restrict config.toml (API keys) — Refer-only blocks reads and writes.
+    // NOTE: We cannot safely pre-create config.toml here because creating an
+    // empty file would break the TOML parser on startup. The code-level
+    // enforcement via is_read_blocked()/is_write_blocked() provides protection
+    // even when config.toml doesn't exist yet on first run.
     let config_file = data_dir.join("config.toml");
     if config_file.exists() {
         ruleset = ruleset.add_rules(path_beneath_rules(&[config_file], refer_only()))?;

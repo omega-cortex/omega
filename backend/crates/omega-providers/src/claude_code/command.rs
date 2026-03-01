@@ -26,7 +26,11 @@ impl ClaudeCodeProvider {
 
         // Agent mode: --agent <name> before -p.
         // When agent_name is set, skip --resume (agent mode does not use sessions).
-        let agent = agent_name.filter(|n| !n.is_empty());
+        // Reject agent names containing path separators or traversal patterns
+        // to prevent path traversal attacks via the --agent flag.
+        let agent = agent_name
+            .filter(|n| !n.is_empty())
+            .filter(|n| !n.contains('/') && !n.contains('\\') && !n.contains(".."));
 
         if let Some(name) = agent {
             args.push("--agent".to_string());
