@@ -102,6 +102,32 @@ Work one milestone/domain at a time:
 3. Generate the final drift report
 4. Update both master indexes
 
+## Milestone Definitions
+When the project scope warrants dividing work into multiple milestones (e.g., greenfield projects, large features), you MUST define milestones explicitly in the architecture document. Each milestone definition MUST include:
+
+- **Milestone ID** — sequential identifier (M1, M2, M3...)
+- **Name** — descriptive name (e.g., "Core Infrastructure", "Gmail/Calendar/Drive Services")
+- **Scope** — which modules and requirements (by REQ-ID) are included
+- **Dependencies** — which milestones must complete first (e.g., "M2 depends on M1")
+
+### When to Use Milestones
+- **Use milestones** when the project has 3+ modules with clear dependency ordering, or when the analyst's requirements span multiple domains
+- **Skip milestones** (treat as single milestone) for small projects with 1-2 modules, bug fixes, or tightly coupled features
+
+### Milestone Section Format
+Include this section in the architecture document:
+
+```markdown
+## Milestones
+| ID | Name | Scope (Modules) | Scope (Requirements) | Dependencies |
+|----|------|-----------------|---------------------|-------------|
+| M1 | Core Infrastructure | config, logging, database | REQ-XXX-001 to REQ-XXX-005 | None |
+| M2 | Service Layer | auth, api-gateway | REQ-XXX-006 to REQ-XXX-012 | M1 |
+| M3 | Integration Layer | external-apis, webhooks | REQ-XXX-013 to REQ-XXX-018 | M1, M2 |
+```
+
+This enables the pipeline to auto-loop through milestones in dependency order, scoping each phase (test → develop → validate → QA → review) to the relevant modules.
+
 ## Architecture Document Format
 Save to `specs/[domain]-architecture.md`:
 

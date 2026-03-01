@@ -4,6 +4,26 @@ use super::Store;
 use omega_core::error::OmegaError;
 use uuid::Uuid;
 
+/// A scheduled task that is due for delivery.
+pub struct DueTask {
+    /// Unique task identifier.
+    pub id: String,
+    /// Channel name (e.g. "telegram").
+    pub channel: String,
+    /// Sender/user identifier.
+    pub sender_id: String,
+    /// Reply target for message delivery.
+    pub reply_target: String,
+    /// Human-readable task description.
+    pub description: String,
+    /// Repeat schedule (None = one-shot, Some("daily"), etc.).
+    pub repeat: Option<String>,
+    /// Task type: "reminder" or "action".
+    pub task_type: String,
+    /// Project scope (empty string = global).
+    pub project: String,
+}
+
 impl Store {
     /// Create a scheduled task. Deduplicates on two levels:
     /// 1. Exact match: same sender + description + normalized due_at.
@@ -84,22 +104,7 @@ impl Store {
 
     /// Get tasks that are due for delivery.
     #[allow(clippy::type_complexity)]
-    pub async fn get_due_tasks(
-        &self,
-    ) -> Result<
-        Vec<(
-            String,
-            String,
-            String,
-            String,
-            String,
-            Option<String>,
-            String,
-            String,
-        )>,
-        OmegaError,
-    > {
-        // Returns: (id, channel, sender_id, reply_target, description, repeat, task_type, project)
+    pub async fn get_due_tasks(&self) -> Result<Vec<DueTask>, OmegaError> {
         let rows: Vec<(
             String,
             String,
@@ -118,7 +123,32 @@ impl Store {
         .await
         .map_err(|e| OmegaError::Memory(format!("get due tasks failed: {e}")))?;
 
-        Ok(rows)
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    channel,
+                    sender_id,
+                    reply_target,
+                    description,
+                    repeat,
+                    task_type,
+                    project,
+                )| {
+                    DueTask {
+                        id,
+                        channel,
+                        sender_id,
+                        reply_target,
+                        description,
+                        repeat,
+                        task_type,
+                        project,
+                    }
+                },
+            )
+            .collect())
     }
 
     /// Complete a task: one-shot tasks become 'delivered', recurring tasks advance due_at.
@@ -141,14 +171,13 @@ impl Store {
                     _ => "+1 day",
                 };
 
-                // Advance due_at by interval.
-                sqlx::query(&format!(
-                    "UPDATE scheduled_tasks SET due_at = datetime(due_at, '{offset}') WHERE id = ?"
-                ))
-                .bind(id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| OmegaError::Memory(format!("advance task failed: {e}")))?;
+                // Advance due_at by interval using parameterized binding.
+                sqlx::query("UPDATE scheduled_tasks SET due_at = datetime(due_at, ?) WHERE id = ?")
+                    .bind(offset)
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| OmegaError::Memory(format!("advance task failed: {e}")))?;
 
                 // For weekdays: skip Saturday (6) and Sunday (0).
                 if interval == "weekdays" {

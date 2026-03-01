@@ -51,12 +51,13 @@ impl Gateway {
                 if let Ok(tasks) = store.get_due_tasks().await {
                     if !tasks.is_empty() {
                         let next = next_active_start_utc(&active_start);
-                        for (id, _, _, _, description, _, _, _) in &tasks {
-                            if let Err(e) = store.defer_task(id, &next).await {
-                                error!("scheduler: failed to defer task {id}: {e}");
+                        for task in &tasks {
+                            if let Err(e) = store.defer_task(&task.id, &next).await {
+                                error!("scheduler: failed to defer task {}: {e}", task.id);
                             } else {
                                 info!(
-                                    "scheduler: deferred task {id} to {next} (quiet hours): {description}"
+                                    "scheduler: deferred task {} to {next} (quiet hours): {}",
+                                    task.id, task.description
                                 );
                             }
                         }
@@ -67,26 +68,16 @@ impl Gateway {
 
             match store.get_due_tasks().await {
                 Ok(tasks) => {
-                    for (
-                        id,
-                        channel_name,
-                        sender_id,
-                        reply_target,
-                        description,
-                        repeat,
-                        task_type,
-                        project,
-                    ) in &tasks
-                    {
-                        if task_type == "action" {
+                    for task in &tasks {
+                        if task.task_type == "action" {
                             scheduler_action::execute_action_task(
-                                id,
-                                channel_name,
-                                sender_id,
-                                reply_target,
-                                description,
-                                repeat.as_deref(),
-                                project,
+                                &task.id,
+                                &task.channel,
+                                &task.sender_id,
+                                &task.reply_target,
+                                &task.description,
+                                task.repeat.as_deref(),
+                                &task.project,
                                 &store,
                                 &channels,
                                 &*provider,
@@ -106,25 +97,29 @@ impl Gateway {
 
                         // --- Reminder task: send text ---
                         let msg = OutgoingMessage {
-                            text: format!("Reminder: {description}"),
+                            text: format!("Reminder: {}", task.description),
                             metadata: MessageMetadata::default(),
-                            reply_target: Some(reply_target.clone()),
+                            reply_target: Some(task.reply_target.clone()),
                         };
 
-                        if let Some(ch) = channels.get(channel_name) {
+                        if let Some(ch) = channels.get(&task.channel) {
                             if let Err(e) = ch.send(msg).await {
-                                error!("failed to deliver task {id}: {e}");
+                                error!("failed to deliver task {}: {e}", task.id);
                                 continue;
                             }
                         } else {
-                            warn!("scheduler: no channel '{channel_name}' for task {id}");
+                            warn!(
+                                "scheduler: no channel '{}' for task {}",
+                                task.channel, task.id
+                            );
                             continue;
                         }
 
-                        if let Err(e) = store.complete_task(id, repeat.as_deref()).await {
-                            error!("failed to complete task {id}: {e}");
+                        if let Err(e) = store.complete_task(&task.id, task.repeat.as_deref()).await
+                        {
+                            error!("failed to complete task {}: {e}", task.id);
                         } else {
-                            info!("delivered scheduled task {id}: {description}");
+                            info!("delivered scheduled task {}: {}", task.id, task.description);
                         }
                     }
                 }

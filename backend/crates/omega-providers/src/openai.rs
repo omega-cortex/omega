@@ -131,8 +131,6 @@ pub(crate) struct ChatCompletionResponse {
 #[derive(Deserialize)]
 pub(crate) struct ChatChoice {
     pub message: Option<ChatMessage>,
-    #[allow(dead_code)]
-    pub finish_reason: Option<String>,
 }
 
 #[derive(Deserialize)]

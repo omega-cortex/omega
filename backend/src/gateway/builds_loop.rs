@@ -27,10 +27,8 @@ impl Gateway {
         model: &str,
     ) -> Result<(), String> {
         let project_dir_str = state.project_dir_str.as_deref().unwrap_or("");
-        // TODO(phase-2): add loop_style field to RetryConfig instead of name-based dispatch
-        // NOTE: Tracked as P2-26 — phase-2 i18n not yet implemented, English-only fallback used.
-        //       Currently dispatches QA vs review by checking phase.name == "qa"; should use
-        //       an explicit loop_style enum on RetryConfig (e.g. LoopStyle::Qa / LoopStyle::Review).
+        // NOTE: Dispatches QA vs review by phase name. A future improvement could add
+        // an explicit loop_style enum to RetryConfig (e.g. LoopStyle::Qa / LoopStyle::Review).
         let is_qa = phase.name == "qa";
 
         let verify_prompt = if is_qa {
@@ -83,7 +81,7 @@ impl Gateway {
                         if is_qa {
                             self.send_text(
                                 incoming,
-                                &qa_retry_message(user_lang, attempt, &reason),
+                                &qa_retry_message(user_lang, attempt, retry.max, &reason),
                             )
                             .await;
                         } else {
@@ -160,7 +158,7 @@ impl Gateway {
                 }
                 VerificationResult::Fail(reason) => {
                     if attempt < 3 {
-                        self.send_text(incoming, &qa_retry_message(user_lang, attempt, &reason))
+                        self.send_text(incoming, &qa_retry_message(user_lang, attempt, 3, &reason))
                             .await;
 
                         // Re-invoke developer with failure context.

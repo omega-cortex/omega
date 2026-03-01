@@ -290,3 +290,34 @@ fn test_strip_whatsapp_qr_marker() {
     let text = "Setting up.\nWHATSAPP_QR\nAll done.";
     assert_eq!(strip_whatsapp_qr_marker(text), "Setting up.\nAll done.");
 }
+
+// --- BUILD_PROPOSAL ---
+
+#[test]
+fn test_extract_build_proposal() {
+    let text =
+        "I think we should build this.\nBUILD_PROPOSAL: A trading dashboard for BTC monitoring";
+    assert_eq!(
+        extract_build_proposal(text),
+        Some("A trading dashboard for BTC monitoring".to_string())
+    );
+}
+
+#[test]
+fn test_extract_build_proposal_none() {
+    assert!(extract_build_proposal("No build proposal here.").is_none());
+}
+
+#[test]
+fn test_extract_build_proposal_empty() {
+    assert!(extract_build_proposal("BUILD_PROPOSAL: ").is_none());
+}
+
+#[test]
+fn test_strip_build_proposal() {
+    let text = "Here's my suggestion.\nBUILD_PROPOSAL: Create a dashboard\nLet me know!";
+    let result = strip_build_proposal(text);
+    assert!(!result.contains("BUILD_PROPOSAL:"));
+    assert!(result.contains("Here's my suggestion."));
+    assert!(result.contains("Let me know!"));
+}

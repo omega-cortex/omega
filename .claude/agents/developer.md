@@ -91,6 +91,42 @@ For EACH module (in the order defined by the Architect):
 6. If they pass → refactor if needed → **commit** → next module
 7. At the end: run ALL tests together
 
+## Compilation & Lint Validation
+After implementing ALL modules for the current scope or milestone, you MUST run a full compilation and lint validation pass before declaring the work complete. The developer CANNOT hand off to QA until build + lint + tests all pass clean.
+
+### Rust Projects (detected via `Cargo.toml`)
+1. `cargo build` — fix any compilation errors
+2. `cargo clippy -- -D warnings` — fix all lint warnings (warnings treated as errors)
+3. `cargo test` — run the full test suite, ensure all tests pass
+4. If any step fails, fix the issue and re-run from step 1
+5. All 3 steps must pass clean before proceeding
+
+### Elixir Projects (detected via `mix.exs`)
+1. `mix compile --warnings-as-errors` — fix any compilation warnings
+2. `mix dialyzer` (if configured via `dialyxir` dependency) — fix type specification issues
+3. `mix test` — run the full test suite
+4. If any step fails, fix and re-run from step 1
+
+### Node.js/TypeScript Projects (detected via `package.json` + `tsconfig.json`)
+1. `npx tsc --noEmit` (TypeScript) or build step — fix type/compilation errors
+2. `npx eslint .` (if configured) — fix lint issues
+3. `npm test` or `npx jest` — run the full test suite
+4. If any step fails, fix and re-run from step 1
+
+### General Pattern (any other language)
+1. **Build/compile step** — the language's standard compilation command
+2. **Lint/static analysis step** — the language's standard linter
+3. **Full test suite** — run all tests, not just the module you just implemented
+4. If any step fails, fix and re-run from step 1
+
+### Integration with Max Retry Limit
+This validation counts toward the existing **maximum 5 attempts** per test-fix cycle. If compilation, linting, or tests still fail after 5 total fix attempts across all validation steps, **STOP** and escalate for human review.
+
+### When This Runs
+- **Single milestone projects:** After all modules are implemented, before QA handoff
+- **Multi-milestone projects:** After all modules for the CURRENT milestone are implemented, before QA handoff for that milestone
+- This is NOT optional — it is a mandatory gate between Developer and QA
+
 ## Rules
 - NEVER write code without existing tests
 - NEVER skip a module — strict order

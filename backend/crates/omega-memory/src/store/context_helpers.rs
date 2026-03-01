@@ -66,37 +66,49 @@ pub(super) fn onboarding_hint_text(stage: u8, language: &str) -> Option<String> 
     }
 }
 
-/// Build a dynamic system prompt enriched with facts, conversation history, and recalled messages.
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
-pub(super) fn build_system_prompt(
-    base_rules: &str,
-    facts: &[(String, String)],
-    summaries: &[(String, String)],
-    recall: &[(String, String, String)],
-    pending_tasks: &[(String, String, String, Option<String>, String, String)],
-    outcomes: &[(i32, String, String, String)],
-    lessons: &[(String, String, String)],
-    language: &str,
-    onboarding_hint: Option<u8>,
-) -> String {
-    let mut prompt = String::from(base_rules);
+/// Parameters for building a dynamic system prompt.
+#[allow(clippy::type_complexity)]
+pub(super) struct SystemPromptContext<'a> {
+    /// Base system prompt rules (identity, soul, system sections).
+    pub base_rules: &'a str,
+    /// User facts (key-value pairs, e.g. name, timezone).
+    pub facts: &'a [(String, String)],
+    /// Recent conversation summaries (summary text, timestamp).
+    pub summaries: &'a [(String, String)],
+    /// Semantically recalled past messages (role, content, timestamp).
+    pub recall: &'a [(String, String, String)],
+    /// Pending scheduled tasks (id, description, due_at, repeat, task_type, project).
+    pub pending_tasks: &'a [(String, String, String, Option<String>, String, String)],
+    /// Recent outcomes (score, domain, lesson, timestamp).
+    pub outcomes: &'a [(i32, String, String, String)],
+    /// Learned behavioral rules (domain, rule, project).
+    pub lessons: &'a [(String, String, String)],
+    /// User's preferred language (e.g. "English", "Spanish").
+    pub language: &'a str,
+    /// Onboarding stage to show hint for (None = no hint).
+    pub onboarding_hint: Option<u8>,
+}
 
-    let profile = format_user_profile(facts);
+/// Build a dynamic system prompt enriched with facts, conversation history, and recalled messages.
+pub(super) fn build_system_prompt(ctx: &SystemPromptContext<'_>) -> String {
+    let mut prompt = String::from(ctx.base_rules);
+
+    let profile = format_user_profile(ctx.facts);
     if !profile.is_empty() {
         prompt.push_str("\n\n");
         prompt.push_str(&profile);
     }
 
-    if !summaries.is_empty() {
+    if !ctx.summaries.is_empty() {
         prompt.push_str("\n\nRecent conversation history:");
-        for (summary, timestamp) in summaries {
+        for (summary, timestamp) in ctx.summaries {
             prompt.push_str(&format!("\n- [{timestamp}] {summary}"));
         }
     }
 
-    if !recall.is_empty() {
+    if !ctx.recall.is_empty() {
         prompt.push_str("\n\nRelated past context:");
-        for (_role, content, timestamp) in recall {
+        for (_role, content, timestamp) in ctx.recall {
             let truncated = if content.len() > 200 {
                 let boundary = content.floor_char_boundary(200);
                 format!("{}...", &content[..boundary])
@@ -107,9 +119,9 @@ pub(super) fn build_system_prompt(
         }
     }
 
-    if !pending_tasks.is_empty() {
+    if !ctx.pending_tasks.is_empty() {
         prompt.push_str("\n\nUser's scheduled tasks:");
-        for (id, desc, due_at, repeat, task_type, project) in pending_tasks {
+        for (id, desc, due_at, repeat, task_type, project) in ctx.pending_tasks {
             let r = repeat.as_deref().unwrap_or("once");
             let type_badge = if task_type == "action" {
                 " [action]"
@@ -128,9 +140,9 @@ pub(super) fn build_system_prompt(
         }
     }
 
-    if !lessons.is_empty() {
+    if !ctx.lessons.is_empty() {
         prompt.push_str("\n\nLearned behavioral rules:");
-        for (domain, rule, project) in lessons {
+        for (domain, rule, project) in ctx.lessons {
             if project.is_empty() {
                 prompt.push_str(&format!("\n- [{domain}] {rule}"));
             } else {
@@ -139,10 +151,10 @@ pub(super) fn build_system_prompt(
         }
     }
 
-    if !outcomes.is_empty() {
+    if !ctx.outcomes.is_empty() {
         prompt.push_str("\n\nRecent outcomes:");
         let now = chrono::Utc::now();
-        for (score, domain, lesson, timestamp) in outcomes {
+        for (score, domain, lesson, timestamp) in ctx.outcomes {
             let ago = format_relative_time(timestamp, &now);
             let sign = if *score > 0 {
                 "+"
@@ -155,11 +167,14 @@ pub(super) fn build_system_prompt(
         }
     }
 
-    prompt.push_str(&format!("\n\nIMPORTANT: Always respond in {language}."));
+    prompt.push_str(&format!(
+        "\n\nIMPORTANT: Always respond in {}.",
+        ctx.language
+    ));
 
     // Progressive onboarding: inject hint only when a stage transition fires.
-    if let Some(stage) = onboarding_hint {
-        if let Some(hint) = onboarding_hint_text(stage, language) {
+    if let Some(stage) = ctx.onboarding_hint {
+        if let Some(hint) = onboarding_hint_text(stage, ctx.language) {
             prompt.push_str(&hint);
         }
     }

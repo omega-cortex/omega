@@ -186,7 +186,6 @@ impl Drop for AgentFilesGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     // ===================================================================
     // REQ-BAP-002 (Must): Embedded agent content — 7 agent definitions

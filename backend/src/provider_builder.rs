@@ -127,3 +127,173 @@ pub fn build_provider(
         other => anyhow::bail!("unsupported provider: {other}"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omega_core::config::*;
+    use std::path::PathBuf;
+
+    /// Build a minimal Config with all defaults and the given provider name.
+    fn test_config(provider_name: &str) -> Config {
+        Config {
+            omega: OmegaConfig::default(),
+            auth: AuthConfig::default(),
+            provider: ProviderConfig {
+                default: provider_name.to_string(),
+                ..Default::default()
+            },
+            channel: ChannelConfig::default(),
+            memory: MemoryConfig::default(),
+            heartbeat: HeartbeatConfig::default(),
+            scheduler: SchedulerConfig::default(),
+            api: ApiConfig::default(),
+        }
+    }
+
+    #[test]
+    fn test_unsupported_provider_returns_error() {
+        let cfg = test_config("nonexistent");
+        let ws = PathBuf::from("/tmp");
+        let result = build_provider(&cfg, &ws);
+        let err = result.err().expect("should fail with unsupported provider");
+        assert!(
+            err.to_string().contains("unsupported provider"),
+            "error should mention unsupported provider, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_claude_code_defaults_succeeds() {
+        let cfg = test_config("claude-code");
+        let ws = PathBuf::from("/tmp");
+        let (provider, model_fast, model_complex) = build_provider(&cfg, &ws).unwrap();
+        assert_eq!(provider.name(), "claude-code");
+        // Default fast model is Sonnet, complex is Opus.
+        assert!(
+            model_fast.contains("sonnet"),
+            "fast model should be sonnet, got: {model_fast}"
+        );
+        assert!(
+            model_complex.contains("opus"),
+            "complex model should be opus, got: {model_complex}"
+        );
+    }
+
+    #[test]
+    fn test_claude_code_custom_models() {
+        let mut cfg = test_config("claude-code");
+        cfg.provider.claude_code = Some(ClaudeCodeConfig {
+            model: "custom-fast-model".to_string(),
+            model_complex: "custom-complex-model".to_string(),
+            ..Default::default()
+        });
+        let ws = PathBuf::from("/tmp");
+        let (_provider, model_fast, model_complex) = build_provider(&cfg, &ws).unwrap();
+        assert_eq!(model_fast, "custom-fast-model");
+        assert_eq!(model_complex, "custom-complex-model");
+    }
+
+    #[test]
+    fn test_ollama_missing_config_returns_error() {
+        let cfg = test_config("ollama");
+        let ws = PathBuf::from("/tmp");
+        let result = build_provider(&cfg, &ws);
+        let err = result
+            .err()
+            .expect("should fail with missing ollama config");
+        assert!(
+            err.to_string().contains("provider.ollama section missing"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_openai_missing_config_returns_error() {
+        let cfg = test_config("openai");
+        let ws = PathBuf::from("/tmp");
+        let result = build_provider(&cfg, &ws);
+        let err = result
+            .err()
+            .expect("should fail with missing openai config");
+        assert!(
+            err.to_string().contains("provider.openai section missing"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_anthropic_missing_config_returns_error() {
+        let cfg = test_config("anthropic");
+        let ws = PathBuf::from("/tmp");
+        let result = build_provider(&cfg, &ws);
+        let err = result
+            .err()
+            .expect("should fail with missing anthropic config");
+        assert!(
+            err.to_string()
+                .contains("provider.anthropic section missing"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_openrouter_missing_config_returns_error() {
+        let cfg = test_config("openrouter");
+        let ws = PathBuf::from("/tmp");
+        let result = build_provider(&cfg, &ws);
+        let err = result
+            .err()
+            .expect("should fail with missing openrouter config");
+        assert!(
+            err.to_string()
+                .contains("provider.openrouter section missing"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_gemini_missing_config_returns_error() {
+        let cfg = test_config("gemini");
+        let ws = PathBuf::from("/tmp");
+        let result = build_provider(&cfg, &ws);
+        let err = result
+            .err()
+            .expect("should fail with missing gemini config");
+        assert!(
+            err.to_string().contains("provider.gemini section missing"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_ollama_with_config_returns_same_model_for_both() {
+        let mut cfg = test_config("ollama");
+        cfg.provider.ollama = Some(OllamaConfig {
+            enabled: true,
+            base_url: "http://localhost:11434".to_string(),
+            model: "llama3".to_string(),
+        });
+        let ws = PathBuf::from("/tmp");
+        let (provider, model_fast, model_complex) = build_provider(&cfg, &ws).unwrap();
+        assert_eq!(provider.name(), "ollama");
+        assert_eq!(model_fast, "llama3");
+        assert_eq!(model_complex, "llama3");
+    }
+
+    #[test]
+    fn test_anthropic_with_config_succeeds() {
+        let mut cfg = test_config("anthropic");
+        cfg.provider.anthropic = Some(AnthropicConfig {
+            enabled: true,
+            api_key: "test-key".to_string(),
+            model: "claude-sonnet-4-20250514".to_string(),
+            max_tokens: 4096,
+        });
+        let ws = PathBuf::from("/tmp");
+        let (provider, model_fast, model_complex) = build_provider(&cfg, &ws).unwrap();
+        assert_eq!(provider.name(), "anthropic");
+        assert_eq!(model_fast, "claude-sonnet-4-20250514");
+        assert_eq!(model_complex, "claude-sonnet-4-20250514");
+    }
+}

@@ -18,6 +18,7 @@ mod sessions;
 mod tasks;
 
 pub use context::{detect_language, format_user_profile};
+pub use tasks::DueTask;
 
 use omega_core::{config::MemoryConfig, error::OmegaError, shellexpand};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};

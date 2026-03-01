@@ -158,44 +158,59 @@ pub(super) fn qa_pass_message(lang: &str, attempt: u32) -> String {
 }
 
 /// Localized QA retry message -- sent when verification finds issues and developer is re-invoked.
-// TODO(phase-2): parameterize retry count from topology instead of hardcoded /3
-// NOTE: Tracked as P2-23 — phase-2 i18n not yet implemented, English-only fallback used.
-//       Currently hardcodes "/3" in all languages; should read max_retries from RetryConfig.
-pub(super) fn qa_retry_message(lang: &str, attempt: u32, reason: &str) -> String {
+///
+/// `max_retries` is read from the topology's `RetryConfig.max` so messages
+/// reflect the actual limit instead of a hardcoded value.
+pub(super) fn qa_retry_message(lang: &str, attempt: u32, max_retries: u32, reason: &str) -> String {
     match lang {
         "Spanish" => {
-            format!("Verificación {attempt}/3 encontró problemas — corrigiendo...\n{reason}")
+            format!("Verificación {attempt}/{max_retries} encontró problemas — corrigiendo...\n{reason}")
         }
         "Portuguese" => {
-            format!("Verificação {attempt}/3 encontrou problemas — corrigindo...\n{reason}")
+            format!(
+                "Verificação {attempt}/{max_retries} encontrou problemas — corrigindo...\n{reason}"
+            )
         }
         "French" => {
-            format!("Vérification {attempt}/3 a trouvé des problèmes — correction...\n{reason}")
+            format!("Vérification {attempt}/{max_retries} a trouvé des problèmes — correction...\n{reason}")
         }
         "German" => {
-            format!("Prüfung {attempt}/3 hat Probleme gefunden — wird behoben...\n{reason}")
+            format!(
+                "Prüfung {attempt}/{max_retries} hat Probleme gefunden — wird behoben...\n{reason}"
+            )
         }
-        "Italian" => format!("Verifica {attempt}/3 ha trovato problemi — correzione...\n{reason}"),
-        "Dutch" => format!("Controle {attempt}/3 vond problemen — wordt opgelost...\n{reason}"),
-        "Russian" => format!("Проверка {attempt}/3 обнаружила проблемы — исправляю...\n{reason}"),
-        _ => format!("Verification {attempt}/3 found issues — fixing...\n{reason}"),
+        "Italian" => format!(
+            "Verifica {attempt}/{max_retries} ha trovato problemi — correzione...\n{reason}"
+        ),
+        "Dutch" => {
+            format!("Controle {attempt}/{max_retries} vond problemen — wordt opgelost...\n{reason}")
+        }
+        "Russian" => {
+            format!("Проверка {attempt}/{max_retries} обнаружила проблемы — исправляю...\n{reason}")
+        }
+        _ => format!("Verification {attempt}/{max_retries} found issues — fixing...\n{reason}"),
     }
 }
 
-/// Localized QA exhausted message -- sent when all 3 QA iterations fail.
-// TODO(phase-2): parameterize retry count from topology instead of hardcoded 3
-// NOTE: Tracked as P2-24 — phase-2 i18n not yet implemented, English-only fallback used.
-//       Currently hardcodes "3" in all languages; should read max_retries from RetryConfig.
-pub(super) fn qa_exhausted_message(lang: &str, reason: &str, dir: &str) -> String {
+/// Localized QA exhausted message -- sent when all QA iterations fail.
+///
+/// `max_retries` is read from the topology's `RetryConfig.max` so messages
+/// reflect the actual limit instead of a hardcoded value.
+pub(super) fn qa_exhausted_message(
+    lang: &str,
+    max_retries: u32,
+    reason: &str,
+    dir: &str,
+) -> String {
     match lang {
-        "Spanish" => format!("La verificación falló después de 3 intentos: {reason}\nResultados parciales en `{dir}`"),
-        "Portuguese" => format!("A verificação falhou após 3 tentativas: {reason}\nResultados parciais em `{dir}`"),
-        "French" => format!("La vérification a échoué après 3 tentatives : {reason}\nRésultats partiels dans `{dir}`"),
-        "German" => format!("Verifizierung nach 3 Versuchen fehlgeschlagen: {reason}\nTeilergebnisse in `{dir}`"),
-        "Italian" => format!("La verifica è fallita dopo 3 tentativi: {reason}\nRisultati parziali in `{dir}`"),
-        "Dutch" => format!("Verificatie mislukt na 3 pogingen: {reason}\nGedeeltelijke resultaten in `{dir}`"),
-        "Russian" => format!("Проверка не пройдена после 3 попыток: {reason}\nЧастичные результаты в `{dir}`"),
-        _ => format!("Build verification failed after 3 iterations: {reason}\nPartial results at `{dir}`"),
+        "Spanish" => format!("La verificación falló después de {max_retries} intentos: {reason}\nResultados parciales en `{dir}`"),
+        "Portuguese" => format!("A verificação falhou após {max_retries} tentativas: {reason}\nResultados parciais em `{dir}`"),
+        "French" => format!("La vérification a échoué après {max_retries} tentatives : {reason}\nRésultats partiels dans `{dir}`"),
+        "German" => format!("Verifizierung nach {max_retries} Versuchen fehlgeschlagen: {reason}\nTeilergebnisse in `{dir}`"),
+        "Italian" => format!("La verifica è fallita dopo {max_retries} tentativi: {reason}\nRisultati parziali in `{dir}`"),
+        "Dutch" => format!("Verificatie mislukt na {max_retries} pogingen: {reason}\nGedeeltelijke resultaten in `{dir}`"),
+        "Russian" => format!("Проверка не пройдена после {max_retries} попыток: {reason}\nЧастичные результаты в `{dir}`"),
+        _ => format!("Build verification failed after {max_retries} iterations: {reason}\nPartial results at `{dir}`"),
     }
 }
 
@@ -237,34 +252,39 @@ pub(super) fn review_retry_message(lang: &str, reason: &str) -> String {
     }
 }
 
-/// Localized review exhausted message -- sent when both review iterations fail.
-// TODO(phase-2): parameterize retry count from topology instead of hardcoded 2
-// NOTE: Tracked as P2-25 — phase-2 i18n not yet implemented, English-only fallback used.
-//       Currently hardcodes "2" in all languages; should read max_retries from RetryConfig.
-pub(super) fn review_exhausted_message(lang: &str, reason: &str, dir: &str) -> String {
+/// Localized review exhausted message -- sent when all review iterations fail.
+///
+/// `max_retries` is read from the topology's `RetryConfig.max` so messages
+/// reflect the actual limit instead of a hardcoded value.
+pub(super) fn review_exhausted_message(
+    lang: &str,
+    max_retries: u32,
+    reason: &str,
+    dir: &str,
+) -> String {
     match lang {
         "Spanish" => format!(
-            "La revisión falló después de 2 intentos: {reason}\nResultados parciales en `{dir}`"
+            "La revisión falló después de {max_retries} intentos: {reason}\nResultados parciales en `{dir}`"
         ),
         "Portuguese" => {
-            format!("A revisão falhou após 2 tentativas: {reason}\nResultados parciais em `{dir}`")
+            format!("A revisão falhou após {max_retries} tentativas: {reason}\nResultados parciais em `{dir}`")
         }
         "French" => format!(
-            "La revue a échoué après 2 tentatives : {reason}\nRésultats partiels dans `{dir}`"
+            "La revue a échoué après {max_retries} tentatives : {reason}\nRésultats partiels dans `{dir}`"
         ),
         "German" => format!(
-            "Code-Review nach 2 Versuchen fehlgeschlagen: {reason}\nTeilergebnisse in `{dir}`"
+            "Code-Review nach {max_retries} Versuchen fehlgeschlagen: {reason}\nTeilergebnisse in `{dir}`"
         ),
         "Italian" => format!(
-            "La revisione è fallita dopo 2 tentativi: {reason}\nRisultati parziali in `{dir}`"
+            "La revisione è fallita dopo {max_retries} tentativi: {reason}\nRisultati parziali in `{dir}`"
         ),
         "Dutch" => {
-            format!("Review mislukt na 2 pogingen: {reason}\nGedeeltelijke resultaten in `{dir}`")
+            format!("Review mislukt na {max_retries} pogingen: {reason}\nGedeeltelijke resultaten in `{dir}`")
         }
         "Russian" => {
-            format!("Обзор не пройден после 2 попыток: {reason}\nЧастичные результаты в `{dir}`")
+            format!("Обзор не пройден после {max_retries} попыток: {reason}\nЧастичные результаты в `{dir}`")
         }
-        _ => format!("Code review failed after 2 iterations: {reason}\nPartial results at `{dir}`"),
+        _ => format!("Code review failed after {max_retries} iterations: {reason}\nPartial results at `{dir}`"),
     }
 }
 
@@ -525,16 +545,28 @@ mod tests {
 
     #[test]
     fn test_qa_retry_message_english() {
-        let msg = qa_retry_message("English", 1, "tests failing");
+        let msg = qa_retry_message("English", 1, 3, "tests failing");
         assert!(msg.contains("1/3"));
         assert!(msg.contains("tests failing"));
     }
 
     #[test]
+    fn test_qa_retry_message_custom_max() {
+        let msg = qa_retry_message("English", 2, 5, "tests failing");
+        assert!(msg.contains("2/5"));
+    }
+
+    #[test]
     fn test_qa_exhausted_message_english() {
-        let msg = qa_exhausted_message("English", "3 tests failing", "/tmp/build");
+        let msg = qa_exhausted_message("English", 3, "3 tests failing", "/tmp/build");
         assert!(msg.contains("3 iterations"));
         assert!(msg.contains("/tmp/build"));
+    }
+
+    #[test]
+    fn test_qa_exhausted_message_custom_max() {
+        let msg = qa_exhausted_message("English", 5, "tests failing", "/tmp/build");
+        assert!(msg.contains("5 iterations"));
     }
 
     // ===================================================================
@@ -584,9 +616,15 @@ mod tests {
 
     #[test]
     fn test_review_exhausted_message_english() {
-        let msg = review_exhausted_message("English", "bugs remain", "/tmp/build");
+        let msg = review_exhausted_message("English", 2, "bugs remain", "/tmp/build");
         assert!(msg.contains("2 iterations"));
         assert!(msg.contains("/tmp/build"));
+    }
+
+    #[test]
+    fn test_review_exhausted_message_custom_max() {
+        let msg = review_exhausted_message("English", 4, "bugs remain", "/tmp/build");
+        assert!(msg.contains("4 iterations"));
     }
 
     // ===================================================================

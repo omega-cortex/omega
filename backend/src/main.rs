@@ -156,10 +156,19 @@ async fn main() -> anyhow::Result<()> {
 
 /// Start the OMEGA Ω agent.
 async fn cmd_start(config_path: &str) -> anyhow::Result<()> {
-    let mut cfg = config::load(config_path)?;
+    let config_path_owned = config_path.to_string();
+    let mut cfg = tokio::task::spawn_blocking(move || config::load(&config_path_owned))
+        .await
+        .map_err(|e| anyhow::anyhow!("config load task panicked: {e}"))??;
 
     // Migrate flat ~/.omega/ layout to structured subdirectories.
-    config::migrate_layout(&cfg.omega.data_dir, config_path);
+    {
+        let data_dir = cfg.omega.data_dir.clone();
+        let cp = config_path.to_string();
+        tokio::task::spawn_blocking(move || config::migrate_layout(&data_dir, &cp))
+            .await
+            .map_err(|e| anyhow::anyhow!("migrate layout task panicked: {e}"))?;
+    }
 
     // Set up logging: stdout + file appender to {data_dir}/logs/omega.log.
     let data_dir = shellexpand(&cfg.omega.data_dir);
@@ -194,8 +203,20 @@ async fn cmd_start(config_path: &str) -> anyhow::Result<()> {
     }
 
     // Deploy bundled prompts (SYSTEM_PROMPT.md, WELCOME.toml) on first run.
-    config::install_bundled_prompts(&cfg.omega.data_dir);
-    let mut prompts = Prompts::load(&cfg.omega.data_dir);
+    {
+        let dd = cfg.omega.data_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            config::install_bundled_prompts(&dd);
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("install prompts task panicked: {e}"))?;
+    }
+    let mut prompts = {
+        let dd = cfg.omega.data_dir.clone();
+        tokio::task::spawn_blocking(move || Prompts::load(&dd))
+            .await
+            .map_err(|e| anyhow::anyhow!("load prompts task panicked: {e}"))?
+    };
 
     // Deploy bundled skills, migrate legacy flat files, then load.
     omega_skills::install_bundled_skills(&cfg.omega.data_dir);
@@ -273,29 +294,32 @@ async fn cmd_start(config_path: &str) -> anyhow::Result<()> {
 
     // Build and run gateway.
     info!("OMEGA Ω — Starting agent...");
-    let gw = Arc::new(gateway::Gateway::new(
+    let gw = Arc::new(gateway::Gateway::new(gateway::GatewayConfig {
         provider,
         channels,
         memory,
-        cfg.auth.clone(),
-        cfg.channel.clone(),
-        cfg.heartbeat.clone(),
-        cfg.scheduler.clone(),
-        cfg.api.clone(),
+        auth_config: cfg.auth.clone(),
+        channel_config: cfg.channel.clone(),
+        heartbeat_config: cfg.heartbeat.clone(),
+        scheduler_config: cfg.scheduler.clone(),
+        api_config: cfg.api.clone(),
         prompts,
-        cfg.omega.data_dir.clone(),
+        data_dir: cfg.omega.data_dir.clone(),
         skills,
         model_fast,
         model_complex,
-        config_path.to_string(),
-    ));
+        config_path: config_path.to_string(),
+    }));
     gw.run().await
 }
 
 /// Check system health and provider availability.
 async fn cmd_status(config_path: &str) -> anyhow::Result<()> {
     init_stdout_tracing("error");
-    let cfg = config::load(config_path)?;
+    let cp = config_path.to_string();
+    let cfg = tokio::task::spawn_blocking(move || config::load(&cp))
+        .await
+        .map_err(|e| anyhow::anyhow!("config load task panicked: {e}"))??;
     cliclack::intro(console::style("omega status").bold().to_string())?;
 
     cliclack::log::info(format!(
@@ -343,7 +367,10 @@ async fn cmd_ask(config_path: &str, message: Vec<String>) -> anyhow::Result<()> 
     }
 
     let prompt = message.join(" ");
-    let cfg = config::load(config_path)?;
+    let cp = config_path.to_string();
+    let cfg = tokio::task::spawn_blocking(move || config::load(&cp))
+        .await
+        .map_err(|e| anyhow::anyhow!("config load task panicked: {e}"))??;
 
     // Ensure workspace exists for ask command too.
     let workspace_path = {

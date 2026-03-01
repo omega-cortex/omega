@@ -188,3 +188,135 @@ fn test_strip_action_outcome_failed() {
     let text = "Failed to send.\nACTION_OUTCOME: failed | timeout\nSorry.";
     assert_eq!(strip_action_outcome(text), "Failed to send.\nSorry.");
 }
+
+// --- REWARD ---
+
+#[test]
+fn test_extract_all_rewards_single() {
+    let text = "Good job.\nREWARD: +1|training|User completed workout on time";
+    let rewards = extract_all_rewards(text);
+    assert_eq!(rewards.len(), 1);
+    assert!(rewards[0].contains("+1|training|"));
+}
+
+#[test]
+fn test_extract_all_rewards_multiple() {
+    let text = "Results:\n\
+                REWARD: +1|trading|Profitable BTC trade\n\
+                REWARD: -1|fitness|Skipped morning workout\n\
+                REWARD: +1|learning|Finished Rust chapter";
+    let rewards = extract_all_rewards(text);
+    assert_eq!(rewards.len(), 3);
+}
+
+#[test]
+fn test_extract_all_rewards_none() {
+    assert!(extract_all_rewards("No rewards here.").is_empty());
+}
+
+#[test]
+fn test_parse_reward_line_positive() {
+    let line = "REWARD: +1|trading|Profitable BTC trade at $65k";
+    let (score, domain, lesson) = parse_reward_line(line).unwrap();
+    assert_eq!(score, 1);
+    assert_eq!(domain, "trading");
+    assert_eq!(lesson, "Profitable BTC trade at $65k");
+}
+
+#[test]
+fn test_parse_reward_line_negative() {
+    let line = "REWARD: -1|fitness|Skipped morning workout";
+    let (score, domain, lesson) = parse_reward_line(line).unwrap();
+    assert_eq!(score, -1);
+    assert_eq!(domain, "fitness");
+    assert_eq!(lesson, "Skipped morning workout");
+}
+
+#[test]
+fn test_parse_reward_line_zero() {
+    let line = "REWARD: 0|neutral|Mixed result on today's goals";
+    let (score, domain, lesson) = parse_reward_line(line).unwrap();
+    assert_eq!(score, 0);
+    assert_eq!(domain, "neutral");
+    assert_eq!(lesson, "Mixed result on today's goals");
+}
+
+#[test]
+fn test_parse_reward_line_invalid_score_out_of_range() {
+    assert!(parse_reward_line("REWARD: +5|domain|lesson").is_none());
+    assert!(parse_reward_line("REWARD: -2|domain|lesson").is_none());
+}
+
+#[test]
+fn test_parse_reward_line_invalid_format() {
+    assert!(parse_reward_line("REWARD:").is_none());
+    assert!(parse_reward_line("REWARD: +1|domain").is_none());
+    assert!(parse_reward_line("REWARD: +1||lesson").is_none());
+    assert!(parse_reward_line("REWARD: +1|domain|").is_none());
+    assert!(parse_reward_line("not a reward").is_none());
+}
+
+#[test]
+fn test_strip_reward_markers() {
+    let text =
+        "Response.\nREWARD: +1|trading|Good trade\nMore text.\nREWARD: -1|fitness|Skipped\nEnd.";
+    let result = strip_reward_markers(text);
+    assert!(!result.contains("REWARD:"));
+    assert!(result.contains("Response."));
+    assert!(result.contains("More text."));
+    assert!(result.contains("End."));
+}
+
+// --- LESSON ---
+
+#[test]
+fn test_extract_all_lessons_single() {
+    let text = "I've learned something.\nLESSON: trading|Always set stop-loss at 2% below entry";
+    let lessons = extract_all_lessons(text);
+    assert_eq!(lessons.len(), 1);
+    assert!(lessons[0].contains("trading|"));
+}
+
+#[test]
+fn test_extract_all_lessons_multiple() {
+    let text = "Lessons learned:\n\
+                LESSON: fitness|User trains Saturday mornings\n\
+                LESSON: work|User prefers deep work blocks before noon\n\
+                Done.";
+    let lessons = extract_all_lessons(text);
+    assert_eq!(lessons.len(), 2);
+}
+
+#[test]
+fn test_extract_all_lessons_none() {
+    assert!(extract_all_lessons("No lessons here.").is_empty());
+}
+
+#[test]
+fn test_parse_lesson_line_valid() {
+    let line = "LESSON: training|User trains Saturday mornings, no need to nag after 12:00";
+    let (domain, rule) = parse_lesson_line(line).unwrap();
+    assert_eq!(domain, "training");
+    assert_eq!(
+        rule,
+        "User trains Saturday mornings, no need to nag after 12:00"
+    );
+}
+
+#[test]
+fn test_parse_lesson_line_invalid() {
+    assert!(parse_lesson_line("LESSON:").is_none());
+    assert!(parse_lesson_line("LESSON: domain_only").is_none());
+    assert!(parse_lesson_line("LESSON: |rule_only").is_none());
+    assert!(parse_lesson_line("LESSON: domain|").is_none());
+    assert!(parse_lesson_line("not a lesson").is_none());
+}
+
+#[test]
+fn test_strip_lesson_markers() {
+    let text = "Updated.\nLESSON: work|Prefers deep work blocks\nThat's all.";
+    let result = strip_lesson_markers(text);
+    assert!(!result.contains("LESSON:"));
+    assert!(result.contains("Updated."));
+    assert!(result.contains("That's all."));
+}

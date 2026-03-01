@@ -16,7 +16,9 @@ use omega_core::config::SYSTEM_FACT_KEYS;
 pub use super::context_helpers::detect_language;
 #[cfg(test)]
 pub(super) use super::context_helpers::onboarding_hint_text;
-pub(super) use super::context_helpers::{build_system_prompt, compute_onboarding_stage};
+pub(super) use super::context_helpers::{
+    build_system_prompt, compute_onboarding_stage, SystemPromptContext,
+};
 
 /// Identity fact keys — shown first in the user profile.
 const IDENTITY_KEYS: &[&str] = &["name", "preferred_name", "pronouns"];
@@ -38,67 +40,91 @@ impl Store {
             .get_or_create_conversation(&incoming.channel, &incoming.sender_id, project_key)
             .await?;
 
-        // Load recent messages from this conversation.
-        let rows: Vec<(String, String)> = sqlx::query_as(
-            "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?",
-        )
-        .bind(&conv_id)
-        .bind(self.max_context_messages as i64)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| OmegaError::Memory(format!("query failed: {e}")))?;
-
-        // Rows come newest-first, reverse for chronological order.
-        let history: Vec<ContextEntry> = rows
-            .into_iter()
-            .rev()
-            .map(|(role, content)| ContextEntry { role, content })
-            .collect();
-
-        // Facts are always loaded (needed for onboarding + language detection),
-        // but only passed to the prompt when profile injection is needed.
-        let facts = self
-            .get_facts(&incoming.sender_id)
+        // Run independent DB queries in parallel. All depend on conv_id
+        // (already resolved) or sender_id, so they are safe to parallelize.
+        let history_fut = async {
+            let rows: Vec<(String, String)> = sqlx::query_as(
+                "SELECT role, content FROM (\
+                     SELECT role, content, timestamp FROM messages \
+                     WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?\
+                 ) ORDER BY timestamp ASC",
+            )
+            .bind(&conv_id)
+            .bind(self.max_context_messages as i64)
+            .fetch_all(&self.pool)
             .await
-            .unwrap_or_default();
-        let summaries = if needs.summaries {
-            self.get_recent_summaries(&incoming.channel, &incoming.sender_id, 3)
-                .await
-                .unwrap_or_default()
-        } else {
-            vec![]
+            .map_err(|e| OmegaError::Memory(format!("query failed: {e}")))?;
+
+            Ok::<Vec<ContextEntry>, OmegaError>(
+                rows.into_iter()
+                    .map(|(role, content)| ContextEntry { role, content })
+                    .collect(),
+            )
         };
 
-        // Semantic recall and pending tasks are conditionally loaded.
-        let recall = if needs.recall {
-            self.search_messages(&incoming.text, &conv_id, &incoming.sender_id, 5)
+        let facts_fut = async {
+            self.get_facts(&incoming.sender_id)
                 .await
                 .unwrap_or_default()
-        } else {
-            vec![]
-        };
-        let pending_tasks = if needs.pending_tasks {
-            self.get_tasks_for_sender(&incoming.sender_id)
-                .await
-                .unwrap_or_default()
-        } else {
-            vec![]
         };
 
-        // Outcomes are conditionally loaded; lessons are always loaded (tiny, high value).
-        // When a project is active, scope outcomes to that project; lessons get layered
-        // (project-specific first, then general).
-        let outcomes = if needs.outcomes {
-            self.get_recent_outcomes(&incoming.sender_id, 15, active_project)
+        let summaries_fut = async {
+            if needs.summaries {
+                self.get_recent_summaries(&incoming.channel, &incoming.sender_id, 3)
+                    .await
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            }
+        };
+
+        let recall_fut = async {
+            if needs.recall {
+                self.search_messages(&incoming.text, &conv_id, &incoming.sender_id, 5)
+                    .await
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            }
+        };
+
+        let tasks_fut = async {
+            if needs.pending_tasks {
+                self.get_tasks_for_sender(&incoming.sender_id)
+                    .await
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            }
+        };
+
+        let outcomes_fut = async {
+            if needs.outcomes {
+                self.get_recent_outcomes(&incoming.sender_id, 15, active_project)
+                    .await
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            }
+        };
+
+        let lessons_fut = async {
+            self.get_lessons(&incoming.sender_id, active_project)
                 .await
                 .unwrap_or_default()
-        } else {
-            vec![]
         };
-        let lessons = self
-            .get_lessons(&incoming.sender_id, active_project)
-            .await
-            .unwrap_or_default();
+
+        let (history_res, facts, summaries, recall, pending_tasks, outcomes, lessons) = tokio::join!(
+            history_fut,
+            facts_fut,
+            summaries_fut,
+            recall_fut,
+            tasks_fut,
+            outcomes_fut,
+            lessons_fut,
+        );
+
+        let history = history_res?;
 
         // Resolve language: stored preference > auto-detect > English.
         let language =
@@ -165,17 +191,17 @@ impl Store {
         };
 
         let facts_for_prompt: &[(String, String)] = if needs.profile { &facts } else { &[] };
-        let system_prompt = build_system_prompt(
-            base_system_prompt,
-            facts_for_prompt,
-            &summaries,
-            &recall,
-            &pending_tasks,
-            &outcomes,
-            &lessons,
-            &language,
+        let system_prompt = build_system_prompt(&SystemPromptContext {
+            base_rules: base_system_prompt,
+            facts: facts_for_prompt,
+            summaries: &summaries,
+            recall: &recall,
+            pending_tasks: &pending_tasks,
+            outcomes: &outcomes,
+            lessons: &lessons,
+            language: &language,
             onboarding_hint,
-        );
+        });
 
         Ok(Context {
             system_prompt,

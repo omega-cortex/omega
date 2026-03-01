@@ -194,7 +194,7 @@ pub fn run_noninteractive(
     google_credentials: Option<&str>,
     google_email: Option<&str>,
 ) -> anyhow::Result<()> {
-    println!("OMEGA Ω — non-interactive init");
+    init_style::omega_step("OMEGA -- non-interactive init")?;
 
     // 1. Validate inputs.
     let user_ids = parse_allowed_users(allowed_users_csv)?;
@@ -202,7 +202,7 @@ pub fn run_noninteractive(
     // 2. Create data directory.
     let data_dir = shellexpand("~/.omega");
     std::fs::create_dir_all(&data_dir)?;
-    println!("  Data directory: {data_dir}");
+    init_style::omega_success(&format!("Data directory: {data_dir}"))?;
 
     // 3. Check claude CLI (warn if missing, non-fatal).
     let claude_ok = std::process::Command::new("claude")
@@ -211,9 +211,11 @@ pub fn run_noninteractive(
         .map(|o| o.status.success())
         .unwrap_or(false);
     if claude_ok {
-        println!("  claude CLI: found");
+        init_style::omega_success("claude CLI: found")?;
     } else {
-        println!("  WARNING: claude CLI not found — install with: npm install -g @anthropic-ai/claude-code");
+        init_style::omega_warning(
+            "claude CLI not found -- install with: npm install -g @anthropic-ai/claude-code",
+        )?;
     }
 
     // 4. Apply Claude setup-token if provided.
@@ -223,14 +225,14 @@ pub fn run_noninteractive(
             .output();
         match result {
             Ok(output) if output.status.success() => {
-                println!("  Claude setup-token: applied");
+                init_style::omega_success("Claude setup-token: applied")?;
             }
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                println!("  WARNING: claude setup-token failed: {stderr}");
+                init_style::omega_warning(&format!("claude setup-token failed: {stderr}"))?;
             }
             Err(e) => {
-                println!("  WARNING: could not run claude setup-token: {e}");
+                init_style::omega_warning(&format!("could not run claude setup-token: {e}"))?;
             }
         }
     }
@@ -239,29 +241,29 @@ pub fn run_noninteractive(
     if let Some(cred_path) = google_credentials {
         let expanded = shellexpand(cred_path);
         if !Path::new(&expanded).exists() {
-            println!("  WARNING: Google credentials file not found: {expanded}");
+            init_style::omega_warning(&format!("Google credentials file not found: {expanded}"))?;
         } else {
             let result = std::process::Command::new("gog")
                 .args(["auth", "credentials", &expanded])
                 .output();
             match result {
                 Ok(output) if output.status.success() => {
-                    println!("  Google credentials: registered");
+                    init_style::omega_success("Google credentials: registered")?;
                 }
                 Ok(output) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    println!("  WARNING: gog auth credentials failed: {stderr}");
+                    init_style::omega_warning(&format!("gog auth credentials failed: {stderr}"))?;
                 }
                 Err(e) => {
-                    println!("  WARNING: could not run gog: {e}");
+                    init_style::omega_warning(&format!("could not run gog: {e}"))?;
                 }
             }
         }
         if let Some(email) = google_email {
-            println!(
-                "  NOTE: Complete Google OAuth post-deployment:\n\
-                 \x20   gog auth add {email} --services gmail,calendar,drive,contacts,docs,sheets"
-            );
+            init_style::omega_note(
+                "Google OAuth",
+                &format!("Complete post-deployment:\ngog auth add {email} --services gmail,calendar,drive,contacts,docs,sheets"),
+            )?;
         }
     }
 
@@ -280,39 +282,37 @@ pub fn run_noninteractive(
         google_email,
     );
     std::fs::write(config_path, &config)?;
-    println!("  Generated: config.toml");
+    init_style::omega_success("Generated: config.toml")?;
 
     // 8. Deploy bundled prompts and skills.
     omega_core::config::install_bundled_prompts("~/.omega");
-    println!("  Deployed: bundled prompts");
+    init_style::omega_success("Deployed: bundled prompts")?;
 
     omega_skills::install_bundled_skills("~/.omega");
-    println!("  Deployed: bundled skills");
+    init_style::omega_success("Deployed: bundled skills")?;
 
     // 9. Create workspace directory.
     let ws = std::path::PathBuf::from(&data_dir).join("workspace");
     std::fs::create_dir_all(&ws)?;
-    println!("  Workspace: {}", ws.display());
+    init_style::omega_success(&format!("Workspace: {}", ws.display()))?;
 
     // 10. Install system service (non-interactive).
     match service::install_quiet(config_path) {
-        Ok(()) => println!("  Service: installed and activated"),
-        Err(e) => println!(
-            "  WARNING: service install failed: {e}\n  Install later with: omega service install"
-        ),
+        Ok(()) => init_style::omega_success("Service: installed and activated")?,
+        Err(e) => init_style::omega_warning(&format!(
+            "Service install failed: {e}\nInstall later with: omega service install"
+        ))?,
     }
 
     // 11. Summary.
-    println!("\nOMEGA Ω — init complete!");
-    println!("  Config: {config_path}");
-    println!("  Start: omega start");
+    let mut summary = format!("Config: {config_path}\nStart: omega start");
     if google_credentials.is_some() && google_email.is_some() {
-        println!(
-            "  Google OAuth: complete post-deployment with:\n\
-             \x20   gog auth add {} --services gmail,calendar,drive,contacts,docs,sheets",
+        summary.push_str(&format!(
+            "\nGoogle OAuth: complete post-deployment with:\n  gog auth add {} --services gmail,calendar,drive,contacts,docs,sheets",
             google_email.unwrap_or("your@email.com")
-        );
+        ));
     }
+    init_style::omega_note("OMEGA -- init complete!", &summary)?;
 
     Ok(())
 }

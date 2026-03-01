@@ -44,6 +44,38 @@ use std::time::Instant;
 use tokio::sync::{mpsc, Mutex, Notify};
 use tracing::{error, info, warn};
 
+/// Configuration for constructing a [`Gateway`].
+pub struct GatewayConfig {
+    /// AI provider (Claude Code, Ollama, OpenAI, etc.).
+    pub provider: Arc<dyn Provider>,
+    /// Messaging channels keyed by name (e.g. "telegram").
+    pub channels: HashMap<String, Arc<dyn Channel>>,
+    /// Persistent memory store.
+    pub memory: Store,
+    /// Authentication settings.
+    pub auth_config: AuthConfig,
+    /// Channel-level settings (Telegram, WhatsApp).
+    pub channel_config: ChannelConfig,
+    /// Heartbeat loop settings.
+    pub heartbeat_config: HeartbeatConfig,
+    /// Scheduler loop settings.
+    pub scheduler_config: SchedulerConfig,
+    /// HTTP API settings.
+    pub api_config: ApiConfig,
+    /// Loaded prompt templates.
+    pub prompts: Prompts,
+    /// Base data directory (e.g. "~/.omega").
+    pub data_dir: String,
+    /// Loaded skill definitions.
+    pub skills: Vec<omega_skills::Skill>,
+    /// Fast model for classification and direct responses (Sonnet).
+    pub model_fast: String,
+    /// Complex model for multi-step autonomous execution (Opus).
+    pub model_complex: String,
+    /// Path to config.toml — used for persisting runtime changes.
+    pub config_path: String,
+}
+
 /// The central gateway that routes messages between channels and providers.
 pub struct Gateway {
     pub(super) provider: Arc<dyn Provider>,
@@ -76,49 +108,33 @@ pub struct Gateway {
 }
 
 impl Gateway {
-    /// Create a new gateway.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        provider: Arc<dyn Provider>,
-        channels: HashMap<String, Arc<dyn Channel>>,
-        memory: Store,
-        auth_config: AuthConfig,
-        channel_config: ChannelConfig,
-        heartbeat_config: HeartbeatConfig,
-        scheduler_config: SchedulerConfig,
-        api_config: ApiConfig,
-        prompts: Prompts,
-        data_dir: String,
-        skills: Vec<omega_skills::Skill>,
-        model_fast: String,
-        model_complex: String,
-        config_path: String,
-    ) -> Self {
-        let audit = AuditLogger::new(memory.pool().clone());
-        let heartbeat_interval = Arc::new(AtomicU64::new(heartbeat_config.interval_minutes));
+    /// Create a new gateway from a configuration bundle.
+    pub fn new(cfg: GatewayConfig) -> Self {
+        let audit = AuditLogger::new(cfg.memory.pool().clone());
+        let heartbeat_interval = Arc::new(AtomicU64::new(cfg.heartbeat_config.interval_minutes));
         let heartbeat_notify = Arc::new(Notify::new());
-        let projects = omega_skills::load_projects(&data_dir);
+        let projects = omega_skills::load_projects(&cfg.data_dir);
         Self {
-            provider,
-            channels,
-            memory,
+            provider: cfg.provider,
+            channels: cfg.channels,
+            memory: cfg.memory,
             audit,
-            auth_config,
-            channel_config,
-            heartbeat_config,
-            scheduler_config,
-            api_config,
-            prompts,
-            data_dir,
-            skills,
+            auth_config: cfg.auth_config,
+            channel_config: cfg.channel_config,
+            heartbeat_config: cfg.heartbeat_config,
+            scheduler_config: cfg.scheduler_config,
+            api_config: cfg.api_config,
+            prompts: cfg.prompts,
+            data_dir: cfg.data_dir,
+            skills: cfg.skills,
             projects,
             uptime: Instant::now(),
-            model_fast,
-            model_complex,
+            model_fast: cfg.model_fast,
+            model_complex: cfg.model_complex,
             active_senders: Mutex::new(HashMap::new()),
             heartbeat_interval,
             heartbeat_notify,
-            config_path,
+            config_path: cfg.config_path,
         }
     }
 

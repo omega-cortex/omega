@@ -413,3 +413,164 @@ fn test_bundled_prompt_has_conditional_sections() {
         "bundled prompt should have ## Meta section"
     );
 }
+
+// --- Pipeline helper function tests (P2-TEST-004) ---
+
+#[test]
+fn test_kw_match_basic() {
+    assert!(kw_match("remind me to call mom", SCHEDULING_KW));
+    assert!(kw_match("schedule a meeting", SCHEDULING_KW));
+    assert!(!kw_match("hello world", SCHEDULING_KW));
+}
+
+#[test]
+fn test_kw_match_recall_keywords() {
+    assert!(kw_match("do you remember what we talked about", RECALL_KW));
+    assert!(kw_match("yesterday we discussed the project", RECALL_KW));
+    assert!(!kw_match("what is the weather like", RECALL_KW));
+}
+
+#[test]
+fn test_kw_match_tasks_keywords() {
+    assert!(kw_match("show me my pending tasks", TASKS_KW));
+    assert!(kw_match("what are my reminders", TASKS_KW));
+    assert!(!kw_match("hello how are you", TASKS_KW));
+}
+
+#[test]
+fn test_kw_match_meta_keywords() {
+    assert!(kw_match("improve this skill please", META_KW));
+    assert!(kw_match("report a bug in the system", META_KW));
+    assert!(!kw_match("tell me a joke", META_KW));
+}
+
+#[test]
+fn test_is_build_confirmed_multilingual() {
+    // English
+    assert!(is_build_confirmed("yes"));
+    assert!(is_build_confirmed("Yes"));
+    assert!(is_build_confirmed("go ahead"));
+    // Spanish
+    assert!(is_build_confirmed("sí"));
+    assert!(is_build_confirmed("dale"));
+    // Portuguese
+    assert!(is_build_confirmed("sim"));
+    // French
+    assert!(is_build_confirmed("oui"));
+    // German
+    assert!(is_build_confirmed("ja"));
+    // Not a confirmation
+    assert!(!is_build_confirmed("maybe later"));
+    assert!(!is_build_confirmed("tell me more"));
+}
+
+#[test]
+fn test_is_build_cancelled_multilingual() {
+    assert!(is_build_cancelled("no"));
+    assert!(is_build_cancelled("cancel"));
+    assert!(is_build_cancelled("cancelar"));
+    assert!(is_build_cancelled("annuler"));
+    assert!(is_build_cancelled("nein"));
+    assert!(!is_build_cancelled("yes please"));
+}
+
+#[test]
+fn test_is_valid_fact_rejects_system_keys() {
+    assert!(!is_valid_fact("welcomed", "true"));
+    assert!(!is_valid_fact("preferred_language", "English"));
+    assert!(!is_valid_fact("active_project", "trader"));
+    assert!(!is_valid_fact("onboarding_stage", "3"));
+}
+
+#[test]
+fn test_is_valid_fact_accepts_user_facts() {
+    assert!(is_valid_fact("name", "Alice"));
+    assert!(is_valid_fact("occupation", "Software Engineer"));
+    assert!(is_valid_fact("hobby", "Painting"));
+}
+
+#[test]
+fn test_is_valid_fact_rejects_too_long() {
+    let long_key = "k".repeat(51);
+    assert!(!is_valid_fact(&long_key, "value"));
+    let long_val = "v".repeat(201);
+    assert!(!is_valid_fact("key", &long_val));
+}
+
+#[test]
+fn test_is_valid_fact_rejects_numeric_key() {
+    assert!(!is_valid_fact("123", "value"));
+    assert!(!is_valid_fact("1key", "value"));
+}
+
+#[test]
+fn test_is_valid_fact_rejects_dollar_value() {
+    assert!(!is_valid_fact("price", "$100"));
+}
+
+#[test]
+fn test_setup_help_message_all_languages() {
+    let languages = [
+        "English",
+        "Spanish",
+        "Portuguese",
+        "French",
+        "German",
+        "Italian",
+        "Dutch",
+        "Russian",
+    ];
+    for lang in &languages {
+        let msg = setup_help_message(lang);
+        assert!(
+            msg.contains("/setup"),
+            "setup help for {lang} should mention /setup"
+        );
+        assert!(
+            msg.contains("OMEGA"),
+            "setup help for {lang} should mention OMEGA"
+        );
+    }
+}
+
+#[test]
+fn test_build_cancelled_message_all_languages() {
+    let languages = [
+        "English",
+        "Spanish",
+        "Portuguese",
+        "French",
+        "German",
+        "Italian",
+        "Dutch",
+        "Russian",
+    ];
+    for lang in &languages {
+        let msg = build_cancelled_message(lang);
+        assert!(
+            !msg.is_empty(),
+            "cancel message for {lang} should not be empty"
+        );
+    }
+}
+
+#[test]
+fn test_context_needs_scheduling_implies_tasks_and_profile() {
+    let prompts = Prompts::default();
+    let (_, needs) = assemble_test_prompt(&prompts, "schedule a reminder for 3pm", false);
+    assert!(needs.pending_tasks, "scheduling should imply pending_tasks");
+    assert!(needs.profile, "scheduling should imply profile");
+}
+
+#[test]
+fn test_context_needs_recall_implies_profile_and_summaries() {
+    let prompts = Prompts::default();
+    let (_, needs) = assemble_test_prompt(
+        &prompts,
+        "do you remember what we discussed yesterday?",
+        false,
+    );
+    assert!(needs.recall, "recall keyword should enable recall");
+    assert!(needs.profile, "recall should imply profile");
+    assert!(needs.summaries, "recall should imply summaries");
+}

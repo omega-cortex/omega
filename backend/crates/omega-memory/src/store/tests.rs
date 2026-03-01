@@ -90,8 +90,8 @@ async fn test_get_due_tasks() {
 
     let due = store.get_due_tasks().await.unwrap();
     assert_eq!(due.len(), 1);
-    assert_eq!(due[0].4, "Past task");
-    assert_eq!(due[0].6, "reminder");
+    assert_eq!(due[0].description, "Past task");
+    assert_eq!(due[0].task_type, "reminder");
 }
 
 #[tokio::test]
@@ -363,10 +363,13 @@ async fn test_get_due_tasks_returns_task_type() {
 
     let due = store.get_due_tasks().await.unwrap();
     assert_eq!(due.len(), 2);
-    let reminder = due.iter().find(|t| t.4 == "Reminder task").unwrap();
-    let action = due.iter().find(|t| t.4 == "Action task").unwrap();
-    assert_eq!(reminder.6, "reminder");
-    assert_eq!(action.6, "action");
+    let reminder = due
+        .iter()
+        .find(|t| t.description == "Reminder task")
+        .unwrap();
+    let action = due.iter().find(|t| t.description == "Action task").unwrap();
+    assert_eq!(reminder.task_type, "reminder");
+    assert_eq!(action.task_type, "action");
 }
 
 #[tokio::test]
@@ -611,7 +614,7 @@ fn test_user_profile_empty_for_system_only() {
 
 #[test]
 fn test_build_system_prompt_shows_action_badge() {
-    use super::context::build_system_prompt;
+    use super::context::{build_system_prompt, SystemPromptContext};
     let facts = vec![
         ("welcomed".to_string(), "true".to_string()),
         ("preferred_language".to_string(), "English".to_string()),
@@ -627,7 +630,17 @@ fn test_build_system_prompt_shows_action_badge() {
         "action".to_string(),
         String::new(),
     )];
-    let prompt = build_system_prompt("Rules", &facts, &[], &[], &tasks, &[], &[], "English", None);
+    let prompt = build_system_prompt(&SystemPromptContext {
+        base_rules: "Rules",
+        facts: &facts,
+        summaries: &[],
+        recall: &[],
+        pending_tasks: &tasks,
+        outcomes: &[],
+        lessons: &[],
+        language: "English",
+        onboarding_hint: None,
+    });
     assert!(
         prompt.contains("[action]"),
         "should show [action] badge for action tasks"
@@ -636,12 +649,22 @@ fn test_build_system_prompt_shows_action_badge() {
 
 #[test]
 fn test_onboarding_stage0_first_conversation() {
-    use super::context::build_system_prompt;
+    use super::context::{build_system_prompt, SystemPromptContext};
     let facts = vec![
         ("welcomed".to_string(), "true".to_string()),
         ("preferred_language".to_string(), "Spanish".to_string()),
     ];
-    let prompt = build_system_prompt("Rules", &facts, &[], &[], &[], &[], &[], "Spanish", Some(0));
+    let prompt = build_system_prompt(&SystemPromptContext {
+        base_rules: "Rules",
+        facts: &facts,
+        summaries: &[],
+        recall: &[],
+        pending_tasks: &[],
+        outcomes: &[],
+        lessons: &[],
+        language: "Spanish",
+        onboarding_hint: Some(0),
+    });
     assert!(
         prompt.contains("first conversation"),
         "stage 0 should include first-conversation intro"
@@ -650,13 +673,23 @@ fn test_onboarding_stage0_first_conversation() {
 
 #[test]
 fn test_onboarding_stage1_help_hint() {
-    use super::context::build_system_prompt;
+    use super::context::{build_system_prompt, SystemPromptContext};
     let facts = vec![
         ("welcomed".to_string(), "true".to_string()),
         ("preferred_language".to_string(), "English".to_string()),
         ("name".to_string(), "Alice".to_string()),
     ];
-    let prompt = build_system_prompt("Rules", &facts, &[], &[], &[], &[], &[], "English", Some(1));
+    let prompt = build_system_prompt(&SystemPromptContext {
+        base_rules: "Rules",
+        facts: &facts,
+        summaries: &[],
+        recall: &[],
+        pending_tasks: &[],
+        outcomes: &[],
+        lessons: &[],
+        language: "English",
+        onboarding_hint: Some(1),
+    });
     assert!(
         prompt.contains("/help"),
         "stage 1 should mention /help command"
@@ -665,7 +698,7 @@ fn test_onboarding_stage1_help_hint() {
 
 #[test]
 fn test_onboarding_no_hint_when_none() {
-    use super::context::build_system_prompt;
+    use super::context::{build_system_prompt, SystemPromptContext};
     let facts = vec![
         ("welcomed".to_string(), "true".to_string()),
         ("preferred_language".to_string(), "English".to_string()),
@@ -673,7 +706,17 @@ fn test_onboarding_no_hint_when_none() {
         ("occupation".to_string(), "engineer".to_string()),
         ("timezone".to_string(), "EST".to_string()),
     ];
-    let prompt = build_system_prompt("Rules", &facts, &[], &[], &[], &[], &[], "English", None);
+    let prompt = build_system_prompt(&SystemPromptContext {
+        base_rules: "Rules",
+        facts: &facts,
+        summaries: &[],
+        recall: &[],
+        pending_tasks: &[],
+        outcomes: &[],
+        lessons: &[],
+        language: "English",
+        onboarding_hint: None,
+    });
     assert!(
         !prompt.contains("Onboarding hint"),
         "should NOT include onboarding hint when None"
@@ -1415,8 +1458,8 @@ async fn test_tasks_project_tag() {
     // get_due_tasks returns project field.
     let due = store.get_due_tasks().await.unwrap();
     assert_eq!(due.len(), 1);
-    assert_eq!(due[0].4, "Check BTC");
-    assert_eq!(due[0].7, "omega-trader");
+    assert_eq!(due[0].description, "Check BTC");
+    assert_eq!(due[0].project, "omega-trader");
 }
 
 #[tokio::test]
@@ -1929,7 +1972,7 @@ async fn test_get_all_lessons_limit_50() {
 
 #[test]
 fn test_build_system_prompt_recall_multibyte_truncation() {
-    use super::context::build_system_prompt;
+    use super::context::{build_system_prompt, SystemPromptContext};
 
     // Create recalled content with CJK characters that exceed the 200-byte truncation.
     // Each CJK char is 3 bytes, so 100 chars = 300 bytes. Byte 200 falls mid-char (200/3 = 66.67).
@@ -1941,7 +1984,17 @@ fn test_build_system_prompt_recall_multibyte_truncation() {
     )];
 
     // This should NOT panic when truncating the recalled content at byte 200.
-    let result = build_system_prompt("base rules", &[], &[], &recall, &[], &[], &[], "en", None);
+    let result = build_system_prompt(&SystemPromptContext {
+        base_rules: "base rules",
+        facts: &[],
+        summaries: &[],
+        recall: &recall,
+        pending_tasks: &[],
+        outcomes: &[],
+        lessons: &[],
+        language: "en",
+        onboarding_hint: None,
+    });
     assert!(result.contains("Related past context"));
 }
 

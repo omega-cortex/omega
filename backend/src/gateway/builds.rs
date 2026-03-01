@@ -176,9 +176,14 @@ impl Gateway {
 
                         // Send exhausted message matching the loop type.
                         let exhausted_msg = if phase.name == "qa" {
-                            qa_exhausted_message(&user_lang, &reason, project_dir_str)
+                            qa_exhausted_message(&user_lang, retry.max, &reason, project_dir_str)
                         } else {
-                            review_exhausted_message(&user_lang, &reason, project_dir_str)
+                            review_exhausted_message(
+                                &user_lang,
+                                retry.max,
+                                &reason,
+                                project_dir_str,
+                            )
                         };
                         self.send_text(incoming, &exhausted_msg).await;
                         self.audit_build(incoming, brief_name, "failed", &reason)

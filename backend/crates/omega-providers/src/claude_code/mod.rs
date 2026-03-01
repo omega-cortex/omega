@@ -39,7 +39,6 @@ pub struct ClaudeCodeProvider {
 
 /// JSON response from `claude -p --output-format json`.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct ClaudeCliResponse {
     /// "result"
     #[serde(default, rename = "type")]
@@ -52,10 +51,6 @@ struct ClaudeCliResponse {
     result: Option<String>,
     #[serde(default)]
     is_error: bool,
-    #[serde(default)]
-    cost_usd: Option<f64>,
-    #[serde(default)]
-    total_cost_usd: Option<f64>,
     #[serde(default)]
     session_id: Option<String>,
     #[serde(default)]

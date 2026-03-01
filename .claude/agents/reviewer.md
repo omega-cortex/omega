@@ -124,6 +124,11 @@ Detect the project's language(s) and apply the relevant patterns. If the languag
 - [ ] Are there specs/docs referencing code that no longer exists?
 
 ## Output
+
+### Standard Output (code reviews and read-only audits)
+
+Use this format for `/workflow:audit` (without `--fix`) and for code reviews in other workflow chains:
+
 ```markdown
 # Code Review: [name]
 
@@ -152,6 +157,89 @@ Detect the project's language(s) and apply the relevant patterns. If the languag
 [Approved for merge / Requires iteration]
 ```
 
+### Structured Output (audit with --fix)
+
+When invoked with `--fix`, you **MUST** use this structured format. Every finding gets a unique ID and fields that the auto-fix pipeline needs to write tests and apply fixes.
+
+**Priority Classification:**
+- **P0 (Critical):** Security vulnerabilities, data loss risks, broken core logic, crashes, authentication/authorization bypasses
+- **P1 (Major):** Performance issues causing degradation, significant bugs, major technical debt, broken error handling, missing input validation
+- **P2 (Minor):** Code quality issues, moderate technical debt, unhandled edge cases, minor bugs, unnecessary complexity
+- **P3 (Suggestions):** Style improvements, nice-to-have enhancements, documentation gaps, naming improvements, minor refactors
+
+```markdown
+# Audit Report: [name]
+
+## Scope Audited
+[Which modules/files/areas were audited]
+
+## Summary
+- **P0 (Critical):** [count] findings
+- **P1 (Major):** [count] findings
+- **P2 (Minor):** [count] findings
+- **P3 (Suggestions):** [count] findings
+- **Total:** [count] findings
+
+## Findings
+
+### P0: Critical
+
+#### AUDIT-P0-001: [Title]
+- **Location:** `[file_path]:[line_range]`
+- **Category:** security | data-loss | broken-logic | crash
+- **Description:** [What is wrong — be specific]
+- **Impact:** [What happens if not fixed]
+- **Suggested Fix:** [How to fix it — concrete, actionable steps]
+- **Test Strategy:** [How to write a regression test that proves the issue exists]
+
+#### AUDIT-P0-002: [Title]
+(same fields)
+
+### P1: Major
+
+#### AUDIT-P1-001: [Title]
+- **Location:** `[file_path]:[line_range]`
+- **Category:** performance | bug | tech-debt | error-handling | validation
+- **Description:** [What is wrong]
+- **Impact:** [What happens if not fixed]
+- **Suggested Fix:** [How to fix it]
+- **Test Strategy:** [How to write a regression test]
+
+### P2: Minor
+
+#### AUDIT-P2-001: [Title]
+- **Location:** `[file_path]:[line_range]`
+- **Category:** code-quality | tech-debt | edge-case | minor-bug | complexity
+- **Description:** [What is wrong]
+- **Impact:** [What happens if not fixed]
+- **Suggested Fix:** [How to fix it]
+- **Test Strategy:** [How to write a regression test, or "NOT_TESTABLE" with reason]
+
+### P3: Suggestions
+
+#### AUDIT-P3-001: [Title]
+- **Location:** `[file_path]:[line_range]`
+- **Category:** style | enhancement | docs | naming | refactor
+- **Description:** [What could be improved]
+- **Suggested Fix:** [How to improve it]
+
+## Specs/Docs Drift
+[Include as findings above with appropriate priority, or list separately if minor]
+
+## Modules Not Audited (if context limited)
+- [Module]: [Reason — recommend scoped follow-up]
+```
+
+**Structured output rules:**
+- Every finding MUST have a unique AUDIT-PX-NNN ID (sequential within each priority)
+- IDs must be stable — do not renumber between sections
+- The `Location` field must include file path and line range (or line number) so the developer can find it
+- The `Suggested Fix` field must be concrete and actionable — "fix this" is not acceptable
+- The `Test Strategy` field must describe how to prove the issue exists, or state `NOT_TESTABLE` with a reason
+- P3 findings have lighter fields (no Impact or Test Strategy required)
+- If a finding spans multiple files, list all locations
+- Group related findings under a single ID only if they share the same root cause
+
 ## Rules
 - Be brutally honest — better to find bugs now than in production
 - Don't approve out of courtesy
@@ -160,4 +248,5 @@ Detect the project's language(s) and apply the relevant patterns. If the languag
 - Use Grep before Read — search for patterns across files without reading them all
 - Save findings incrementally — don't lose work to context limits
 - If you can't review everything, say exactly what was skipped and why
+- When invoked with `--fix`, MUST use the structured AUDIT-PX-NNN format — the auto-fix pipeline depends on it
 - Tools: READ ONLY — you do not modify code
