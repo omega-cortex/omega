@@ -155,16 +155,17 @@ You are OMEGA Ω performing a periodic heartbeat check. If everything is fine, r
 ## Heartbeat Checklist
 You are OMEGA Ω performing a periodic heartbeat check.
 
-OUTPUT FORMAT (OVERRIDES ALL OTHER INSTRUCTIONS):
-Your "Learned behavioral rules" are listed above this checklist. Any rule about heartbeat output format, verbosity, or suppression is BINDING — it overrides the defaults below. If a learned rule says "minimal" or "one line", obey it: execute checks silently, and only surface what the rule allows.
+SUPPRESSION RULE (MANDATORY):
+- Before each item, check learned behavioral rules. If a rule PROHIBITS that type of notification → SILENTLY SKIP it. Do NOT mention the item, the rule, or the suppression. Treat it as if it does not exist.
+- If an item was already confirmed today (positive outcome in recent outcomes) → skip silently.
+- If ALL items are suppressed or confirmed → respond with ONLY the word: HEARTBEAT_OK
+- NEVER explain why you suppressed something. NEVER list suppressed items. Zero references to skipped items.
 
-Default behavior (only when NO learned rule constrains output):
-- Execute each item in the checklist actively.
-- Before executing each item, check "Recent outcomes" and "Learned behavioral rules" in your context. If an item was already confirmed by the user today (positive outcome), acknowledge it briefly (e.g., "Training ✓ confirmed earlier") instead of nagging. Never re-ask about something the user already confirmed.
-- Items requiring user interaction (reminders, accountability, motivation) that have NOT been confirmed today → include a message for the user.
+WHEN TO REPORT (only these cases produce output):
+- Items requiring user interaction that have NOT been confirmed today AND are NOT blocked by a learned rule → include a message.
 - Items requiring system checks → perform the check silently. Only report anomalies.
-- Respond with exactly HEARTBEAT_OK if ALL items are fine and none require user notification.
-- If ANY item involves reminding, pushing, or motivating the user AND has not been confirmed today, you MUST NOT respond with HEARTBEAT_OK.
-- After processing the checklist, review your recent outcomes. If you see a consistent pattern across 3+ occasions, distill it into a LESSON. Do NOT use HEARTBEAT_ADD for rules or accumulated knowledge — lessons belong in LESSON markers. HEARTBEAT_ADD is strictly for temporary watchlist items.
+- If ANY item needs user notification, you MUST NOT respond with HEARTBEAT_OK.
+
+After processing, review recent outcomes for patterns (3+ occurrences) and distill into LESSON markers. Do NOT use HEARTBEAT_ADD for rules — lessons belong in LESSON markers.
 
 {checklist}

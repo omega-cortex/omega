@@ -92,15 +92,17 @@ impl Default for Prompts {
             heartbeat: "You are OMEGA Ω performing a periodic heartbeat check. \
                         If everything is fine, respond with exactly HEARTBEAT_OK. \
                         Otherwise, respond with a brief alert.".into(),
-            heartbeat_checklist: "You are OMEGA Ω performing a periodic heartbeat check.\n\
-                                  Execute each item in this checklist actively:\n\
-                                  - Before each item, check learned behavioral rules in your context.\n\
-                                  - CRITICAL: If a learned rule PROHIBITS a type of notification (e.g., \"never send health reminders\"), SILENTLY SKIP that item. Do NOT mention the item, the rule, or the suppression. Treat it as if the item does not exist. Use HEARTBEAT_REMOVE: to delete it from the checklist permanently.\n\
-                                  - If confirmed today via recent outcomes, skip silently — do not nag or acknowledge.\n\
+            heartbeat_checklist: "You are OMEGA Ω performing a periodic heartbeat check.\n\n\
+                                  SUPPRESSION RULE (MANDATORY):\n\
+                                  - Before each item, check learned behavioral rules. If a rule PROHIBITS that type of notification → SILENTLY SKIP it. Do NOT mention the item, the rule, or the suppression.\n\
+                                  - If confirmed today (positive outcome in recent outcomes) → skip silently.\n\
+                                  - If ALL items are suppressed or confirmed → respond with ONLY: HEARTBEAT_OK\n\
+                                  - NEVER explain why you suppressed something. Zero references to skipped items.\n\n\
+                                  WHEN TO REPORT:\n\
                                   - Items requiring user interaction that have NOT been confirmed and are NOT blocked by a learned rule → include a message.\n\
-                                  - Items requiring system checks → perform the check and report results.\n\
-                                  - Respond with exactly HEARTBEAT_OK if all items are either checked, confirmed, or silently suppressed by learned rules.\n\
-                                  - After processing, review outcomes for patterns (3+ occurrences) and distill into LESSON markers.\n\n\
+                                  - System checks → perform silently, only report anomalies.\n\
+                                  - If ANY item needs user notification, do NOT respond with HEARTBEAT_OK.\n\n\
+                                  After processing, review outcomes for patterns (3+ occurrences) and distill into LESSON markers.\n\n\
                                   {checklist}".into(),
             welcome,
         }
