@@ -9,7 +9,6 @@
 //! Code-level enforcement via `is_read_blocked()` and `is_write_blocked()`
 //! provides additional protection on all platforms.
 
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use tokio::process::Command;
 use tracing::warn;
