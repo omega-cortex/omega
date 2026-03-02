@@ -18,11 +18,18 @@ Used to offer users an incognito browser option during Google OAuth (avoids cach
 
 Creates a temporary shell script at `/tmp/omega_incognito_browser.sh` that opens a URL in the selected browser's incognito/private mode. Written with `0o700` permissions (TOCTOU-safe). The script is set as `$BROWSER` env var when launching the OAuth flow.
 
+### `is_claude_authenticated() -> bool` (private)
+
+Probes Claude CLI authentication by running `claude -p "ok" --output-format json --max-turns 1`. Returns `true` if the command exits successfully (credentials are valid), `false` otherwise. Stdout/stderr are suppressed.
+
 ### `run_anthropic_auth() -> Result<()>`
 
-Interactive Anthropic authentication. Offers two choices:
-1. **Already authenticated** -- confirms and moves on
-2. **Paste setup-token** -- prompts for a token, runs `claude setup-token <token>`, reports success or failure
+Interactive Anthropic authentication with auto-detection:
+1. Probes auth via `is_claude_authenticated()` (shown as spinner)
+2. If already authenticated -- confirms and returns immediately
+3. If not authenticated -- offers two choices:
+   - **Paste setup-token (Recommended)** -- prompts for token, runs `claude setup-token <token>`, reports result
+   - **Skip for now** -- warns user about post-init auth options (`claude login` or `claude setup-token`)
 
 ### `run_whatsapp_setup() -> Result<bool>`
 

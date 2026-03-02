@@ -11,7 +11,8 @@ Interactive-only helpers extracted from `init.rs` to keep the init module under 
 - `PRIVATE_BROWSERS` — `pub(crate)` const: Chrome, Brave, Firefox, Edge
 - `detect_private_browsers()` — `pub(crate)` fn: returns indices of installed browsers in `/Applications`
 - `create_incognito_script(browser)` — `pub(crate)` fn: writes temp shell script for incognito URL opening
-- `run_anthropic_auth()` — `pub(crate)` fn: interactive Anthropic auth (already-authed or setup-token)
+- `is_claude_authenticated()` — private fn: probes Claude CLI auth via `claude -p "ok"` (exit code check)
+- `run_anthropic_auth()` — `pub(crate)` fn: auto-detects auth, then setup-token flow or skip
 - `run_whatsapp_setup()` — `pub(crate) async` fn: WhatsApp QR pairing via cliclack
 - `run_google_setup()` — `pub(crate)` fn: Google OAuth flow via `gog` CLI with incognito browser offer
 - `whatsapp_already_paired()` — private helper

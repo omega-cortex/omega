@@ -81,62 +81,92 @@ pub(crate) fn create_incognito_script(
     Ok(script_path)
 }
 
+/// Probe whether the Claude CLI has valid authentication.
+///
+/// Runs a minimal `claude -p` invocation. If the CLI has credentials the
+/// command succeeds (exit 0); otherwise it fails fast before any network call.
+fn is_claude_authenticated() -> bool {
+    std::process::Command::new("claude")
+        .args(["-p", "ok", "--output-format", "json", "--max-turns", "1"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Run Anthropic authentication setup.
 ///
-/// Offers the user a choice between "already authenticated" and pasting a setup-token.
+/// Probes Claude CLI authentication first. If credentials are already valid the
+/// step is auto-completed. Otherwise the user is guided through the setup-token
+/// flow (or may skip and authenticate later).
 pub(crate) fn run_anthropic_auth() -> anyhow::Result<()> {
+    let spinner = cliclack::spinner();
+    spinner.start("Checking Anthropic authentication...");
+    let authenticated = is_claude_authenticated();
+
+    if authenticated {
+        spinner.stop("Anthropic authentication — already configured");
+        return Ok(());
+    }
+
+    spinner.stop("Anthropic authentication — not detected");
+
     let auth_method: &str = cliclack::select("Anthropic auth method")
         .item(
-            "authenticated",
-            "Already authenticated (Recommended)",
-            "Claude CLI is already logged in",
+            "setup-token",
+            "Paste setup-token (Recommended)",
+            "Run `claude setup-token` elsewhere, then paste the token here",
         )
         .item(
-            "setup-token",
-            "Paste setup-token",
-            "Run `claude setup-token` elsewhere, then paste the token here",
+            "skip",
+            "Skip for now",
+            "Authenticate later with: claude login or claude setup-token",
         )
         .interact()?;
 
-    if auth_method == "setup-token" {
-        init_style::omega_note(
-            "Anthropic setup-token",
-            "Run `claude setup-token` in your terminal.\nThen paste the generated token below.",
+    if auth_method == "skip" {
+        init_style::omega_warning(
+            "You can authenticate later with: claude login or claude setup-token",
         )?;
+        return Ok(());
+    }
 
-        let token: String = cliclack::input("Paste Anthropic setup-token")
-            .placeholder("Paste the token here")
-            .validate(|input: &String| {
-                if input.trim().is_empty() {
-                    return Err("Token is required");
-                }
-                Ok(())
-            })
-            .interact()?;
+    init_style::omega_note(
+        "Anthropic setup-token",
+        "Run `claude setup-token` in your terminal.\nThen paste the generated token below.",
+    )?;
 
-        let spinner = cliclack::spinner();
-        spinner.start("Applying setup-token...");
-
-        let result = std::process::Command::new("claude")
-            .args(["setup-token", token.trim()])
-            .output();
-
-        match result {
-            Ok(output) if output.status.success() => {
-                spinner.stop("Anthropic authentication — configured");
+    let token: String = cliclack::input("Paste Anthropic setup-token")
+        .placeholder("Paste the token here")
+        .validate(|input: &String| {
+            if input.trim().is_empty() {
+                return Err("Token is required");
             }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                spinner.error(format!("setup-token failed: {stderr}"));
-                init_style::omega_warning("You can authenticate later with: claude setup-token")?;
-            }
-            Err(e) => {
-                spinner.error(format!("Failed to run claude: {e}"));
-                init_style::omega_warning("You can authenticate later with: claude setup-token")?;
-            }
+            Ok(())
+        })
+        .interact()?;
+
+    let spinner = cliclack::spinner();
+    spinner.start("Applying setup-token...");
+
+    let result = std::process::Command::new("claude")
+        .args(["setup-token", token.trim()])
+        .output();
+
+    match result {
+        Ok(output) if output.status.success() => {
+            spinner.stop("Anthropic authentication — configured");
         }
-    } else {
-        init_style::omega_success("Anthropic authentication — already configured")?;
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            spinner.error(format!("setup-token failed: {stderr}"));
+            init_style::omega_warning("You can authenticate later with: claude setup-token")?;
+        }
+        Err(e) => {
+            spinner.error(format!("Failed to run claude: {e}"));
+            init_style::omega_warning("You can authenticate later with: claude setup-token")?;
+        }
     }
 
     Ok(())
