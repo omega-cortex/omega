@@ -126,7 +126,7 @@ const LOGO: &str = r#"
 ```
 ✖ claude CLI — NOT FOUND
 ┃ Install claude CLI
-┃ npm install -g @anthropic-ai/claude-code
+┃ curl -fsSL https://claude.ai/install.sh | bash
 ┃ Then run 'omega init' again.
 ◇ Setup aborted
 ```

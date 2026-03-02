@@ -343,7 +343,7 @@ pub(crate) fn omega_note(title: &str, body: &str) -> io::Result<()>
 ```
 |
 |  Install claude CLI
-|  .  npm install -g @anthropic-ai/claude-code
+|  .  curl -fsSL https://claude.ai/install.sh | bash
 |  .
 |  .  Then run 'omega init' again.
 |
@@ -586,7 +586,7 @@ pub async fn run() -> anyhow::Result<()> {
     // ...
     init_style::omega_success(&format!("{data_dir} — created"))?;
     // ...
-    init_style::omega_note("Install claude CLI", "npm install -g @anthropic-ai/claude-code\n\nThen run 'omega init' again.")?;
+    init_style::omega_note("Install claude CLI", "curl -fsSL https://claude.ai/install.sh | bash\n\nThen run 'omega init' again.")?;
     init_style::omega_outro_cancel("Setup aborted")?;
     // ...
     init_style::omega_outro("Setup complete")?;

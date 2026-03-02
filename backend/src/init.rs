@@ -44,7 +44,10 @@ pub async fn run() -> anyhow::Result<()> {
         spinner.error("claude CLI — NOT FOUND");
         init_style::omega_note(
             "Install claude CLI",
-            "npm install -g @anthropic-ai/claude-code\n\nThen run 'omega init' again.",
+            "macOS / Linux:\n  curl -fsSL https://claude.ai/install.sh | bash\n\n\
+             Windows PowerShell:\n  irm https://claude.ai/install.ps1 | iex\n\n\
+             Windows CMD:\n  curl -fsSL https://claude.ai/install.cmd -o install.cmd && install.cmd && del install.cmd\n\n\
+             Then run 'omega init' again.",
         )?;
         init_style::omega_outro_cancel("Setup aborted")?;
         return Ok(());
@@ -216,7 +219,7 @@ pub fn run_noninteractive(
         init_style::omega_success("claude CLI: found")?;
     } else {
         init_style::omega_warning(
-            "claude CLI not found -- install with: npm install -g @anthropic-ai/claude-code",
+            "claude CLI not found -- install with: curl -fsSL https://claude.ai/install.sh | bash (or see omega init for all platforms)",
         )?;
     }
 

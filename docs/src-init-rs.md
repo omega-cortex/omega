@@ -174,7 +174,7 @@ Without this directory, Omega can't persist data between sessions. Creating it u
 │
 │  Install claude CLI
 │
-│  npm install -g @anthropic-ai/claude-code
+│  curl -fsSL https://claude.ai/install.sh | bash
 │
 │  Then run 'omega init' again.
 │
@@ -902,7 +902,7 @@ New users get:
 │
 │  Install claude CLI
 │
-│  npm install -g @anthropic-ai/claude-code
+│  curl -fsSL https://claude.ai/install.sh | bash
 │
 │  Then run 'omega init' again.
 │
@@ -1126,7 +1126,7 @@ cargo build --release
 
 **Solution:**
 ```bash
-npm install -g @anthropic-ai/claude-code
+curl -fsSL https://claude.ai/install.sh | bash
 ```
 
 ### "config.toml already exists"

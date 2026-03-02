@@ -5,6 +5,13 @@ All notable changes to Omega are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-03-02
+
+### Changed
+- Claude Code install instructions now use official installer (`curl -fsSL https://claude.ai/install.sh | bash`) with Windows PowerShell and CMD variants, replacing the old npm command
+
+[0.2.8]: https://github.com/omgagi/omega/compare/v0.2.7...v0.2.8
+
 ## [0.2.7] - 2026-03-02
 
 ### Fixed
