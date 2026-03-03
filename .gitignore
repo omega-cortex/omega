@@ -1,4 +1,5 @@
 .DS_Store
+.cargo/config.toml
 /backend/target
 *.db
 backend/config.toml
