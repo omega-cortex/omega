@@ -4,6 +4,7 @@ mod commands;
 mod gateway;
 mod i18n;
 mod init;
+mod init_google;
 mod init_style;
 mod init_wizard;
 mod markers;

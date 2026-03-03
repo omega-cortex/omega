@@ -25,8 +25,9 @@ The main entry point for the Omega binary. Orchestrates CLI argument parsing, ro
 - `crate::gateway` — Event loop gateway directory module
 - `crate::i18n` — Internationalization directory module (8 languages)
 - `crate::init` — Interactive setup wizard and non-interactive deployment
+- `crate::init_google` — Google Workspace OAuth setup step (uses `omg-gog` CLI)
 - `crate::init_style` — Branded CLI output helpers
-- `crate::init_wizard` — Interactive wizard helpers (browser detection, Anthropic auth, WhatsApp setup, Google setup)
+- `crate::init_wizard` — Interactive wizard helpers (browser detection, Anthropic auth, WhatsApp setup)
 - `crate::markers` — Marker extraction/parsing/stripping directory module
 - `crate::pair` — Standalone WhatsApp QR pairing
 - `crate::provider_builder` — Provider factory function
@@ -352,7 +353,8 @@ Root check, provider availability, channel credentials, and self-checks all happ
 - `i18n` — Localized strings (directory module, called from commands and task_confirmation)
 - `init` — Setup wizard and non-interactive deployment
 - `init_style` — Branded CLI output helpers (used by init and init_wizard)
-- `init_wizard` — Interactive wizard helpers (browser detection, auth, pairing, Google setup)
+- `init_google` — Google Workspace OAuth setup (uses `omg-gog` CLI; extracted from `init_wizard`)
+- `init_wizard` — Interactive wizard helpers (browser detection, auth, pairing)
 - `markers` — Marker extraction/parsing/stripping (directory module, called from gateway pipeline)
 - `pair` — Standalone WhatsApp QR pairing (called from main for Pair command)
 - `provider_builder` — Provider factory (called from main for Start and Ask commands)

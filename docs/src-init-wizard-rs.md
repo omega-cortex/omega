@@ -2,7 +2,7 @@
 
 ## Overview
 
-Interactive-only helpers extracted from `init.rs` to keep the init module under the 500-line limit. Contains browser detection, Anthropic authentication, WhatsApp QR pairing, and Google Workspace OAuth setup -- all of which require `cliclack` interactive prompts and are **not used** in non-interactive mode.
+Interactive-only helpers extracted from `init.rs` to keep the init module under the 500-line limit. Contains browser detection, Anthropic authentication, and WhatsApp QR pairing -- all of which require `cliclack` interactive prompts and are **not used** in non-interactive mode. Google Workspace OAuth setup has moved to `backend/src/init_google.rs`.
 
 **Called by:** `backend/src/init.rs` (interactive wizard path only)
 
@@ -41,18 +41,18 @@ WhatsApp QR pairing flow:
 5. Waits up to 60s for scan completion
 6. Returns `true` on success, `false` on failure/decline
 
-### `run_google_setup() -> Result<Option<String>>`
+### `run_google_setup() -> Result<Option<String>>` (moved to `init_google.rs`)
 
-Google Workspace OAuth setup via the `gog` CLI tool:
-1. Checks if `gog` is installed (skips silently if not)
+Google Workspace OAuth setup has moved to `backend/src/init_google.rs`. It uses the `omg-gog` CLI tool:
+1. Checks if `omg-gog` is installed (skips silently if not)
 2. Asks user if they want to set up Google Workspace
 3. Shows setup instructions (GCP console, API enabling, OAuth consent)
 4. Prompts for `client_secret.json` file path
-5. Runs `gog auth credentials <path>`
+5. Runs `omg-gog auth credentials <path>`
 6. Prompts for Gmail address
 7. Offers incognito browser option for OAuth flow
-8. Runs `gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets`
-9. Verifies with `gog auth list`
+8. Runs `omg-gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets`
+9. Verifies with `omg-gog auth list`
 10. Returns `Some(email)` on success, `None` on failure/decline
 
 ## Data Structures

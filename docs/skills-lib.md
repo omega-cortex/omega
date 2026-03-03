@@ -24,7 +24,7 @@ Create a directory in `~/.omega/skills/` with a `SKILL.md` file:
 
 ```
 ~/.omega/skills/
-├── google-workspace/
+├── omg-gog/
 │   └── SKILL.md
 └── my-custom-tool/
     └── SKILL.md
@@ -33,9 +33,9 @@ Create a directory in `~/.omega/skills/` with a `SKILL.md` file:
 TOML format (our convention):
 ```markdown
 ---
-name = "gog"
+name = "omg-gog"
 description = "Google Workspace CLI."
-requires = ["gog"]
+requires = ["omg-gog"]
 homepage = "https://gogcli.sh"
 ---
 
@@ -135,7 +135,7 @@ Core skills live in `skills/` at the repo root and are embedded into the binary 
 | Directory | Skill |
 |-----------|-------|
 | `claude-code/SKILL.md` | Claude Code CLI (`claude`) |
-| `google-workspace/SKILL.md` | Google Workspace CLI (`gog`) |
+| `omg-gog/SKILL.md` | Google Workspace CLI (`omg-gog`) |
 | `playwright-mcp/SKILL.md` | Browser automation via Playwright MCP (`npx`) |
 | `skill-creator/SKILL.md` | Skill creator (meta-skill for creating new skills) |
 | `ibkr-trader/SKILL.md` | Interactive Brokers trading via omega-trader binary |

@@ -46,7 +46,7 @@ Also loads project definitions from `ROLE.md` files. Projects support optional T
 
 ```rust
 pub struct Skill {
-    pub name: String,           // Short identifier (e.g. "gog")
+    pub name: String,           // Short identifier (e.g. "omg-gog")
     pub description: String,    // Human-readable description
     pub requires: Vec<String>,  // CLI tools this skill depends on
     pub homepage: String,       // Homepage URL (informational)
@@ -74,7 +74,7 @@ Skills are stored as directories in `{data_dir}/skills/` with a `SKILL.md` file 
 
 ```
 ~/.omega/skills/
-├── google-workspace/
+├── omg-gog/
 │   └── SKILL.md
 └── playwright-mcp-1.0.0/
     └── SKILL.md
@@ -83,9 +83,9 @@ Skills are stored as directories in `{data_dir}/skills/` with a `SKILL.md` file 
 TOML format (our convention):
 ```markdown
 ---
-name = "gog"
+name = "omg-gog"
 description = "Google Workspace CLI."
-requires = ["gog"]
+requires = ["omg-gog"]
 homepage = "https://gogcli.sh"
 ---
 ```
@@ -134,7 +134,7 @@ Core skills are embedded at compile time from `skills/` in the repo root via `in
 | Directory | Skill |
 |-----------|-------|
 | `skills/claude-code/SKILL.md` | Claude Code CLI (`claude`) |
-| `skills/google-workspace/SKILL.md` | Google Workspace CLI (`gog`) |
+| `skills/omg-gog/SKILL.md` | Google Workspace CLI (`omg-gog`) |
 | `skills/playwright-mcp/SKILL.md` | Playwright MCP browser automation (`npx`) |
 | `skills/skill-creator/SKILL.md` | Skill creator (meta-skill for creating new skills) |
 | `skills/ibkr-trader/SKILL.md` | Interactive Brokers trading via omega-trader binary |

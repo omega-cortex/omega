@@ -88,7 +88,7 @@ omega init --telegram-token "123:ABC" --allowed-users "842277204" \
 2. **Create data directory** -- `~/.omega/` created if missing
 3. **Validate Claude CLI** -- Same check as interactive mode (`claude --version`)
 4. **Apply setup token** -- If `--claude-setup-token` provided, runs `claude setup-token <token>`
-5. **Register Google credentials** -- If `--google-credentials` provided, runs `gog auth credentials <path>`
+5. **Register Google credentials** -- If `--google-credentials` provided, runs `omg-gog auth credentials <path>`
 6. **Generate config** -- Writes `config.toml` from provided arguments (skips if file exists)
 7. **Install service** -- Calls `service::install_quiet()` for non-interactive service installation
 
@@ -400,12 +400,12 @@ The wizard:
 
 ### Step 7: Google Workspace Setup (Optional, 2-3 minutes if performed)
 
-This step **only appears if the `gog` CLI tool is installed** on the system. If `gog` is not found, the wizard silently skips this step -- the user never sees any Google-related prompts.
+This step **only appears if the `omg-gog` CLI tool is installed** on the system. If `omg-gog` is not found, the wizard silently skips this step -- the user never sees any Google-related prompts.
 
 **Detection Check (Invisible to User):**
-The wizard runs `gog --version` behind the scenes. If it fails, this entire step is skipped.
+The wizard runs `omg-gog --version` behind the scenes. If it fails, this entire step is skipped.
 
-**What the User Sees (if `gog` is installed):**
+**What the User Sees (if `omg-gog` is installed):**
 ```
 ◆  Set up Google Workspace? (Gmail, Calendar, Drive)
 │  No / Yes
@@ -446,15 +446,15 @@ The user enters the path to their downloaded `client_secret.json` file. This inp
 
 **Sub-step 7c: Register Credentials**
 ```
-◒  Running: gog auth credentials ...
+◒  Running: omg-gog auth credentials ...
 ◇  Credentials registered
 ```
 
-The wizard runs `gog auth credentials <path>` to register the OAuth client credentials with the `gog` tool.
+The wizard runs `omg-gog auth credentials <path>` to register the OAuth client credentials with the `omg-gog` tool.
 
 If this fails, the wizard shows the error and skips the rest of Google setup:
 ```
-▲  gog auth credentials failed: <error details>
+▲  omg-gog auth credentials failed: <error details>
 ◇  Skipping Google Workspace setup.
 ```
 
@@ -484,7 +484,7 @@ If the user selects Yes and multiple browsers are available:
 │  ○ Firefox
 ```
 
-The wizard creates a temporary shell script at `$TMPDIR/omega_incognito_browser.sh` that opens URLs in the selected browser's private mode (e.g., `open -na 'Google Chrome' --args --incognito "$1"`), then passes it via the `BROWSER` environment variable when invoking `gog auth add`.
+The wizard creates a temporary shell script at `$TMPDIR/omega_incognito_browser.sh` that opens URLs in the selected browser's private mode (e.g., `open -na 'Google Chrome' --args --incognito "$1"`), then passes it via the `BROWSER` environment variable when invoking `omg-gog auth add`.
 
 If no browsers are detected, this step is silently skipped and the default browser is used.
 
@@ -494,7 +494,7 @@ If no browsers are detected, this step is silently skipped and the default brows
 │  OAuth Tips
 │
 │  A browser will open for Google sign-in.
-│  • Click 'Advanced' → 'Go to gog (unsafe)' → Allow
+│  • Click 'Advanced' → 'Go to omg-gog (unsafe)' → Allow
 │  • If 'Access blocked: not verified', go to OAuth consent screen →
 │    Audience → Publish app (or add yourself as a test user)
 │
@@ -507,7 +507,7 @@ The wizard displays troubleshooting guidance before the OAuth flow begins.
 ◒  Waiting for OAuth approval in browser...
 ```
 
-The wizard runs `gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets` with the `BROWSER` env var set if incognito was selected. This opens the browser for Google OAuth consent. A spinner waits while the user approves in the browser. The temporary incognito script is cleaned up after the command completes.
+The wizard runs `omg-gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets` with the `BROWSER` env var set if incognito was selected. This opens the browser for Google OAuth consent. A spinner waits while the user approves in the browser. The temporary incognito script is cleaned up after the command completes.
 
 **On Success:**
 ```
@@ -516,14 +516,14 @@ The wizard runs `gog auth add <email> --services gmail,calendar,drive,contacts,d
 
 **On Failure:**
 ```
-▲  gog auth add failed: <error details>
+▲  omg-gog auth add failed: <error details>
 ◇  If your browser showed an error, try manually in an incognito window:
-    gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets
+    omg-gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets
 ```
 
 **Sub-step 7h: Verification**
 
-The wizard runs `gog auth list` and checks if the user's email appears in the output.
+The wizard runs `omg-gog auth list` and checks if the user's email appears in the output.
 
 **On Success:**
 ```
@@ -532,12 +532,12 @@ The wizard runs `gog auth list` and checks if the user's email appears in the ou
 
 **On Ambiguous Result:**
 ```
-◇  Could not verify Google auth — check manually with 'gog auth list'.
+◇  Could not verify Google auth — check manually with 'omg-gog auth list'.
 ```
 
 Even if verification is ambiguous, the wizard still records the email in the config (the auth may have worked even if the list command had issues).
 
-**Time:** 2-3 minutes including browser OAuth flow; instant if skipped or if `gog` is not installed
+**Time:** 2-3 minutes including browser OAuth flow; instant if skipped or if `omg-gog` is not installed
 
 ---
 
@@ -842,7 +842,7 @@ User runs: omega init
 5. Telegram token collected (or skipped)
 6. User ID collected (if token provided)
 7. WhatsApp pairing via Yes/No toggle (or skipped)
-8. Google Workspace setup (if gog installed, or skipped)
+8. Google Workspace setup (if omg-gog installed, or skipped)
 9. config.toml generated
 10. System service install offer (or skipped)
 11. Next steps + success outro
@@ -943,7 +943,7 @@ New users get:
 ### Error: Google OAuth Failed
 **User sees:**
 ```
-▲  gog auth add failed: <error details>
+▲  omg-gog auth add failed: <error details>
 ◇  Google Workspace setup incomplete.
 ```
 
@@ -1086,13 +1086,13 @@ Some use cases don't need Telegram:
 - Add Telegram to config.toml manually later
 - Reduces setup friction for non-Telegram use cases
 
-### Why Is Google Setup Conditional on `gog` CLI?
-The Google Workspace step only appears if the `gog` CLI tool is already installed. This avoids:
+### Why Is Google Setup Conditional on `omg-gog` CLI?
+The Google Workspace step only appears if the `omg-gog` CLI tool is already installed. This avoids:
 - Confusing users who have no interest in Google integration
 - Blocking the wizard on a non-essential dependency
 - Unnecessary complexity for users who only want messaging
 
-If `gog` is not installed, the wizard silently skips the entire Google section. The user never sees a question about it.
+If `omg-gog` is not installed, the wizard silently skips the entire Google section. The user never sees a question about it.
 
 ### Why Store Token in Config File?
 Concern: Bot token in plaintext is a security risk.
@@ -1170,13 +1170,13 @@ omega init  # Retry
 - Try again: delete config.toml and re-run `omega init`
 - Or pair manually later via the `/whatsapp` command
 
-### "gog auth credentials failed"
-**Problem:** The client_secret.json file is invalid or the `gog` tool cannot process it
+### "omg-gog auth credentials failed"
+**Problem:** The client_secret.json file is invalid or the `omg-gog` tool cannot process it
 
 **Solution:**
 1. Re-download credentials from Google Cloud Console
 2. Ensure the file is a valid OAuth client ID JSON (not a service account key)
-3. Re-run `omega init` or configure manually with `gog auth credentials <path>`
+3. Re-run `omega init` or configure manually with `omg-gog auth credentials <path>`
 
 ---
 
@@ -1200,7 +1200,7 @@ Every step is visible to the user. No hidden operations. Users know what the wiz
 After the wizard, the system is fully functional. No additional setup required; user can immediately use Omega.
 
 ### 6. **Progressive Disclosure**
-Optional integrations (Google Workspace) only appear when the prerequisites are met (gog CLI installed). Users are never overwhelmed with options that don't apply to them.
+Optional integrations (Google Workspace) only appear when the prerequisites are met (omg-gog CLI installed). Users are never overwhelmed with options that don't apply to them.
 
 ---
 

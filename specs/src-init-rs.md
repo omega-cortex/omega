@@ -4,7 +4,7 @@
 `backend/src/init.rs`
 
 ## Purpose
-Interactive setup wizard and non-interactive deployment for new Omega users. Provides a guided onboarding experience using the `cliclack` crate for polished terminal UX (interactive mode), or programmatic deployment via CLI arguments and environment variables (non-interactive mode). The wizard creates the data directory structure, validates Claude CLI availability, collects Telegram credentials, offers WhatsApp pairing, runs Google Workspace setup via the `gog` CLI, generates the configuration file, and provides next steps. This is the entry point for the `omega init` command.
+Interactive setup wizard and non-interactive deployment for new Omega users. Provides a guided onboarding experience using the `cliclack` crate for polished terminal UX (interactive mode), or programmatic deployment via CLI arguments and environment variables (non-interactive mode). The wizard creates the data directory structure, validates Claude CLI availability, collects Telegram credentials, offers WhatsApp pairing, runs Google Workspace setup via the `omg-gog` CLI (delegated to `init_google.rs`), generates the configuration file, and provides next steps. This is the entry point for the `omega init` command.
 
 ## Module Overview
 The `init.rs` module contains:
@@ -18,7 +18,7 @@ The `init.rs` module contains:
 Interactive wizard helpers have been extracted to `backend/src/init_wizard.rs`:
 - `run_anthropic_auth()` — Handles Anthropic authentication (setup-token flow)
 - `run_whatsapp_setup()` — Handles WhatsApp QR-code pairing
-- `run_google_setup()` — Handles Google Workspace OAuth setup via `gog` CLI
+- `run_google_setup()` — Handles Google Workspace OAuth setup via `omg-gog` CLI (now in `backend/src/init_google.rs`)
 - `detect_private_browsers()` — Detects installed browsers with incognito/private mode support (macOS)
 - `create_incognito_script(browser)` — Creates a temp shell script for opening URLs in incognito mode
 - `PrivateBrowser` — Struct holding browser label, app name, and incognito flag
@@ -336,8 +336,8 @@ fn run_google_setup() -> anyhow::Result<Option<String>>
 
 ### Logic Flow
 
-**Step 1: Check `gog` CLI availability**
-1. Execute `gog --version` as subprocess
+**Step 1: Check `omg-gog` CLI availability**
+1. Execute `omg-gog --version` as subprocess
 2. Map exit status to boolean with `.map(|o| o.status.success()).unwrap_or(false)`
 3. If NOT found: return `Ok(None)` silently (no prompt, no message)
 
@@ -365,8 +365,8 @@ fn run_google_setup() -> anyhow::Result<Option<String>>
 2. Expand the path via `shellexpand(&cred_path)`
 
 **Step 5: Register credentials**
-1. Start spinner: `"Running: gog auth credentials ..."`
-2. Execute `gog auth credentials <expanded_path>` as subprocess
+1. Start spinner: `"Running: omg-gog auth credentials ..."`
+2. Execute `omg-gog auth credentials <expanded_path>` as subprocess
 3. On success: stop spinner with `"Credentials registered"`
 4. On failure (non-zero exit): stop spinner with error, log warning, return `Ok(None)`
 5. On execution error: stop spinner with error, log warning, return `Ok(None)`
@@ -386,12 +386,12 @@ fn run_google_setup() -> anyhow::Result<Option<String>>
 
 **Step 8: Display OAuth Tips**
 1. Display `init_style::omega_note("OAuth Tips", ...)` with troubleshooting guidance:
-   - Click 'Advanced' → 'Go to gog (unsafe)' → Allow
+   - Click 'Advanced' → 'Go to omg-gog (unsafe)' → Allow
    - If 'Access blocked: not verified', publish app or add test user
 
 **Step 9: OAuth authorization**
 1. Start spinner: `"Waiting for OAuth approval in browser..."`
-2. Build `gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets` command
+2. Build `omg-gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets` command
 3. If incognito script was created: set `BROWSER` env var on the subprocess to the temp script path
 4. Execute the command
 5. Clean up temp script (regardless of outcome)
@@ -399,18 +399,18 @@ fn run_google_setup() -> anyhow::Result<Option<String>>
 7. On failure (non-zero exit): stop spinner with error, log warning, display manual incognito retry suggestion, return `Ok(None)`
 8. On execution error: stop spinner with error, log warning, return `Ok(None)`
 
-**Step 10: Verify with `gog auth list`**
-1. Execute `gog auth list` as subprocess
+**Step 10: Verify with `omg-gog auth list`**
+1. Execute `omg-gog auth list` as subprocess
 2. Check if stdout contains the email address
 3. If verified: log success `"Google Workspace connected!"`, return `Ok(Some(email))`
-4. If not verified: log warning `"Could not verify Google auth — check manually with 'gog auth list'."`, return `Ok(Some(email))` (auth might still have worked)
+4. If not verified: log warning `"Could not verify Google auth — check manually with 'omg-gog auth list'."`, return `Ok(Some(email))` (auth might still have worked)
 
 ### Error Handling
-- Missing `gog` CLI: silently skipped, user is never prompted
-- All `gog` subprocess failures produce warnings and return `Ok(None)` -- never fatal to the wizard
+- Missing `omg-gog` CLI: silently skipped, user is never prompted
+- All `omg-gog` subprocess failures produce warnings and return `Ok(None)` -- never fatal to the wizard
 - Failed OAuth shows manual incognito retry suggestion to help users troubleshoot browser-related issues
 - Incognito script creation failure is non-fatal: falls back to default browser with a warning
-- Temp incognito script is always cleaned up after the `gog auth add` command completes
+- Temp incognito script is always cleaned up after the `omg-gog auth add` command completes
 - Verification failure is non-fatal; returns the email optimistically
 
 ---
@@ -430,7 +430,7 @@ Programmatic deployment path triggered when `--telegram-token` or `--allowed-use
 2. Create `~/.omega` data directory if missing
 4. Validate Claude CLI is accessible (`claude --version`)
 5. If `--claude-setup-token` is provided, run `claude setup-token <token>`
-6. If `--google-credentials` is provided, run `gog auth credentials <path>`
+6. If `--google-credentials` is provided, run `omg-gog auth credentials <path>`
 7. Generate `config.toml` via `generate_config()` with the parsed arguments
 8. Write `config.toml` (skip if already exists)
 9. Call `service::install_quiet()` for non-interactive service installation
@@ -691,7 +691,7 @@ The `init.rs` module follows these error handling principles:
 
 5. **WhatsApp Failures are Non-Fatal:** All errors are caught and converted to `Ok(false)` with a warning.
 
-6. **Google Setup Failures are Non-Fatal:** Missing `gog` CLI is silently skipped. All subprocess failures produce warnings and return `Ok(None)`.
+6. **Google Setup Failures are Non-Fatal:** Missing `omg-gog` CLI is silently skipped. All subprocess failures produce warnings and return `Ok(None)`.
 
 7. **No Panics:** Zero `unwrap()` calls in the happy path. The only `unwrap_or(false)` calls are on subprocess exit status checks, converting execution failures to `false`.
 
@@ -710,19 +710,19 @@ The `init.rs` module follows these error handling principles:
 - **Styled prompts:** Consistent visual language with checkmarks, spinners, and boxed notes
 - **Placeholder text:** Guides user on expected input format without cluttering the prompt
 - **Validation feedback:** Inline error messages for file path and email validation
-- **Spinners:** Visual feedback during subprocess execution (Claude CLI check, gog commands)
+- **Spinners:** Visual feedback during subprocess execution (Claude CLI check, omg-gog commands)
 - **Session boundaries:** `intro`/`outro` clearly delineate the wizard session
 
 ### Skip Paths
 - **Telegram:** Leave bot token blank to skip
 - **User ID:** Leave blank or enter non-numeric to allow all users
 - **WhatsApp:** Decline the confirm prompt
-- **Google Workspace:** Automatically skipped if `gog` CLI is not installed; otherwise decline the confirm prompt
+- **Google Workspace:** Automatically skipped if `omg-gog` CLI is not installed; otherwise decline the confirm prompt
 
 ### Failure Modes
 - **Claude CLI Missing:** Styled error with installation command inside `init_style::omega_note`, session closed with `init_style::omega_outro_cancel`
 - **WhatsApp Pairing Timeout:** Spinner stops with error, warning logged, wizard continues
-- **Google `gog` Failures:** Spinner stops with error, warning logged, wizard continues
+- **Google `omg-gog` Failures:** Spinner stops with error, warning logged, wizard continues
 - **I/O Errors:** Anyhow error message bubbles up; user sees Rust error but can retry
 
 ---
@@ -732,7 +732,8 @@ The `init.rs` module follows these error handling principles:
 **Called by:** `backend/src/main.rs` in the `init` command handler. `main.rs` dispatches to `run_noninteractive()` when deployment CLI args are provided, or `run()` for the interactive wizard.
 
 **Companion modules:**
-- `backend/src/init_wizard.rs` -- contains interactive wizard helpers extracted from `init.rs` (browser detection, Anthropic auth, WhatsApp setup, Google setup)
+- `backend/src/init_wizard.rs` -- contains interactive wizard helpers extracted from `init.rs` (browser detection, Anthropic auth, WhatsApp setup)
+- `backend/src/init_google.rs` -- Google Workspace OAuth setup step (extracted from `init_wizard.rs`); uses `omg-gog` CLI
 - `backend/src/init_style.rs` -- branded CLI output helpers (replaces cliclack chrome)
 
 **Reads from:** stdin (via cliclack interactive prompts in interactive mode), CLI args and env vars (in non-interactive mode)
@@ -747,7 +748,7 @@ The `init.rs` module follows these error handling principles:
 - `clap` -- CLI argument parsing with `env` feature for `OMEGA_` env var support
 - `omega_core::shellexpand` -- Home directory expansion
 - `omega_channels::whatsapp` -- WhatsApp QR pairing flow (interactive mode)
-- `std::process::Command` -- Subprocess execution (`claude --version`, `gog` commands)
+- `std::process::Command` -- Subprocess execution (`claude --version`, `omg-gog` commands)
 - `std::fs` -- Directory and file operations
 - `tokio::runtime::Runtime` -- Short-lived async runtime for WhatsApp pairing
 - `anyhow` -- Error handling

@@ -111,7 +111,7 @@ pub async fn run() -> anyhow::Result<()> {
     let whatsapp_enabled = init_wizard::run_whatsapp_setup().await?;
 
     // 8. Google Workspace setup.
-    let google_email = init_wizard::run_google_setup()?;
+    let google_email = crate::init_google::run_google_setup()?;
 
     // 9. Generate config.toml at ~/.omega/config.toml.
     let config_path_expanded = shellexpand("~/.omega/config.toml");
@@ -248,7 +248,7 @@ pub fn run_noninteractive(
         if !Path::new(&expanded).exists() {
             init_style::omega_warning(&format!("Google credentials file not found: {expanded}"))?;
         } else {
-            let result = std::process::Command::new("gog")
+            let result = std::process::Command::new("omg-gog")
                 .args(["auth", "credentials", &expanded])
                 .output();
             match result {
@@ -257,17 +257,19 @@ pub fn run_noninteractive(
                 }
                 Ok(output) => {
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    init_style::omega_warning(&format!("gog auth credentials failed: {stderr}"))?;
+                    init_style::omega_warning(&format!(
+                        "omg-gog auth credentials failed: {stderr}"
+                    ))?;
                 }
                 Err(e) => {
-                    init_style::omega_warning(&format!("could not run gog: {e}"))?;
+                    init_style::omega_warning(&format!("could not run omg-gog: {e}"))?;
                 }
             }
         }
         if let Some(email) = google_email {
             init_style::omega_note(
                 "Google OAuth",
-                &format!("Complete post-deployment:\ngog auth add {email} --services gmail,calendar,drive,contacts,docs,sheets"),
+                &format!("Complete post-deployment:\nomg-gog auth add {email} --services gmail,calendar,drive,contacts,docs,sheets"),
             )?;
         }
     }
@@ -316,7 +318,7 @@ pub fn run_noninteractive(
     let mut summary = "Config: ~/.omega/config.toml\nStart: omega start".to_string();
     if google_credentials.is_some() && google_email.is_some() {
         summary.push_str(&format!(
-            "\nGoogle OAuth: complete post-deployment with:\n  gog auth add {} --services gmail,calendar,drive,contacts,docs,sheets",
+            "\nGoogle OAuth: complete post-deployment with:\n  omg-gog auth add {} --services gmail,calendar,drive,contacts,docs,sheets",
             google_email.unwrap_or("your@email.com")
         ));
     }

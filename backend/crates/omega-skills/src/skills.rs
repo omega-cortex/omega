@@ -16,8 +16,8 @@ const BUNDLED_SKILLS: &[(&str, &str)] = &[
         include_str!("../../../../skills/claude-code/SKILL.md"),
     ),
     (
-        "google-workspace",
-        include_str!("../../../../skills/google-workspace/SKILL.md"),
+        "omg-gog",
+        include_str!("../../../../skills/omg-gog/SKILL.md"),
     ),
     (
         "playwright-mcp",
@@ -607,10 +607,10 @@ description = \"No deps.\"
         let tmp = std::env::temp_dir().join("__omega_test_bundled__");
         let _ = std::fs::remove_dir_all(&tmp);
         install_bundled_skills(tmp.to_str().unwrap());
-        let dest = tmp.join("skills/google-workspace/SKILL.md");
+        let dest = tmp.join("skills/omg-gog/SKILL.md");
         assert!(dest.exists(), "bundled skill should be deployed");
         let content = std::fs::read_to_string(&dest).unwrap();
-        assert!(content.contains("google-workspace"));
+        assert!(content.contains("omg-gog"));
         // Run again — should not overwrite.
         std::fs::write(&dest, "custom").unwrap();
         install_bundled_skills(tmp.to_str().unwrap());

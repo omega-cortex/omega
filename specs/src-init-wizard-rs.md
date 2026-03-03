@@ -4,7 +4,7 @@
 `backend/src/init_wizard.rs`
 
 ## Purpose
-Interactive-only helpers extracted from `init.rs` to keep the init module under the 500-line limit. Contains browser detection, Anthropic authentication, WhatsApp QR pairing, and Google Workspace OAuth setup — all of which require cliclack interactive prompts and are not used in non-interactive mode.
+Interactive-only helpers extracted from `init.rs` to keep the init module under the 500-line limit. Contains browser detection, Anthropic authentication, and WhatsApp QR pairing — all of which require cliclack interactive prompts and are not used in non-interactive mode. Google Workspace OAuth setup has moved to `backend/src/init_google.rs`.
 
 ## Module Overview
 - `PrivateBrowser` — `pub(crate)` struct: browser label, app name, incognito flag
@@ -14,7 +14,7 @@ Interactive-only helpers extracted from `init.rs` to keep the init module under 
 - `is_claude_authenticated()` — private fn: probes Claude CLI auth via `claude -p "ok"` (exit code check)
 - `run_anthropic_auth()` — `pub(crate)` fn: auto-detects auth, then setup-token flow or skip
 - `run_whatsapp_setup()` — `pub(crate) async` fn: WhatsApp QR pairing via cliclack
-- `run_google_setup()` — `pub(crate)` fn: Google OAuth flow via `gog` CLI with incognito browser offer
+- `run_google_setup()` — moved to `backend/src/init_google.rs`: Google OAuth flow via `omg-gog` CLI with incognito browser offer
 - `whatsapp_already_paired()` — private helper
 
 ## Called By
@@ -32,5 +32,5 @@ Interactive-only helpers extracted from `init.rs` to keep the init module under 
 - `crate::init_style` — Branded chrome (note, success, warning, error, step, info)
 - `omega_channels::whatsapp` — WhatsApp pairing
 - `omega_core::shellexpand` — Home directory expansion
-- `std::process::Command` — Subprocess execution (`claude`, `gog`)
+- `std::process::Command` — Subprocess execution (`claude`)
 - `tokio::time` — Timeout for async pairing flow
