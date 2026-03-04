@@ -56,6 +56,12 @@ pub trait Channel: Send + Sync {
         Ok(())
     }
 
+    /// Delete a message by its platform-specific ID.
+    /// Best-effort: implementations should log failures but not propagate errors.
+    async fn delete_message(&self, _target: &str, _message_id: &str) -> Result<(), OmegaError> {
+        Ok(())
+    }
+
     /// Graceful shutdown.
     async fn stop(&self) -> Result<(), OmegaError>;
 

@@ -219,6 +219,7 @@ impl Channel for TelegramChannel {
                         reply_target: Some(msg.chat.id.to_string()),
                         is_group: false,
                         source: None,
+                        platform_message_id: Some(msg.message_id.to_string()),
                     };
 
                     if tx.send(incoming).await.is_err() {
@@ -249,6 +250,17 @@ impl Channel for TelegramChannel {
             OmegaError::Channel(format!("invalid telegram chat_id '{target}': {e}"))
         })?;
         self.send_photo_bytes(chat_id, image, caption).await
+    }
+
+    async fn delete_message(&self, target: &str, message_id: &str) -> Result<(), OmegaError> {
+        let chat_id: i64 = target.parse().map_err(|e| {
+            OmegaError::Channel(format!("invalid telegram chat_id '{target}': {e}"))
+        })?;
+        let msg_id: i64 = message_id.parse().map_err(|e| {
+            OmegaError::Channel(format!("invalid telegram message_id '{message_id}': {e}"))
+        })?;
+        self.delete_message_by_id(chat_id, msg_id).await;
+        Ok(())
     }
 
     async fn send(&self, message: OutgoingMessage) -> Result<(), OmegaError> {

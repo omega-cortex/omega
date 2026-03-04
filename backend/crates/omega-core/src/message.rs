@@ -28,6 +28,10 @@ pub struct IncomingMessage {
     /// None for channel-originated messages, Some("source_name") for webhooks.
     #[serde(default)]
     pub source: Option<String>,
+    /// Platform-specific message ID (e.g. Telegram message_id).
+    /// Used for message deletion (security: delete credential messages).
+    #[serde(default)]
+    pub platform_message_id: Option<String>,
 }
 
 /// An outgoing message to send back through a channel.
@@ -103,6 +107,10 @@ mod tests {
         );
         assert!(!msg.is_group, "is_group should default to false");
         assert!(msg.source.is_none(), "source should default to None");
+        assert!(
+            msg.platform_message_id.is_none(),
+            "platform_message_id should default to None"
+        );
     }
 
     #[test]

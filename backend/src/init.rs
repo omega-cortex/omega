@@ -251,20 +251,19 @@ pub async fn run_setup() -> anyhow::Result<()> {
             .apply_to("Space to select, Enter to pick one");
         init_style::omega_info(&hint.to_string())?;
 
-        let selected: Vec<&str> =
-            cliclack::multiselect("Select components to reconfigure")
-                .item("claude", "Claude Auth", "OAuth token for Claude Code")
-                .item("telegram", "Telegram", "Bot token and allowed users")
-                .item("whisper", "Voice Transcription", "OpenAI Whisper API key")
-                .item("whatsapp", "WhatsApp", "Pair via QR code")
-                .item("google", "Google Workspace", "Gmail, Calendar, Drive...")
-                .item(
-                    "service",
-                    "System Service",
-                    "Install or reinstall the service",
-                )
-                .required(false)
-                .interact()?;
+        let selected: Vec<&str> = cliclack::multiselect("Select components to reconfigure")
+            .item("claude", "Claude Auth", "OAuth token for Claude Code")
+            .item("telegram", "Telegram", "Bot token and allowed users")
+            .item("whisper", "Voice Transcription", "OpenAI Whisper API key")
+            .item("whatsapp", "WhatsApp", "Pair via QR code")
+            .item("google", "Google Workspace", "Gmail, Calendar, Drive...")
+            .item(
+                "service",
+                "System Service",
+                "Install or reinstall the service",
+            )
+            .required(false)
+            .interact()?;
 
         let selected: Vec<&str> = if selected.is_empty() {
             let choice: &str = cliclack::select("Pick one component to reconfigure")

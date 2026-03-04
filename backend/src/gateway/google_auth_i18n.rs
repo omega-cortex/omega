@@ -3,97 +3,363 @@
 //! Extracted into its own file to respect the 500-line-per-file rule.
 //! All functions are `pub(super)` -- consumed by `google_auth.rs`.
 
-/// Step 1: Initial prompt asking for client_id.
+use super::google_auth_oauth::{gcp_api_library_url, gcp_console_url};
+
+/// Step 1: Welcome + ask for Project ID.
 /// Includes overwrite warning if `existing` is true.
-pub(super) fn google_step1_message(lang: &str, existing: bool) -> String {
+pub(super) fn google_step_project_id_message(lang: &str, existing: bool) -> String {
     let warning = if existing {
         match lang {
-            "Spanish" => "\n\n**Nota:** Ya tienes credenciales de Google configuradas. Este proceso las sobrescribira.",
-            "Portuguese" => "\n\n**Nota:** Voce ja tem credenciais do Google configuradas. Este processo as substituira.",
-            "French" => "\n\n**Note :** Vous avez deja des identifiants Google configures. Ce processus les ecrasera.",
-            "German" => "\n\n**Hinweis:** Du hast bereits Google-Zugangsdaten konfiguriert. Dieser Vorgang wird sie uberschreiben.",
-            "Italian" => "\n\n**Nota:** Hai gia credenziali Google configurate. Questo processo le sovrascrivera.",
-            "Dutch" => "\n\n**Let op:** Je hebt al Google-inloggegevens geconfigureerd. Dit proces zal ze overschrijven.",
-            "Russian" => "\n\n**Примечание:** У вас уже настроены учетные данные Google. Этот процесс их перезапишет.",
-            _ => "\n\n**Note:** You already have Google credentials configured. This process will overwrite them.",
+            "Spanish" => "\n\n*Nota:* Ya tienes credenciales de Google configuradas. Este proceso las sobrescribira.",
+            "Portuguese" => "\n\n*Nota:* Voce ja tem credenciais do Google configuradas. Este processo as substituira.",
+            "French" => "\n\n*Note :* Vous avez deja des identifiants Google configures. Ce processus les ecrasera.",
+            "German" => "\n\n*Hinweis:* Du hast bereits Google-Zugangsdaten konfiguriert. Dieser Vorgang wird sie uberschreiben.",
+            "Italian" => "\n\n*Nota:* Hai gia credenziali Google configurate. Questo processo le sovrascrivera.",
+            "Dutch" => "\n\n*Let op:* Je hebt al Google-inloggegevens geconfigureerd. Dit proces zal ze overschrijven.",
+            "Russian" => "\n\n*Примечание:* У вас уже настроены учетные данные Google. Этот процесс их перезапишет.",
+            _ => "\n\n*Note:* You already have Google credentials configured. This process will overwrite them.",
         }
     } else {
         ""
     };
 
     let base = match lang {
-        "Spanish" => "Configuracion de cuenta Google\n\nPor favor, envia tu **Client ID** de Google OAuth.\n\nPuedes escribir *cancel* en cualquier momento para cancelar.",
-        "Portuguese" => "Configuracao de conta Google\n\nPor favor, envie seu **Client ID** do Google OAuth.\n\nVoce pode escrever *cancel* a qualquer momento para cancelar.",
-        "French" => "Configuration du compte Google\n\nVeuillez envoyer votre **Client ID** Google OAuth.\n\nVous pouvez ecrire *cancel* a tout moment pour annuler.",
-        "German" => "Google-Konto einrichten\n\nBitte sende deine **Client ID** von Google OAuth.\n\nDu kannst jederzeit *cancel* schreiben, um abzubrechen.",
-        "Italian" => "Configurazione account Google\n\nPer favore, invia il tuo **Client ID** di Google OAuth.\n\nPuoi scrivere *cancel* in qualsiasi momento per annullare.",
-        "Dutch" => "Google-account instellen\n\nStuur alsjeblieft je **Client ID** van Google OAuth.\n\nJe kunt op elk moment *cancel* typen om te annuleren.",
-        "Russian" => "Настройка аккаунта Google\n\nПожалуйста, отправьте ваш **Client ID** Google OAuth.\n\nВы можете написать *cancel* в любой момент для отмены.",
-        _ => "Google Account Setup\n\nPlease send your Google OAuth **Client ID**.\n\nYou can type *cancel* at any time to abort.",
+        "Spanish" => "Configuracion de cuenta Google\n\n1. Ve a https://console.cloud.google.com\n2. Crea un nuevo proyecto (o usa uno existente)\n3. Envia tu *Project ID*\n\nPuedes escribir *cancel* en cualquier momento para cancelar.",
+        "Portuguese" => "Configuracao de conta Google\n\n1. Va a https://console.cloud.google.com\n2. Crie um novo projeto (ou use um existente)\n3. Envie seu *Project ID*\n\nVoce pode escrever *cancel* a qualquer momento para cancelar.",
+        "French" => "Configuration du compte Google\n\n1. Allez a https://console.cloud.google.com\n2. Creez un nouveau projet (ou utilisez un existant)\n3. Envoyez votre *Project ID*\n\nVous pouvez ecrire *cancel* a tout moment pour annuler.",
+        "German" => "Google-Konto einrichten\n\n1. Gehe zu https://console.cloud.google.com\n2. Erstelle ein neues Projekt (oder verwende ein vorhandenes)\n3. Sende deine *Project ID*\n\nDu kannst jederzeit *cancel* schreiben, um abzubrechen.",
+        "Italian" => "Configurazione account Google\n\n1. Vai a https://console.cloud.google.com\n2. Crea un nuovo progetto (o usa uno esistente)\n3. Invia il tuo *Project ID*\n\nPuoi scrivere *cancel* in qualsiasi momento per annullare.",
+        "Dutch" => "Google-account instellen\n\n1. Ga naar https://console.cloud.google.com\n2. Maak een nieuw project (of gebruik een bestaand)\n3. Stuur je *Project ID*\n\nJe kunt op elk moment *cancel* typen om te annuleren.",
+        "Russian" => "Настройка аккаунта Google\n\n1. Перейдите на https://console.cloud.google.com\n2. Создайте новый проект (или используйте существующий)\n3. Отправьте ваш *Project ID*\n\nВы можете написать *cancel* в любой момент для отмены.",
+        _ => "Google Account Setup\n\n1. Go to https://console.cloud.google.com\n2. Create a new project (or use an existing one)\n3. Send your *Project ID*\n\nYou can type *cancel* at any time to abort.",
     };
 
     format!("{base}{warning}")
 }
 
-/// Step 2: Received client_id, asking for client_secret.
-pub(super) fn google_step2_message(lang: &str) -> &'static str {
+/// Step 2: Comprehensive setup guide with project-specific links.
+pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> String {
+    let gmail_url = gcp_api_library_url(project_id, "gmail.googleapis.com");
+    let calendar_url = gcp_api_library_url(project_id, "calendar-json.googleapis.com");
+    let drive_url = gcp_api_library_url(project_id, "drive.googleapis.com");
+    let docs_url = gcp_api_library_url(project_id, "docs.googleapis.com");
+    let sheets_url = gcp_api_library_url(project_id, "sheets.googleapis.com");
+    let consent_url = gcp_console_url(project_id, "apis/credentials/consent");
+    let cred_url = gcp_console_url(project_id, "apis/credentials/oauthclient");
+
+    let guide = match lang {
+        "Spanish" => format!(
+            "Proyecto recibido: *{project_id}*\n\n\
+             Sigue estos pasos:\n\n\
+             *1. Habilitar APIs* (haz clic en cada enlace y activa):\n\
+             - Gmail: {gmail_url}\n\
+             - Calendar: {calendar_url}\n\
+             - Drive: {drive_url}\n\
+             - Docs: {docs_url}\n\
+             - Sheets: {sheets_url}\n\n\
+             *2. Pantalla de consentimiento OAuth*\n\
+             {consent_url}\n\
+             - Haz clic en \"Get Started\"\n\
+             - Nombre: omega | Email: tu email\n\
+             - Audiencia: External | Crea\n\n\
+             *3. Crear credenciales OAuth*\n\
+             {cred_url}\n\
+             - Tipo: Web application\n\
+             - URI de redireccion: https://omgagi.ai/oauth/callback/\n\
+             - Crea y copia el Client ID\n\n\
+             *4. Publicar la app*\n\
+             {consent_url}\n\
+             - Ve a \"Audience\" y haz clic en \"Publish App\"\n\n\
+             Envia tu *Client ID* cuando estes listo."
+        ),
+        "Portuguese" => format!(
+            "Projeto recebido: *{project_id}*\n\n\
+             Siga estes passos:\n\n\
+             *1. Habilitar APIs* (clique em cada link e ative):\n\
+             - Gmail: {gmail_url}\n\
+             - Calendar: {calendar_url}\n\
+             - Drive: {drive_url}\n\
+             - Docs: {docs_url}\n\
+             - Sheets: {sheets_url}\n\n\
+             *2. Tela de consentimento OAuth*\n\
+             {consent_url}\n\
+             - Clique em \"Get Started\"\n\
+             - Nome: omega | Email: seu email\n\
+             - Audiencia: External | Crie\n\n\
+             *3. Criar credenciais OAuth*\n\
+             {cred_url}\n\
+             - Tipo: Web application\n\
+             - URI de redirecionamento: https://omgagi.ai/oauth/callback/\n\
+             - Crie e copie o Client ID\n\n\
+             *4. Publicar o app*\n\
+             {consent_url}\n\
+             - Va a \"Audience\" e clique em \"Publish App\"\n\n\
+             Envie seu *Client ID* quando estiver pronto."
+        ),
+        "French" => format!(
+            "Projet recu : *{project_id}*\n\n\
+             Suivez ces etapes :\n\n\
+             *1. Activer les APIs* (cliquez sur chaque lien et activez) :\n\
+             - Gmail : {gmail_url}\n\
+             - Calendar : {calendar_url}\n\
+             - Drive : {drive_url}\n\
+             - Docs : {docs_url}\n\
+             - Sheets : {sheets_url}\n\n\
+             *2. Ecran de consentement OAuth*\n\
+             {consent_url}\n\
+             - Cliquez sur \"Get Started\"\n\
+             - Nom : omega | Email : votre email\n\
+             - Audience : External | Creez\n\n\
+             *3. Creer des identifiants OAuth*\n\
+             {cred_url}\n\
+             - Type : Web application\n\
+             - URI de redirection : https://omgagi.ai/oauth/callback/\n\
+             - Creez et copiez le Client ID\n\n\
+             *4. Publier l'app*\n\
+             {consent_url}\n\
+             - Allez a \"Audience\" et cliquez sur \"Publish App\"\n\n\
+             Envoyez votre *Client ID* quand vous etes pret."
+        ),
+        "German" => format!(
+            "Projekt erhalten: *{project_id}*\n\n\
+             Folge diesen Schritten:\n\n\
+             *1. APIs aktivieren* (klicke auf jeden Link und aktiviere):\n\
+             - Gmail: {gmail_url}\n\
+             - Calendar: {calendar_url}\n\
+             - Drive: {drive_url}\n\
+             - Docs: {docs_url}\n\
+             - Sheets: {sheets_url}\n\n\
+             *2. OAuth-Zustimmungsbildschirm*\n\
+             {consent_url}\n\
+             - Klicke auf \"Get Started\"\n\
+             - Name: omega | E-Mail: deine E-Mail\n\
+             - Zielgruppe: External | Erstellen\n\n\
+             *3. OAuth-Zugangsdaten erstellen*\n\
+             {cred_url}\n\
+             - Typ: Web application\n\
+             - Weiterleitungs-URI: https://omgagi.ai/oauth/callback/\n\
+             - Erstelle und kopiere die Client ID\n\n\
+             *4. App veroffentlichen*\n\
+             {consent_url}\n\
+             - Gehe zu \"Audience\" und klicke auf \"Publish App\"\n\n\
+             Sende deine *Client ID* wenn du bereit bist."
+        ),
+        "Italian" => format!(
+            "Progetto ricevuto: *{project_id}*\n\n\
+             Segui questi passaggi:\n\n\
+             *1. Abilitare le API* (clicca su ogni link e attiva):\n\
+             - Gmail: {gmail_url}\n\
+             - Calendar: {calendar_url}\n\
+             - Drive: {drive_url}\n\
+             - Docs: {docs_url}\n\
+             - Sheets: {sheets_url}\n\n\
+             *2. Schermata di consenso OAuth*\n\
+             {consent_url}\n\
+             - Clicca su \"Get Started\"\n\
+             - Nome: omega | Email: la tua email\n\
+             - Pubblico: External | Crea\n\n\
+             *3. Creare credenziali OAuth*\n\
+             {cred_url}\n\
+             - Tipo: Web application\n\
+             - URI di reindirizzamento: https://omgagi.ai/oauth/callback/\n\
+             - Crea e copia il Client ID\n\n\
+             *4. Pubblicare l'app*\n\
+             {consent_url}\n\
+             - Vai a \"Audience\" e clicca su \"Publish App\"\n\n\
+             Invia il tuo *Client ID* quando sei pronto."
+        ),
+        "Dutch" => format!(
+            "Project ontvangen: *{project_id}*\n\n\
+             Volg deze stappen:\n\n\
+             *1. API's inschakelen* (klik op elke link en activeer):\n\
+             - Gmail: {gmail_url}\n\
+             - Calendar: {calendar_url}\n\
+             - Drive: {drive_url}\n\
+             - Docs: {docs_url}\n\
+             - Sheets: {sheets_url}\n\n\
+             *2. OAuth-toestemmingsscherm*\n\
+             {consent_url}\n\
+             - Klik op \"Get Started\"\n\
+             - Naam: omega | E-mail: je e-mail\n\
+             - Doelgroep: External | Maken\n\n\
+             *3. OAuth-inloggegevens maken*\n\
+             {cred_url}\n\
+             - Type: Web application\n\
+             - Omleidings-URI: https://omgagi.ai/oauth/callback/\n\
+             - Maak en kopieer het Client ID\n\n\
+             *4. App publiceren*\n\
+             {consent_url}\n\
+             - Ga naar \"Audience\" en klik op \"Publish App\"\n\n\
+             Stuur je *Client ID* als je klaar bent."
+        ),
+        "Russian" => format!(
+            "Проект получен: *{project_id}*\n\n\
+             Выполните следующие шаги:\n\n\
+             *1. Включить API* (нажмите на каждую ссылку и активируйте):\n\
+             - Gmail: {gmail_url}\n\
+             - Calendar: {calendar_url}\n\
+             - Drive: {drive_url}\n\
+             - Docs: {docs_url}\n\
+             - Sheets: {sheets_url}\n\n\
+             *2. Экран согласия OAuth*\n\
+             {consent_url}\n\
+             - Нажмите \"Get Started\"\n\
+             - Название: omega | Email: ваш email\n\
+             - Аудитория: External | Создать\n\n\
+             *3. Создать учетные данные OAuth*\n\
+             {cred_url}\n\
+             - Тип: Web application\n\
+             - URI перенаправления: https://omgagi.ai/oauth/callback/\n\
+             - Создайте и скопируйте Client ID\n\n\
+             *4. Опубликовать приложение*\n\
+             {consent_url}\n\
+             - Перейдите в \"Audience\" и нажмите \"Publish App\"\n\n\
+             Отправьте ваш *Client ID* когда будете готовы."
+        ),
+        _ => format!(
+            "Project received: *{project_id}*\n\n\
+             Follow these steps:\n\n\
+             *1. Enable APIs* (click each link and enable):\n\
+             - Gmail: {gmail_url}\n\
+             - Calendar: {calendar_url}\n\
+             - Drive: {drive_url}\n\
+             - Docs: {docs_url}\n\
+             - Sheets: {sheets_url}\n\n\
+             *2. OAuth consent screen*\n\
+             {consent_url}\n\
+             - Click \"Get Started\"\n\
+             - Name: omega | Email: your email\n\
+             - Audience: External | Create\n\n\
+             *3. Create OAuth credentials*\n\
+             {cred_url}\n\
+             - Type: Web application\n\
+             - Redirect URI: https://omgagi.ai/oauth/callback/\n\
+             - Create and copy the Client ID\n\n\
+             *4. Publish the app*\n\
+             {consent_url}\n\
+             - Go to \"Audience\" and click \"Publish App\"\n\n\
+             Send your *Client ID* when ready."
+        ),
+    };
+
+    guide
+}
+
+/// Step 3: Client ID received, asking for Client Secret.
+pub(super) fn google_step_client_secret_message(lang: &str) -> &'static str {
     match lang {
-        "Spanish" => "Client ID recibido. Ahora envia tu **Client Secret**.",
-        "Portuguese" => "Client ID recebido. Agora envie seu **Client Secret**.",
-        "French" => "Client ID recu. Maintenant envoyez votre **Client Secret**.",
-        "German" => "Client ID erhalten. Jetzt sende dein **Client Secret**.",
-        "Italian" => "Client ID ricevuto. Ora invia il tuo **Client Secret**.",
-        "Dutch" => "Client ID ontvangen. Stuur nu je **Client Secret**.",
-        "Russian" => "Client ID получен. Теперь отправьте ваш **Client Secret**.",
-        _ => "Client ID received. Now send your **Client Secret**.",
+        "Spanish" => "Client ID recibido. Ahora envia tu *Client Secret*.",
+        "Portuguese" => "Client ID recebido. Agora envie seu *Client Secret*.",
+        "French" => "Client ID recu. Maintenant envoyez votre *Client Secret*.",
+        "German" => "Client ID erhalten. Jetzt sende dein *Client Secret*.",
+        "Italian" => "Client ID ricevuto. Ora invia il tuo *Client Secret*.",
+        "Dutch" => "Client ID ontvangen. Stuur nu je *Client Secret*.",
+        "Russian" => "Client ID получен. Теперь отправьте ваш *Client Secret*.",
+        _ => "Client ID received. Now send your *Client Secret*.",
     }
 }
 
-/// Step 3: Received client_secret, asking for refresh_token.
-pub(super) fn google_step3_message(lang: &str) -> &'static str {
+/// Step 4: OAuth URL + ask for auth code.
+pub(super) fn google_step_auth_code_message(lang: &str, auth_url: &str) -> String {
     match lang {
-        "Spanish" => "Client Secret recibido. Ahora envia tu **Refresh Token**.",
-        "Portuguese" => "Client Secret recebido. Agora envie seu **Refresh Token**.",
-        "French" => "Client Secret recu. Maintenant envoyez votre **Refresh Token**.",
-        "German" => "Client Secret erhalten. Jetzt sende dein **Refresh Token**.",
-        "Italian" => "Client Secret ricevuto. Ora invia il tuo **Refresh Token**.",
-        "Dutch" => "Client Secret ontvangen. Stuur nu je **Refresh Token**.",
-        "Russian" => "Client Secret получен. Теперь отправьте ваш **Refresh Token**.",
-        _ => "Client Secret received. Now send your **Refresh Token**.",
+        "Spanish" => format!(
+            "Client Secret recibido.\n\n\
+             Abre este enlace para autorizar tu cuenta de Google:\n\
+             {auth_url}\n\n\
+             Haz clic en \"Advanced\" y \"Go to omega (unsafe)\" y luego \"Allow\".\n\n\
+             Copia el codigo de autorizacion y envialo aqui."
+        ),
+        "Portuguese" => format!(
+            "Client Secret recebido.\n\n\
+             Abra este link para autorizar sua conta do Google:\n\
+             {auth_url}\n\n\
+             Clique em \"Advanced\" e \"Go to omega (unsafe)\" e depois \"Allow\".\n\n\
+             Copie o codigo de autorizacao e envie aqui."
+        ),
+        "French" => format!(
+            "Client Secret recu.\n\n\
+             Ouvrez ce lien pour autoriser votre compte Google :\n\
+             {auth_url}\n\n\
+             Cliquez sur \"Advanced\" puis \"Go to omega (unsafe)\" puis \"Allow\".\n\n\
+             Copiez le code d'autorisation et envoyez-le ici."
+        ),
+        "German" => format!(
+            "Client Secret erhalten.\n\n\
+             Offne diesen Link, um dein Google-Konto zu autorisieren:\n\
+             {auth_url}\n\n\
+             Klicke auf \"Advanced\" und \"Go to omega (unsafe)\" und dann \"Allow\".\n\n\
+             Kopiere den Autorisierungscode und sende ihn hier."
+        ),
+        "Italian" => format!(
+            "Client Secret ricevuto.\n\n\
+             Apri questo link per autorizzare il tuo account Google:\n\
+             {auth_url}\n\n\
+             Clicca su \"Advanced\" e \"Go to omega (unsafe)\" poi \"Allow\".\n\n\
+             Copia il codice di autorizzazione e invialo qui."
+        ),
+        "Dutch" => format!(
+            "Client Secret ontvangen.\n\n\
+             Open deze link om je Google-account te autoriseren:\n\
+             {auth_url}\n\n\
+             Klik op \"Advanced\" en \"Go to omega (unsafe)\" en dan \"Allow\".\n\n\
+             Kopieer de autorisatiecode en stuur deze hier."
+        ),
+        "Russian" => format!(
+            "Client Secret получен.\n\n\
+             Откройте эту ссылку для авторизации вашего аккаунта Google:\n\
+             {auth_url}\n\n\
+             Нажмите \"Advanced\" и \"Go to omega (unsafe)\" затем \"Allow\".\n\n\
+             Скопируйте код авторизации и отправьте его сюда."
+        ),
+        _ => format!(
+            "Client Secret received.\n\n\
+             Open this link to authorize your Google account:\n\
+             {auth_url}\n\n\
+             Click \"Advanced\" then \"Go to omega (unsafe)\" then \"Allow\".\n\n\
+             Copy the authorization code and send it here."
+        ),
     }
 }
 
-/// Step 4: Received refresh_token, asking for email.
-pub(super) fn google_step4_message(lang: &str) -> &'static str {
+/// Completion: Google connected with email.
+pub(super) fn google_step_complete_message(lang: &str, email: &str) -> String {
     match lang {
-        "Spanish" => {
-            "Refresh Token recibido. Por ultimo, envia tu **direccion de email** de Gmail."
-        }
-        "Portuguese" => {
-            "Refresh Token recebido. Por ultimo, envie seu **endereco de email** do Gmail."
-        }
-        "French" => "Refresh Token recu. Enfin, envoyez votre **adresse email** Gmail.",
-        "German" => "Refresh Token erhalten. Zuletzt sende deine **E-Mail-Adresse** von Gmail.",
-        "Italian" => "Refresh Token ricevuto. Infine, invia il tuo **indirizzo email** di Gmail.",
-        "Dutch" => "Refresh Token ontvangen. Tot slot, stuur je **e-mailadres** van Gmail.",
-        "Russian" => {
-            "Refresh Token получен. Наконец, отправьте ваш **адрес электронной почты** Gmail."
-        }
-        _ => "Refresh Token received. Finally, send your **Gmail email address**.",
+        "Spanish" => format!("Google conectado correctamente — {email}"),
+        "Portuguese" => format!("Google conectado com sucesso — {email}"),
+        "French" => format!("Google connecte avec succes — {email}"),
+        "German" => format!("Google erfolgreich verbunden — {email}"),
+        "Italian" => format!("Google connesso con successo — {email}"),
+        "Dutch" => format!("Google succesvol verbonden — {email}"),
+        "Russian" => format!("Google успешно подключен — {email}"),
+        _ => format!("Google connected successfully — {email}"),
     }
 }
 
-/// Completion: All credentials stored successfully.
-pub(super) fn google_complete_message(lang: &str) -> &'static str {
+/// Token exchange error.
+pub(super) fn google_token_exchange_error_message(lang: &str) -> &'static str {
     match lang {
-        "Spanish" => "Credenciales de Google guardadas correctamente.",
-        "Portuguese" => "Credenciais do Google salvas com sucesso.",
-        "French" => "Identifiants Google enregistres avec succes.",
-        "German" => "Google-Zugangsdaten erfolgreich gespeichert.",
-        "Italian" => "Credenziali Google salvate con successo.",
-        "Dutch" => "Google-inloggegevens succesvol opgeslagen.",
-        "Russian" => "Учетные данные Google успешно сохранены.",
-        _ => "Google credentials saved successfully.",
+        "Spanish" => "Error al intercambiar el codigo. Verifica tus credenciales y usa /google para reiniciar.",
+        "Portuguese" => "Erro ao trocar o codigo. Verifique suas credenciais e use /google para reiniciar.",
+        "French" => "Erreur lors de l'echange du code. Verifiez vos identifiants et utilisez /google pour recommencer.",
+        "German" => "Fehler beim Code-Austausch. Uberprufe deine Zugangsdaten und verwende /google, um neu zu starten.",
+        "Italian" => "Errore nello scambio del codice. Verifica le tue credenziali e usa /google per ricominciare.",
+        "Dutch" => "Fout bij het uitwisselen van de code. Controleer je inloggegevens en gebruik /google om opnieuw te beginnen.",
+        "Russian" => "Ошибка при обмене кода. Проверьте учетные данные и используйте /google, чтобы начать заново.",
+        _ => "Token exchange failed. Check your credentials and use /google to start again.",
+    }
+}
+
+/// Email fallback: could not detect email automatically.
+pub(super) fn google_email_fallback_message(lang: &str) -> &'static str {
+    match lang {
+        "Spanish" => "No se pudo detectar tu email automaticamente. Por favor, envia tu direccion de Gmail.",
+        "Portuguese" => "Nao foi possivel detectar seu email automaticamente. Por favor, envie seu endereco do Gmail.",
+        "French" => "Impossible de detecter votre email automatiquement. Veuillez envoyer votre adresse Gmail.",
+        "German" => "Deine E-Mail konnte nicht automatisch erkannt werden. Bitte sende deine Gmail-Adresse.",
+        "Italian" => "Impossibile rilevare la tua email automaticamente. Per favore, invia il tuo indirizzo Gmail.",
+        "Dutch" => "Je e-mail kon niet automatisch worden gedetecteerd. Stuur alsjeblieft je Gmail-adres.",
+        "Russian" => "Не удалось определить ваш email автоматически. Пожалуйста, отправьте ваш адрес Gmail.",
+        _ => "Could not detect your email automatically. Please send your Gmail address.",
     }
 }
 
@@ -111,7 +377,7 @@ pub(super) fn google_cancelled_message(lang: &str) -> &'static str {
     }
 }
 
-/// Session expired (10 min TTL).
+/// Session expired.
 pub(super) fn google_expired_message(lang: &str) -> &'static str {
     match lang {
         "Spanish" => {
@@ -135,7 +401,7 @@ pub(super) fn google_expired_message(lang: &str) -> &'static str {
     }
 }
 
-/// Concurrent session guard -- active session already exists.
+/// Concurrent session guard.
 pub(super) fn google_conflict_message(lang: &str) -> &'static str {
     match lang {
         "Spanish" => "Ya tienes una sesion de configuracion de Google activa. Completala o escribe *cancel* para cancelarla.",
@@ -179,7 +445,7 @@ pub(super) fn google_invalid_email_message(lang: &str) -> &'static str {
     }
 }
 
-/// Error: failed to start session (store_fact failure).
+/// Error: failed to start session.
 pub(super) fn google_start_error_message(lang: &str) -> &'static str {
     match lang {
         "Spanish" => "No se pudo iniciar la configuracion de Google. Intentalo de nuevo.",
@@ -265,341 +531,243 @@ mod tests {
     ];
 
     // ===================================================================
-    // REQ-GAUTH-013 (Should): Localized messages for all 8 languages
+    // All messages return non-empty for all 8 languages
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: google_step1_message returns non-empty for all 8 languages (no overwrite)
     #[test]
-    fn test_google_step1_message_all_languages_no_overwrite() {
+    fn test_project_id_message_all_languages() {
         for lang in ALL_LANGUAGES {
-            let msg = google_step1_message(lang, false);
+            let msg = google_step_project_id_message(lang, false);
             assert!(
                 !msg.is_empty(),
-                "google_step1_message({lang}, false) must not be empty"
+                "project_id({lang}, false) must not be empty"
+            );
+            let msg_existing = google_step_project_id_message(lang, true);
+            assert!(
+                !msg_existing.is_empty(),
+                "project_id({lang}, true) must not be empty"
+            );
+            assert!(
+                msg_existing.len() > msg.len(),
+                "overwrite warning must add content"
             );
         }
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: google_step1_message returns non-empty for all 8 languages (with overwrite)
     #[test]
-    fn test_google_step1_message_all_languages_with_overwrite() {
+    fn test_setup_guide_message_all_languages() {
         for lang in ALL_LANGUAGES {
-            let msg = google_step1_message(lang, true);
+            let msg = google_step_setup_guide_message(lang, "test-project");
+            assert!(!msg.is_empty(), "setup_guide({lang}) must not be empty");
             assert!(
-                !msg.is_empty(),
-                "google_step1_message({lang}, true) must not be empty"
+                msg.contains("test-project"),
+                "setup_guide must contain project ID"
             );
         }
     }
 
-    // Requirement: REQ-GAUTH-014 (Should)
-    // Acceptance: Overwrite warning is included when existing=true
     #[test]
-    fn test_google_step1_message_overwrite_warning_present() {
-        let msg_with = google_step1_message("English", true);
-        let msg_without = google_step1_message("English", false);
-        assert!(
-            msg_with.len() > msg_without.len(),
-            "Message with overwrite warning must be longer than without"
-        );
+    fn test_client_secret_message_all_languages() {
+        for lang in ALL_LANGUAGES {
+            let msg = google_step_client_secret_message(lang);
+            assert!(!msg.is_empty(), "client_secret({lang}) must not be empty");
+        }
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: google_step2_message returns non-empty for all 8 languages
     #[test]
-    fn test_google_step2_message_all_languages() {
+    fn test_auth_code_message_all_languages() {
         for lang in ALL_LANGUAGES {
-            let msg = google_step2_message(lang);
+            let msg = google_step_auth_code_message(lang, "https://example.com/auth");
+            assert!(!msg.is_empty(), "auth_code({lang}) must not be empty");
             assert!(
-                !msg.is_empty(),
-                "google_step2_message({lang}) must not be empty"
+                msg.contains("https://example.com/auth"),
+                "auth_code must contain URL"
             );
         }
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: google_step3_message returns non-empty for all 8 languages
     #[test]
-    fn test_google_step3_message_all_languages() {
+    fn test_complete_message_all_languages() {
         for lang in ALL_LANGUAGES {
-            let msg = google_step3_message(lang);
+            let msg = google_step_complete_message(lang, "user@example.com");
+            assert!(!msg.is_empty(), "complete({lang}) must not be empty");
             assert!(
-                !msg.is_empty(),
-                "google_step3_message({lang}) must not be empty"
+                msg.contains("user@example.com"),
+                "complete must contain email"
             );
         }
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: google_step4_message returns non-empty for all 8 languages
     #[test]
-    fn test_google_step4_message_all_languages() {
+    fn test_token_exchange_error_all_languages() {
         for lang in ALL_LANGUAGES {
-            let msg = google_step4_message(lang);
+            let msg = google_token_exchange_error_message(lang);
             assert!(
                 !msg.is_empty(),
-                "google_step4_message({lang}) must not be empty"
+                "token_exchange_error({lang}) must not be empty"
             );
         }
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: google_complete_message returns non-empty for all 8 languages
     #[test]
-    fn test_google_complete_message_all_languages() {
+    fn test_email_fallback_all_languages() {
         for lang in ALL_LANGUAGES {
-            let msg = google_complete_message(lang);
-            assert!(
-                !msg.is_empty(),
-                "google_complete_message({lang}) must not be empty"
-            );
+            let msg = google_email_fallback_message(lang);
+            assert!(!msg.is_empty(), "email_fallback({lang}) must not be empty");
         }
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: google_cancelled_message returns non-empty for all 8 languages
     #[test]
-    fn test_google_cancelled_message_all_languages() {
+    fn test_cancelled_message_all_languages() {
         for lang in ALL_LANGUAGES {
             let msg = google_cancelled_message(lang);
-            assert!(
-                !msg.is_empty(),
-                "google_cancelled_message({lang}) must not be empty"
-            );
+            assert!(!msg.is_empty(), "cancelled({lang}) must not be empty");
         }
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: google_expired_message returns non-empty for all 8 languages
     #[test]
-    fn test_google_expired_message_all_languages() {
+    fn test_expired_message_all_languages() {
         for lang in ALL_LANGUAGES {
             let msg = google_expired_message(lang);
-            assert!(
-                !msg.is_empty(),
-                "google_expired_message({lang}) must not be empty"
-            );
+            assert!(!msg.is_empty(), "expired({lang}) must not be empty");
         }
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: google_conflict_message returns non-empty for all 8 languages
     #[test]
-    fn test_google_conflict_message_all_languages() {
+    fn test_conflict_message_all_languages() {
         for lang in ALL_LANGUAGES {
             let msg = google_conflict_message(lang);
-            assert!(
-                !msg.is_empty(),
-                "google_conflict_message({lang}) must not be empty"
-            );
+            assert!(!msg.is_empty(), "conflict({lang}) must not be empty");
         }
     }
 
-    // Requirement: REQ-GAUTH-017 (Should)
-    // Acceptance: google_empty_input_message returns non-empty for all 8 languages
     #[test]
-    fn test_google_empty_input_message_all_languages() {
+    fn test_empty_input_message_all_languages() {
         for lang in ALL_LANGUAGES {
             let msg = google_empty_input_message(lang);
-            assert!(
-                !msg.is_empty(),
-                "google_empty_input_message({lang}) must not be empty"
-            );
+            assert!(!msg.is_empty(), "empty_input({lang}) must not be empty");
         }
     }
 
-    // Requirement: REQ-GAUTH-017 (Should)
-    // Acceptance: google_invalid_email_message returns non-empty for all 8 languages
     #[test]
-    fn test_google_invalid_email_message_all_languages() {
+    fn test_invalid_email_message_all_languages() {
         for lang in ALL_LANGUAGES {
             let msg = google_invalid_email_message(lang);
-            assert!(
-                !msg.is_empty(),
-                "google_invalid_email_message({lang}) must not be empty"
-            );
+            assert!(!msg.is_empty(), "invalid_email({lang}) must not be empty");
         }
     }
 
     // ===================================================================
-    // REQ-GAUTH-013 (Should): English is the default fallback
+    // English fallback for unknown languages
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: Unknown language defaults to English for all functions
     #[test]
-    fn test_step1_message_default_english() {
-        let unknown = google_step1_message("Klingon", false);
-        let en = google_step1_message("English", false);
+    fn test_default_english_fallback() {
+        let unknown_lang = "Klingon";
         assert_eq!(
-            unknown, en,
-            "Unknown language must default to English for step1"
+            google_step_project_id_message(unknown_lang, false),
+            google_step_project_id_message("English", false),
         );
-    }
-
-    #[test]
-    fn test_step2_message_default_english() {
-        let unknown = google_step2_message("Klingon");
-        let en = google_step2_message("English");
         assert_eq!(
-            unknown, en,
-            "Unknown language must default to English for step2"
+            google_step_client_secret_message(unknown_lang),
+            google_step_client_secret_message("English"),
         );
-    }
-
-    #[test]
-    fn test_step3_message_default_english() {
-        let unknown = google_step3_message("Klingon");
-        let en = google_step3_message("English");
         assert_eq!(
-            unknown, en,
-            "Unknown language must default to English for step3"
+            google_cancelled_message(unknown_lang),
+            google_cancelled_message("English"),
         );
-    }
-
-    #[test]
-    fn test_step4_message_default_english() {
-        let unknown = google_step4_message("Klingon");
-        let en = google_step4_message("English");
         assert_eq!(
-            unknown, en,
-            "Unknown language must default to English for step4"
+            google_expired_message(unknown_lang),
+            google_expired_message("English"),
         );
-    }
-
-    #[test]
-    fn test_complete_message_default_english() {
-        let unknown = google_complete_message("Klingon");
-        let en = google_complete_message("English");
         assert_eq!(
-            unknown, en,
-            "Unknown language must default to English for complete"
+            google_conflict_message(unknown_lang),
+            google_conflict_message("English"),
         );
-    }
-
-    #[test]
-    fn test_cancelled_message_default_english() {
-        let unknown = google_cancelled_message("Klingon");
-        let en = google_cancelled_message("English");
         assert_eq!(
-            unknown, en,
-            "Unknown language must default to English for cancelled"
-        );
-    }
-
-    #[test]
-    fn test_expired_message_default_english() {
-        let unknown = google_expired_message("Klingon");
-        let en = google_expired_message("English");
-        assert_eq!(
-            unknown, en,
-            "Unknown language must default to English for expired"
-        );
-    }
-
-    #[test]
-    fn test_conflict_message_default_english() {
-        let unknown = google_conflict_message("Klingon");
-        let en = google_conflict_message("English");
-        assert_eq!(
-            unknown, en,
-            "Unknown language must default to English for conflict"
-        );
-    }
-
-    #[test]
-    fn test_empty_input_message_default_english() {
-        let unknown = google_empty_input_message("Klingon");
-        let en = google_empty_input_message("English");
-        assert_eq!(
-            unknown, en,
-            "Unknown language must default to English for empty_input"
-        );
-    }
-
-    #[test]
-    fn test_invalid_email_message_default_english() {
-        let unknown = google_invalid_email_message("Klingon");
-        let en = google_invalid_email_message("English");
-        assert_eq!(
-            unknown, en,
-            "Unknown language must default to English for invalid_email"
+            google_empty_input_message(unknown_lang),
+            google_empty_input_message("English"),
         );
     }
 
     // ===================================================================
-    // REQ-GAUTH-013 (Should): Each language returns distinct text
+    // Translations differ from English
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: Spanish messages differ from English
     #[test]
     fn test_spanish_differs_from_english() {
-        // At least some messages should be translated (not all identical to English)
-        let en = google_complete_message("English");
-        let es = google_complete_message("Spanish");
-        assert_ne!(en, es, "Spanish complete message must differ from English");
+        assert_ne!(
+            google_cancelled_message("Spanish"),
+            google_cancelled_message("English"),
+        );
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: French messages differ from English
     #[test]
     fn test_french_differs_from_english() {
-        let en = google_cancelled_message("English");
-        let fr = google_cancelled_message("French");
-        assert_ne!(en, fr, "French cancelled message must differ from English");
+        assert_ne!(
+            google_expired_message("French"),
+            google_expired_message("English"),
+        );
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: German messages differ from English
     #[test]
     fn test_german_differs_from_english() {
-        let en = google_expired_message("English");
-        let de = google_expired_message("German");
-        assert_ne!(en, de, "German expired message must differ from English");
+        assert_ne!(
+            google_conflict_message("German"),
+            google_conflict_message("English"),
+        );
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: Russian messages differ from English
     #[test]
     fn test_russian_differs_from_english() {
-        let en = google_conflict_message("English");
-        let ru = google_conflict_message("Russian");
-        assert_ne!(en, ru, "Russian conflict message must differ from English");
+        assert_ne!(
+            google_step_client_secret_message("Russian"),
+            google_step_client_secret_message("English"),
+        );
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: Portuguese messages differ from English
     #[test]
     fn test_portuguese_differs_from_english() {
-        let en = google_empty_input_message("English");
-        let pt = google_empty_input_message("Portuguese");
         assert_ne!(
-            en, pt,
-            "Portuguese empty_input message must differ from English"
+            google_empty_input_message("Portuguese"),
+            google_empty_input_message("English"),
         );
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: Italian messages differ from English
     #[test]
     fn test_italian_differs_from_english() {
-        let en = google_invalid_email_message("English");
-        let it = google_invalid_email_message("Italian");
         assert_ne!(
-            en, it,
-            "Italian invalid_email message must differ from English"
+            google_invalid_email_message("Italian"),
+            google_invalid_email_message("English"),
         );
     }
 
-    // Requirement: REQ-GAUTH-013 (Should)
-    // Acceptance: Dutch messages differ from English
     #[test]
     fn test_dutch_differs_from_english() {
-        let en = google_step2_message("English");
-        let nl = google_step2_message("Dutch");
-        assert_ne!(en, nl, "Dutch step2 message must differ from English");
+        assert_ne!(
+            google_step_client_secret_message("Dutch"),
+            google_step_client_secret_message("English"),
+        );
+    }
+
+    // ===================================================================
+    // Setup guide contains project-specific links
+    // ===================================================================
+
+    #[test]
+    fn test_setup_guide_contains_api_links() {
+        let msg = google_step_setup_guide_message("English", "my-proj-123");
+        assert!(msg.contains("gmail.googleapis.com"));
+        assert!(msg.contains("calendar-json.googleapis.com"));
+        assert!(msg.contains("drive.googleapis.com"));
+        assert!(msg.contains("my-proj-123"));
+    }
+
+    #[test]
+    fn test_setup_guide_contains_console_links() {
+        let msg = google_step_setup_guide_message("English", "my-proj");
+        assert!(msg.contains("apis/credentials/consent"));
+        assert!(msg.contains("apis/credentials/oauthclient"));
+        assert!(msg.contains("omgagi.ai/oauth/callback"));
     }
 }

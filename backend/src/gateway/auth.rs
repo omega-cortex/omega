@@ -187,6 +187,7 @@ mod tests {
             reply_target: None,
             is_group: false,
             source: None,
+            platform_message_id: None,
         }
     }
 

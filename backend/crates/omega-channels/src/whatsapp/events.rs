@@ -181,6 +181,7 @@ pub(super) async fn handle_whatsapp_message(
         reply_target: Some(chat_jid),
         is_group: false,
         source: None,
+        platform_message_id: None,
     };
 
     if tx.send(incoming).await.is_err() {

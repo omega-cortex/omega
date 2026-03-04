@@ -478,6 +478,7 @@ async fn webhook(
                 reply_target: Some(resolved_target),
                 is_group: false,
                 source: Some(request.source.clone()),
+                platform_message_id: None,
             };
 
             tx.send(incoming).await.map_err(|_| {

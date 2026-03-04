@@ -121,6 +121,7 @@ impl TelegramChannel {
                 { "command": "whatsapp", "description": "Connect WhatsApp via QR code" },
                 { "command": "heartbeat", "description": "Heartbeat status and watchlist" },
                 { "command": "learning", "description": "Show what I've learned from you" },
+                { "command": "google", "description": "Connect your Google account" },
                 { "command": "setup", "description": "Configure OMEGA \u{03a9} as a domain expert" },
             ]
         });
@@ -136,6 +137,29 @@ impl TelegramChannel {
             }
             Err(e) => {
                 warn!("failed to register Telegram bot commands: {e}");
+            }
+        }
+    }
+
+    /// Delete a message by chat_id and message_id.
+    /// Best-effort: logs warning on failure, does not propagate error.
+    pub(crate) async fn delete_message_by_id(&self, chat_id: i64, message_id: i64) {
+        let url = format!("{}/deleteMessage", self.base_url);
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "message_id": message_id,
+        });
+
+        match self.client.post(&url).json(&body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                info!("deleted message {message_id} in chat {chat_id}");
+            }
+            Ok(resp) => {
+                let error_text = resp.text().await.unwrap_or_default();
+                warn!("failed to delete message {message_id}: {error_text}");
+            }
+            Err(e) => {
+                warn!("failed to delete message {message_id}: {e}");
             }
         }
     }

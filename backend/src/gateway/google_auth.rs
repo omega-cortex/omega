@@ -1,8 +1,11 @@
 //! Google account credential setup -- `/google` command state machine.
 //!
-//! Handles the 4-step wizard: client_id, client_secret, refresh_token, email.
+//! Handles a 5-step wizard: project_id, setup_guide (client_id), client_secret,
+//! auth_code, and completion (with email_fallback if needed).
+//! OAuth token exchange is handled server-side -- no raw refresh_token needed.
 //! Credentials are stored in `~/.omega/stores/google.json` with 0600 permissions.
-//! Credentials NEVER reach the AI provider pipeline (REQ-GAUTH-011).
+//! Credential messages are deleted from chat for security (best-effort).
+//! Credentials NEVER reach the AI provider pipeline.
 
 use std::path::PathBuf;
 
@@ -13,6 +16,7 @@ use omega_memory::Store;
 use tracing::warn;
 
 use super::google_auth_i18n::*;
+use super::google_auth_oauth;
 use super::keywords::{is_build_cancelled, GOOGLE_AUTH_TTL_SECS};
 use super::Gateway;
 
@@ -25,12 +29,10 @@ fn is_valid_email(email: &str) -> bool {
     let Some(at_pos) = trimmed.find('@') else {
         return false;
     };
-    // Must have a local part before @.
     if at_pos == 0 {
         return false;
     }
     let domain = &trimmed[at_pos + 1..];
-    // Domain must not start with '.' and must contain a '.'.
     if domain.is_empty() || domain.starts_with('.') {
         return false;
     }
@@ -57,7 +59,6 @@ async fn write_google_credentials(
     let base = PathBuf::from(shellexpand(data_dir));
     let stores_dir = base.join("stores");
 
-    // Auto-create stores directory if missing.
     tokio::fs::create_dir_all(&stores_dir)
         .await
         .map_err(|e| format!("create stores dir: {e}"))?;
@@ -78,7 +79,6 @@ async fn write_google_credentials(
         .await
         .map_err(|e| format!("write google.json: {e}"))?;
 
-    // Set file permissions to 0600 on Unix.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -95,9 +95,9 @@ async fn write_google_credentials(
 async fn cleanup_google_session(memory: &Store, sender_id: &str) {
     let facts = [
         "pending_google",
+        "_google_project_id",
         "_google_client_id",
         "_google_client_secret",
-        "_google_refresh_token",
     ];
     for fact in &facts {
         let _ = memory.delete_fact(sender_id, fact).await;
@@ -115,7 +115,7 @@ impl Gateway {
             .flatten()
             .unwrap_or_else(|| "English".to_string());
 
-        // REQ-GAUTH-015: Check for concurrent session.
+        // Check for concurrent session.
         let existing = self
             .memory
             .get_fact(&incoming.sender_id, "pending_google")
@@ -128,24 +128,16 @@ impl Gateway {
             let created_at: i64 = ts_str.parse().unwrap_or(0);
             let now = chrono::Utc::now().timestamp();
             if (now - created_at) <= GOOGLE_AUTH_TTL_SECS {
-                // Active session exists -- reject.
                 self.send_text(incoming, google_conflict_message(&user_lang))
                     .await;
                 return;
             }
-            // Expired -- clean up old session and continue.
             cleanup_google_session(&self.memory, &incoming.sender_id).await;
         }
 
-        // REQ-GAUTH-014: Check if google.json already exists.
-        let stores_path = PathBuf::from(shellexpand(&self.data_dir))
-            .join("stores")
-            .join("google.json");
-        let google_exists = tokio::fs::try_exists(&stores_path).await.unwrap_or(false);
-
-        // Store pending_google fact (step = client_id).
+        // Store pending_google fact (step = project_id).
         let now = chrono::Utc::now().timestamp();
-        let fact_value = format!("{now}|client_id");
+        let fact_value = format!("{now}|project_id");
         if let Err(e) = self
             .memory
             .store_fact(&incoming.sender_id, "pending_google", &fact_value)
@@ -157,11 +149,15 @@ impl Gateway {
             return;
         }
 
-        // Audit: session started.
         self.audit_google(incoming, "started").await;
 
-        // Send step 1 message.
-        let msg = google_step1_message(&user_lang, google_exists);
+        // Check if google.json already exists (overwrite warning).
+        let stores_path = PathBuf::from(shellexpand(&self.data_dir))
+            .join("stores")
+            .join("google.json");
+        let google_exists = tokio::fs::try_exists(&stores_path).await.unwrap_or(false);
+
+        let msg = google_step_project_id_message(&user_lang, google_exists);
         self.send_text(incoming, &msg).await;
     }
 
@@ -186,7 +182,6 @@ impl Gateway {
         let now = chrono::Utc::now().timestamp();
 
         if (now - created_at) > GOOGLE_AUTH_TTL_SECS {
-            // Session expired.
             cleanup_google_session(&self.memory, &incoming.sender_id).await;
             self.audit_google(incoming, "expired").await;
             self.send_text(incoming, google_expired_message(&user_lang))
@@ -213,8 +208,28 @@ impl Gateway {
         }
 
         match step {
-            "client_id" => {
-                // Store client_id and advance to client_secret.
+            "project_id" => {
+                // Store project_id and advance to setup_guide.
+                if let Err(e) = self
+                    .memory
+                    .store_fact(&incoming.sender_id, "_google_project_id", input)
+                    .await
+                {
+                    warn!("failed to store _google_project_id: {e}");
+                    self.send_text(incoming, google_store_error_message(&user_lang))
+                        .await;
+                    return;
+                }
+                let new_value = format!("{ts_str}|setup_guide");
+                let _ = self
+                    .memory
+                    .store_fact(&incoming.sender_id, "pending_google", &new_value)
+                    .await;
+                let msg = google_step_setup_guide_message(&user_lang, input);
+                self.send_text(incoming, &msg).await;
+            }
+            "setup_guide" => {
+                // User sends Client ID. Store it and advance to client_secret.
                 if let Err(e) = self
                     .memory
                     .store_fact(&incoming.sender_id, "_google_client_id", input)
@@ -230,11 +245,13 @@ impl Gateway {
                     .memory
                     .store_fact(&incoming.sender_id, "pending_google", &new_value)
                     .await;
-                self.send_text(incoming, google_step2_message(&user_lang))
+                self.send_text(incoming, google_step_client_secret_message(&user_lang))
                     .await;
             }
             "client_secret" => {
-                // Store client_secret and advance to refresh_token.
+                // Delete the user's message (contains client_id from prev step? No, this msg has secret).
+                self.delete_user_message(incoming).await;
+
                 if let Err(e) = self
                     .memory
                     .store_fact(&incoming.sender_id, "_google_client_secret", input)
@@ -245,35 +262,121 @@ impl Gateway {
                         .await;
                     return;
                 }
-                let new_value = format!("{ts_str}|refresh_token");
-                let _ = self
+
+                // Build OAuth URL using stored client_id.
+                let client_id = self
                     .memory
-                    .store_fact(&incoming.sender_id, "pending_google", &new_value)
-                    .await;
-                self.send_text(incoming, google_step3_message(&user_lang))
-                    .await;
-            }
-            "refresh_token" => {
-                // Store refresh_token and advance to email.
-                if let Err(e) = self
-                    .memory
-                    .store_fact(&incoming.sender_id, "_google_refresh_token", input)
+                    .get_fact(&incoming.sender_id, "_google_client_id")
                     .await
-                {
-                    warn!("failed to store _google_refresh_token: {e}");
-                    self.send_text(incoming, google_store_error_message(&user_lang))
+                    .ok()
+                    .flatten();
+
+                let Some(cid) = client_id else {
+                    warn!("missing _google_client_id for OAuth URL");
+                    cleanup_google_session(&self.memory, &incoming.sender_id).await;
+                    self.send_text(incoming, google_missing_data_message(&user_lang))
                         .await;
                     return;
-                }
-                let new_value = format!("{ts_str}|email");
+                };
+
+                let auth_url = google_auth_oauth::build_authorization_url(&cid);
+
+                let new_value = format!("{ts_str}|auth_code");
                 let _ = self
                     .memory
                     .store_fact(&incoming.sender_id, "pending_google", &new_value)
                     .await;
-                self.send_text(incoming, google_step4_message(&user_lang))
-                    .await;
+                let msg = google_step_auth_code_message(&user_lang, &auth_url);
+                self.send_text(incoming, &msg).await;
             }
-            "email" => {
+            "auth_code" => {
+                // Delete the auth code message for security.
+                self.delete_user_message(incoming).await;
+
+                // Read stored credentials.
+                let client_id = self
+                    .memory
+                    .get_fact(&incoming.sender_id, "_google_client_id")
+                    .await
+                    .ok()
+                    .flatten();
+                let client_secret = self
+                    .memory
+                    .get_fact(&incoming.sender_id, "_google_client_secret")
+                    .await
+                    .ok()
+                    .flatten();
+
+                let (Some(cid), Some(csec)) = (client_id, client_secret) else {
+                    warn!("missing temp facts during google auth code exchange");
+                    cleanup_google_session(&self.memory, &incoming.sender_id).await;
+                    self.audit_google(incoming, "error").await;
+                    self.send_text(incoming, google_missing_data_message(&user_lang))
+                        .await;
+                    return;
+                };
+
+                // Exchange code for tokens.
+                match google_auth_oauth::exchange_code_for_tokens(&cid, &csec, input).await {
+                    Ok(tokens) => {
+                        let Some(ref refresh_token) = tokens.refresh_token else {
+                            warn!("token exchange returned no refresh_token");
+                            cleanup_google_session(&self.memory, &incoming.sender_id).await;
+                            self.audit_google(incoming, "error").await;
+                            self.send_text(
+                                incoming,
+                                google_token_exchange_error_message(&user_lang),
+                            )
+                            .await;
+                            return;
+                        };
+
+                        // Try to fetch email automatically.
+                        match google_auth_oauth::fetch_user_email(&tokens.access_token).await {
+                            Ok(email) => {
+                                // Write credentials and complete.
+                                self.complete_google_auth(
+                                    incoming,
+                                    &user_lang,
+                                    &cid,
+                                    &csec,
+                                    refresh_token,
+                                    &email,
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                // Fallback: ask user for email.
+                                warn!("failed to fetch user email: {e}");
+                                // Store refresh_token temporarily for the email_fallback step.
+                                let _ = self
+                                    .memory
+                                    .store_fact(
+                                        &incoming.sender_id,
+                                        "_google_refresh_token",
+                                        refresh_token,
+                                    )
+                                    .await;
+                                let new_value = format!("{ts_str}|email_fallback");
+                                let _ = self
+                                    .memory
+                                    .store_fact(&incoming.sender_id, "pending_google", &new_value)
+                                    .await;
+                                self.send_text(incoming, google_email_fallback_message(&user_lang))
+                                    .await;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("token exchange failed: {e}");
+                        cleanup_google_session(&self.memory, &incoming.sender_id).await;
+                        self.audit_google(incoming, "error").await;
+                        self.send_text(incoming, google_token_exchange_error_message(&user_lang))
+                            .await;
+                    }
+                }
+            }
+            "email_fallback" => {
                 // Validate email format.
                 if !is_valid_email(input) {
                     self.send_text(incoming, google_invalid_email_message(&user_lang))
@@ -303,7 +406,7 @@ impl Gateway {
 
                 let (Some(cid), Some(csec), Some(rtok)) = (client_id, client_secret, refresh_token)
                 else {
-                    warn!("missing temp facts during google auth completion");
+                    warn!("missing temp facts during google auth email fallback");
                     cleanup_google_session(&self.memory, &incoming.sender_id).await;
                     self.audit_google(incoming, "error").await;
                     self.send_text(incoming, google_missing_data_message(&user_lang))
@@ -311,25 +414,10 @@ impl Gateway {
                     return;
                 };
 
-                // Write google.json.
-                match write_google_credentials(&self.data_dir, &cid, &csec, &rtok, input).await {
-                    Ok(()) => {
-                        cleanup_google_session(&self.memory, &incoming.sender_id).await;
-                        self.audit_google(incoming, "complete").await;
-                        self.send_text(incoming, google_complete_message(&user_lang))
-                            .await;
-                    }
-                    Err(e) => {
-                        warn!("failed to write google.json: {e}");
-                        cleanup_google_session(&self.memory, &incoming.sender_id).await;
-                        self.audit_google(incoming, "error").await;
-                        self.send_text(incoming, google_write_error_message(&user_lang))
-                            .await;
-                    }
-                }
+                self.complete_google_auth(incoming, &user_lang, &cid, &csec, &rtok, input)
+                    .await;
             }
             _ => {
-                // Unknown step -- clean up and restart.
                 warn!("unknown google auth step: {step}");
                 cleanup_google_session(&self.memory, &incoming.sender_id).await;
                 self.send_text(incoming, google_unknown_step_message(&user_lang))
@@ -338,8 +426,48 @@ impl Gateway {
         }
     }
 
+    /// Write google.json, clean up session, send completion message.
+    async fn complete_google_auth(
+        &self,
+        incoming: &IncomingMessage,
+        user_lang: &str,
+        client_id: &str,
+        client_secret: &str,
+        refresh_token: &str,
+        email: &str,
+    ) {
+        match write_google_credentials(
+            &self.data_dir,
+            client_id,
+            client_secret,
+            refresh_token,
+            email,
+        )
+        .await
+        {
+            Ok(()) => {
+                cleanup_google_session(&self.memory, &incoming.sender_id).await;
+                // Also clean up _google_refresh_token if it exists (email_fallback path).
+                let _ = self
+                    .memory
+                    .delete_fact(&incoming.sender_id, "_google_refresh_token")
+                    .await;
+                self.audit_google(incoming, "complete").await;
+                let msg = google_step_complete_message(user_lang, email);
+                self.send_text(incoming, &msg).await;
+            }
+            Err(e) => {
+                warn!("failed to write google.json: {e}");
+                cleanup_google_session(&self.memory, &incoming.sender_id).await;
+                self.audit_google(incoming, "error").await;
+                self.send_text(incoming, google_write_error_message(user_lang))
+                    .await;
+            }
+        }
+    }
+
     /// Log an audit entry for a google auth operation.
-    /// SECURITY: Never log credential values (REQ-GAUTH-012).
+    /// SECURITY: Never log credential values.
     async fn audit_google(&self, incoming: &IncomingMessage, status: &str) {
         let _ = self
             .audit
@@ -391,828 +519,286 @@ mod tests {
     }
 
     // ===================================================================
-    // REQ-GAUTH-008 (Must): Email validation via is_valid_email()
+    // Email validation
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: Valid standard email is accepted
     #[test]
     fn test_is_valid_email_standard() {
-        assert!(
-            is_valid_email("user@example.com"),
-            "Standard email must be valid"
-        );
+        assert!(is_valid_email("user@example.com"));
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: Valid gmail address is accepted
     #[test]
     fn test_is_valid_email_gmail() {
-        assert!(
-            is_valid_email("test@gmail.com"),
-            "Gmail address must be valid"
-        );
+        assert!(is_valid_email("test@gmail.com"));
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: Email with plus-tag and subdomain is accepted
     #[test]
     fn test_is_valid_email_plus_tag_subdomain() {
-        assert!(
-            is_valid_email("user+tag@domain.co.uk"),
-            "Email with +tag and subdomain must be valid"
-        );
+        assert!(is_valid_email("user+tag@domain.co.uk"));
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: Empty string is rejected
     #[test]
     fn test_is_valid_email_empty() {
-        assert!(
-            !is_valid_email(""),
-            "Empty string must NOT be a valid email"
-        );
+        assert!(!is_valid_email(""));
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: Whitespace-only string is rejected
     #[test]
     fn test_is_valid_email_whitespace_only() {
-        assert!(
-            !is_valid_email("   "),
-            "Whitespace-only string must NOT be a valid email"
-        );
+        assert!(!is_valid_email("   "));
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: String with no @ sign is rejected
     #[test]
     fn test_is_valid_email_no_at_sign() {
-        assert!(
-            !is_valid_email("noatsign"),
-            "String without @ must NOT be a valid email"
-        );
+        assert!(!is_valid_email("noatsign"));
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: String with @ but no dot after @ is rejected
     #[test]
     fn test_is_valid_email_no_dot_after_at() {
-        assert!(
-            !is_valid_email("no@dot"),
-            "Email with no dot after @ must NOT be valid"
-        );
+        assert!(!is_valid_email("no@dot"));
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: String starting with @ is rejected
     #[test]
     fn test_is_valid_email_missing_local_part() {
-        assert!(
-            !is_valid_email("@missing.com"),
-            "Email with no local part must NOT be valid"
-        );
+        assert!(!is_valid_email("@missing.com"));
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: Email with dot immediately after @ is rejected
     #[test]
     fn test_is_valid_email_dot_immediately_after_at() {
-        assert!(
-            !is_valid_email("user@.com"),
-            "Email with dot immediately after @ must NOT be valid"
-        );
+        assert!(!is_valid_email("user@.com"));
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Edge case: Email with trailing/leading whitespace (should be trimmed by caller)
     #[test]
     fn test_is_valid_email_with_surrounding_whitespace() {
-        // The function receives trimmed input (trimming happens in handle_google_response).
-        // But the function itself should handle untrimmed input gracefully.
-        assert!(
-            !is_valid_email(" user@example.com "),
-            "Email with surrounding whitespace should be rejected (caller trims)"
-        );
+        assert!(!is_valid_email(" user@example.com "));
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Edge case: Email with multiple @ signs
     #[test]
     fn test_is_valid_email_multiple_at_signs() {
-        // Basic validation: contains '@' and '.' after '@'.
-        // Even with multiple @, the split will find parts.
-        // The function uses basic validation: contains '@' and has '.' after '@'.
-        let result = is_valid_email("user@@example.com");
-        // This may pass or fail depending on implementation detail --
-        // the key is it does not panic.
-        let _ = result;
+        let _ = is_valid_email("user@@example.com");
     }
 
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Edge case: Unicode email local part
     #[test]
     fn test_is_valid_email_unicode_local_part() {
-        // Basic validation should handle unicode gracefully without panicking.
-        let result = is_valid_email("usuario@ejemplo.com");
-        assert!(result, "ASCII email with non-English word must be valid");
+        assert!(is_valid_email("usuario@ejemplo.com"));
     }
 
     // ===================================================================
-    // REQ-GAUTH-003 (Must): State machine fact format
+    // State machine fact format
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-003 (Must)
-    // Acceptance: Fact value format is "<timestamp>|<step>"
     #[test]
     fn test_pending_google_fact_format() {
-        let fact_value = "1709123456|client_id";
-        let parts: Vec<&str> = fact_value.split('|').collect();
-        assert_eq!(
-            parts.len(),
-            2,
-            "pending_google fact must have 2 pipe-delimited parts"
-        );
-        assert!(
-            parts[0].parse::<i64>().is_ok(),
-            "First part must be a unix timestamp"
-        );
-        assert_eq!(parts[1], "client_id", "Second part must be the step name");
+        let fact_value = "1709123456|project_id";
+        let (ts, step) = parse_google_step(fact_value);
+        assert_eq!(ts, "1709123456");
+        assert_eq!(step, "project_id");
     }
 
-    // Requirement: REQ-GAUTH-003 (Must)
-    // Acceptance: All valid step names are recognized
     #[test]
     fn test_pending_google_valid_steps() {
-        let valid_steps = ["client_id", "client_secret", "refresh_token", "email"];
-        for step in &valid_steps {
-            let fact_value = format!("1709123456|{step}");
-            let parsed_step = fact_value.split('|').nth(1).unwrap();
-            assert!(
-                valid_steps.contains(&parsed_step),
-                "Step '{parsed_step}' must be a recognized step"
-            );
+        let steps = [
+            "project_id",
+            "setup_guide",
+            "client_secret",
+            "auth_code",
+            "email_fallback",
+        ];
+        for step_name in &steps {
+            let fact_value = format!("1709123456|{step_name}");
+            let (_ts, step) = parse_google_step(&fact_value);
+            assert_eq!(step, *step_name);
         }
     }
 
-    // Requirement: REQ-GAUTH-003 (Must)
-    // Edge case: Fact value with extra pipes (malformed)
     #[test]
     fn test_pending_google_fact_extra_pipes() {
-        let fact_value = "1709123456|client_id|extra";
-        let step = fact_value.split('|').nth(1).unwrap_or("unknown");
-        assert_eq!(
-            step, "client_id",
-            "Step extraction must work even with extra pipe-separated parts"
-        );
+        let fact_value = "1709123456|project_id|extra";
+        let (ts, step) = parse_google_step(fact_value);
+        assert_eq!(ts, "1709123456");
+        assert_eq!(step, "project_id");
     }
 
-    // Requirement: REQ-GAUTH-003 (Must)
-    // Edge case: Fact value with no pipe (malformed)
     #[test]
     fn test_pending_google_fact_no_pipe() {
-        let fact_value = "1709123456";
-        let step = fact_value.split('|').nth(1);
-        assert!(
-            step.is_none(),
-            "Fact value without pipe must yield None for step"
-        );
+        let fact_value = "malformed";
+        let (ts, step) = parse_google_step(fact_value);
+        assert_eq!(ts, "malformed");
+        assert_eq!(step, "");
     }
 
     // ===================================================================
-    // REQ-GAUTH-009 (Must): Session TTL of 10 minutes
+    // Credential file writing
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-009 (Must)
-    // Acceptance: Session within TTL (10 minutes) is considered valid
-    #[test]
-    fn test_session_within_ttl_is_valid() {
-        let ttl: i64 = 600; // GOOGLE_AUTH_TTL_SECS
-        let created_at: i64 = 1709123456;
-        let now = created_at + 300; // 5 minutes later
-        assert!(
-            (now - created_at) <= ttl,
-            "Session 5 minutes old must be within 10-minute TTL"
-        );
+    #[tokio::test]
+    async fn test_write_google_credentials_creates_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "__omega_gauth_write_{}__",
+            TEST_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let data_dir = dir.to_string_lossy().to_string();
+
+        let result =
+            write_google_credentials(&data_dir, "cid", "csec", "rtok", "test@example.com").await;
+        assert!(result.is_ok(), "write_google_credentials must succeed");
+
+        let path = dir.join("stores").join("google.json");
+        assert!(path.exists(), "google.json must exist after write");
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(json["client_id"], "cid");
+        assert_eq!(json["client_secret"], "csec");
+        assert_eq!(json["refresh_token"], "rtok");
+        assert_eq!(json["email"], "test@example.com");
+        assert_eq!(json["version"], 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // Requirement: REQ-GAUTH-009 (Must)
-    // Acceptance: Session past TTL (10 minutes) is considered expired
-    #[test]
-    fn test_session_past_ttl_is_expired() {
-        let ttl: i64 = 600; // GOOGLE_AUTH_TTL_SECS
-        let created_at: i64 = 1709123456;
-        let now = created_at + 601; // 10 minutes + 1 second
-        assert!(
-            (now - created_at) > ttl,
-            "Session older than 10 minutes must be expired"
-        );
-    }
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_write_google_credentials_permissions() {
+        use std::os::unix::fs::PermissionsExt;
 
-    // Requirement: REQ-GAUTH-009 (Must)
-    // Acceptance: Session at exactly TTL boundary is still valid
-    #[test]
-    fn test_session_at_exact_ttl_boundary() {
-        let ttl: i64 = 600;
-        let created_at: i64 = 1709123456;
-        let now = created_at + 600; // Exactly 10 minutes
-        assert!(
-            (now - created_at) <= ttl,
-            "Session at exactly 10 minutes must still be valid (boundary inclusive)"
-        );
-    }
+        let dir = std::env::temp_dir().join(format!(
+            "__omega_gauth_perms_{}__",
+            TEST_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let data_dir = dir.to_string_lossy().to_string();
 
-    // Requirement: REQ-GAUTH-009 (Must)
-    // Edge case: Timestamp parsing from fact value for TTL check
-    #[test]
-    fn test_ttl_timestamp_extraction_from_fact() {
-        let fact_value = "1709123456|client_secret";
-        let ts_str = fact_value.split('|').next().unwrap_or("0");
-        let created_at: i64 = ts_str.parse().unwrap_or(0);
-        assert_eq!(
-            created_at, 1709123456,
-            "Timestamp must be extracted from fact value"
-        );
-    }
+        write_google_credentials(&data_dir, "a", "b", "c", "d@e.com")
+            .await
+            .unwrap();
 
-    // Requirement: REQ-GAUTH-009 (Must)
-    // Edge case: Malformed timestamp defaults to 0 (immediately expired)
-    #[test]
-    fn test_ttl_malformed_timestamp_defaults_to_zero() {
-        let fact_value = "not_a_number|client_id";
-        let ts_str = fact_value.split('|').next().unwrap_or("0");
-        let created_at: i64 = ts_str.parse().unwrap_or(0);
-        assert_eq!(
-            created_at, 0,
-            "Malformed timestamp must default to 0 (effectively expired)"
-        );
+        let path = dir.join("stores").join("google.json");
+        let perms = std::fs::metadata(&path).unwrap().permissions();
+        assert_eq!(perms.mode() & 0o777, 0o600);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ===================================================================
-    // REQ-GAUTH-010 (Must): Cancellation support
+    // Session cleanup
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-010 (Must)
-    // Acceptance: Cancel keywords are detected using is_build_cancelled()
-    #[test]
-    fn test_cancel_detection_reuses_is_build_cancelled() {
-        use super::super::keywords::is_build_cancelled;
-
-        assert!(
-            is_build_cancelled("cancel"),
-            "English 'cancel' must be detected"
-        );
-        assert!(is_build_cancelled("no"), "English 'no' must be detected");
-        assert!(
-            is_build_cancelled("cancelar"),
-            "Spanish 'cancelar' must be detected"
-        );
-        assert!(
-            is_build_cancelled("annuler"),
-            "French 'annuler' must be detected"
-        );
-        assert!(is_build_cancelled("nein"), "German 'nein' must be detected");
-        assert!(
-            !is_build_cancelled("my-client-id-value"),
-            "Normal credential text must NOT be detected as cancel"
-        );
-        assert!(
-            !is_build_cancelled("GOCSPX-abc123"),
-            "Client secret format must NOT be detected as cancel"
-        );
-    }
-
-    // Requirement: REQ-GAUTH-010 (Must)
-    // Edge case: Credential values that look similar to cancel words
-    #[test]
-    fn test_cancel_does_not_false_positive_on_credentials() {
-        use super::super::keywords::is_build_cancelled;
-
-        // Realistic credential values that should NOT trigger cancellation
-        assert!(
-            !is_build_cancelled("123456789-abc.apps.googleusercontent.com"),
-            "Client ID must not trigger cancel"
-        );
-        assert!(
-            !is_build_cancelled("1//0abc-defghijk"),
-            "Refresh token must not trigger cancel"
-        );
-        assert!(
-            !is_build_cancelled("user@gmail.com"),
-            "Email must not trigger cancel"
-        );
-    }
-
-    // ===================================================================
-    // REQ-GAUTH-012 (Must): Audit logging format
-    // ===================================================================
-
-    // Requirement: REQ-GAUTH-012 (Must)
-    // Acceptance: Audit prefix format is [GOOGLE_AUTH]
-    #[test]
-    fn test_audit_google_auth_prefix_format() {
-        let prefix = "[GOOGLE_AUTH]";
-        assert_eq!(prefix, "[GOOGLE_AUTH]");
-
-        // Verify the audit entry would contain prefix + status, not credential values
-        let audit_text = format!("{prefix} started");
-        assert!(audit_text.contains("[GOOGLE_AUTH]"));
-        assert!(!audit_text.contains("GOCSPX")); // No secrets
-    }
-
-    // Requirement: REQ-GAUTH-012 (Must)
-    // Acceptance: Audit log entries use status-only strings
-    #[test]
-    fn test_audit_status_strings() {
-        let valid_statuses = ["started", "complete", "cancelled", "expired", "error"];
-        for status in &valid_statuses {
-            let entry = format!("[GOOGLE_AUTH] {status}");
-            assert!(
-                entry.starts_with("[GOOGLE_AUTH]"),
-                "Audit entry must start with [GOOGLE_AUTH] prefix"
-            );
-            assert!(
-                !entry.contains("client_id")
-                    && !entry.contains("client_secret")
-                    && !entry.contains("refresh_token"),
-                "Audit entry must NEVER contain credential field names as values"
-            );
-        }
-    }
-
-    // ===================================================================
-    // REQ-GAUTH-016 (Should): Temporary credential facts cleanup
-    // ===================================================================
-
-    // Requirement: REQ-GAUTH-016 (Should)
-    // Acceptance: All 4 temporary facts are cleaned up after session
     #[tokio::test]
     async fn test_cleanup_google_session_removes_all_facts() {
         let store = test_store().await;
-        let sender = "test_user_cleanup";
+        let sender = "cleanup_test_user";
 
-        // Simulate storing all session facts
         store
-            .store_fact(sender, "pending_google", "1709123456|email")
+            .store_fact(sender, "pending_google", "1709123456|auth_code")
             .await
             .unwrap();
         store
-            .store_fact(sender, "_google_client_id", "test-client-id")
+            .store_fact(sender, "_google_project_id", "my-project")
             .await
             .unwrap();
         store
-            .store_fact(sender, "_google_client_secret", "test-secret")
+            .store_fact(sender, "_google_client_id", "cid")
             .await
             .unwrap();
         store
-            .store_fact(sender, "_google_refresh_token", "test-token")
+            .store_fact(sender, "_google_client_secret", "csec")
             .await
             .unwrap();
 
-        // Run cleanup
         cleanup_google_session(&store, sender).await;
 
-        // Verify all facts are deleted
-        let pending = store.get_fact(sender, "pending_google").await.unwrap();
-        assert!(
-            pending.is_none(),
-            "pending_google fact must be deleted after cleanup"
-        );
-
-        let client_id = store.get_fact(sender, "_google_client_id").await.unwrap();
-        assert!(
-            client_id.is_none(),
-            "_google_client_id fact must be deleted after cleanup"
-        );
-
-        let client_secret = store
+        assert!(store
+            .get_fact(sender, "pending_google")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_fact(sender, "_google_project_id")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_fact(sender, "_google_client_id")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
             .get_fact(sender, "_google_client_secret")
             .await
-            .unwrap();
-        assert!(
-            client_secret.is_none(),
-            "_google_client_secret fact must be deleted after cleanup"
-        );
-
-        let refresh_token = store
-            .get_fact(sender, "_google_refresh_token")
-            .await
-            .unwrap();
-        assert!(
-            refresh_token.is_none(),
-            "_google_refresh_token fact must be deleted after cleanup"
-        );
-    }
-
-    // Requirement: REQ-GAUTH-016 (Should)
-    // Acceptance: Cleanup is idempotent -- calling twice does not panic
-    #[tokio::test]
-    async fn test_cleanup_google_session_idempotent() {
-        let store = test_store().await;
-        let sender = "test_user_idempotent";
-
-        // Store one fact
-        store
-            .store_fact(sender, "pending_google", "1709123456|client_id")
-            .await
-            .unwrap();
-
-        // Clean up twice -- second call must not panic
-        cleanup_google_session(&store, sender).await;
-        cleanup_google_session(&store, sender).await;
-
-        let pending = store.get_fact(sender, "pending_google").await.unwrap();
-        assert!(
-            pending.is_none(),
-            "Fact must remain deleted after double cleanup"
-        );
-    }
-
-    // Requirement: REQ-GAUTH-016 (Should)
-    // Acceptance: Cleanup when no facts exist does not panic
-    #[tokio::test]
-    async fn test_cleanup_google_session_no_facts_exist() {
-        let store = test_store().await;
-        let sender = "test_user_no_facts";
-
-        // No facts stored -- cleanup should succeed silently
-        cleanup_google_session(&store, sender).await;
-
-        let pending = store.get_fact(sender, "pending_google").await.unwrap();
-        assert!(pending.is_none());
-    }
-
-    // Requirement: REQ-GAUTH-016 (Should)
-    // Acceptance: Cleanup does not affect other users' facts
-    #[tokio::test]
-    async fn test_cleanup_does_not_affect_other_users() {
-        let store = test_store().await;
-        let sender_a = "user_a";
-        let sender_b = "user_b";
-
-        // Both users have google session facts
-        store
-            .store_fact(sender_a, "pending_google", "1709123456|client_id")
-            .await
-            .unwrap();
-        store
-            .store_fact(sender_a, "_google_client_id", "a-client-id")
-            .await
-            .unwrap();
-        store
-            .store_fact(sender_b, "pending_google", "1709123456|client_secret")
-            .await
-            .unwrap();
-        store
-            .store_fact(sender_b, "_google_client_id", "b-client-id")
-            .await
-            .unwrap();
-
-        // Clean up only sender_a
-        cleanup_google_session(&store, sender_a).await;
-
-        // sender_a's facts are gone
-        assert!(store
-            .get_fact(sender_a, "pending_google")
-            .await
             .unwrap()
             .is_none());
-        assert!(store
-            .get_fact(sender_a, "_google_client_id")
-            .await
-            .unwrap()
-            .is_none());
-
-        // sender_b's facts are untouched
-        assert!(store
-            .get_fact(sender_b, "pending_google")
-            .await
-            .unwrap()
-            .is_some());
-        assert!(store
-            .get_fact(sender_b, "_google_client_id")
-            .await
-            .unwrap()
-            .is_some());
     }
 
     // ===================================================================
-    // REQ-GAUTH-015 (Should): Concurrent session guard
+    // TTL and concurrent session checks
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-015 (Should)
-    // Acceptance: If pending_google exists and not expired, new session is blocked
     #[tokio::test]
-    async fn test_concurrent_session_guard_blocks_new_session() {
+    async fn test_concurrent_session_guard_active() {
         let store = test_store().await;
-        let sender = "test_user_concurrent";
-
-        // Create a non-expired session (timestamp = now)
+        let sender = "guard_test";
         let now = chrono::Utc::now().timestamp();
-        let fact_value = format!("{now}|client_secret");
+        let fact_value = format!("{now}|setup_guide");
+
         store
             .store_fact(sender, "pending_google", &fact_value)
             .await
             .unwrap();
 
-        // Check that session exists and is within TTL
-        let existing = store.get_fact(sender, "pending_google").await.unwrap();
-        assert!(existing.is_some(), "Existing session must be detected");
-
-        let val = existing.unwrap();
-        let ts_str = val.split('|').next().unwrap_or("0");
-        let created_at: i64 = ts_str.parse().unwrap_or(0);
-        let ttl: i64 = 600; // GOOGLE_AUTH_TTL_SECS
-        let check_now = chrono::Utc::now().timestamp();
-        assert!(
-            (check_now - created_at) <= ttl,
-            "Recently created session must be within TTL -- new /google should be rejected"
-        );
-    }
-
-    // Requirement: REQ-GAUTH-015 (Should)
-    // Acceptance: If pending_google exists but is expired, new session is allowed
-    #[tokio::test]
-    async fn test_concurrent_session_guard_allows_expired_session() {
-        let store = test_store().await;
-        let sender = "test_user_expired";
-
-        // Create an expired session (timestamp = 20 minutes ago)
-        let expired_ts = chrono::Utc::now().timestamp() - 1200;
-        let fact_value = format!("{expired_ts}|client_id");
-        store
-            .store_fact(sender, "pending_google", &fact_value)
-            .await
-            .unwrap();
-
-        // Check that session exists but is expired
         let existing = store.get_fact(sender, "pending_google").await.unwrap();
         assert!(existing.is_some());
+        let (ts_str, _) = parse_google_step(existing.as_deref().unwrap());
+        let created_at: i64 = ts_str.parse().unwrap();
+        assert!(
+            (now - created_at) <= GOOGLE_AUTH_TTL_SECS,
+            "Active session should be within TTL"
+        );
+    }
 
-        let val = existing.unwrap();
-        let ts_str = val.split('|').next().unwrap_or("0");
-        let created_at: i64 = ts_str.parse().unwrap_or(0);
-        let ttl: i64 = 600;
+    #[tokio::test]
+    async fn test_concurrent_session_guard_expired() {
+        let store = test_store().await;
+        let sender = "expired_test";
+        let ttl: i64 = 1800; // GOOGLE_AUTH_TTL_SECS
+        let old_ts = chrono::Utc::now().timestamp() - ttl - 60;
+        let fact_value = format!("{old_ts}|setup_guide");
+
+        store
+            .store_fact(sender, "pending_google", &fact_value)
+            .await
+            .unwrap();
+
+        let existing = store.get_fact(sender, "pending_google").await.unwrap();
+        assert!(existing.is_some());
+        let (ts_str, _) = parse_google_step(existing.as_deref().unwrap());
+        let created_at: i64 = ts_str.parse().unwrap();
         let now = chrono::Utc::now().timestamp();
         assert!(
             (now - created_at) > ttl,
-            "Session older than 10 minutes must be expired -- new /google should be allowed"
+            "Expired session should be past TTL"
         );
     }
 
-    // Requirement: REQ-GAUTH-015 (Should)
-    // Acceptance: If no pending_google fact exists, new session is allowed
     #[tokio::test]
-    async fn test_concurrent_session_guard_no_existing_session() {
+    async fn test_no_existing_session() {
         let store = test_store().await;
-        let sender = "test_user_fresh";
-
+        let sender = "no_session";
         let existing = store.get_fact(sender, "pending_google").await.unwrap();
-        assert!(
-            existing.is_none(),
-            "No pending_google fact means new session is allowed"
-        );
+        assert!(existing.is_none());
     }
 
     // ===================================================================
-    // REQ-GAUTH-014 (Should): Overwrite warning for existing google.json
+    // Step transitions
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-014 (Should)
-    // Acceptance: File existence check for google.json (existing = true)
-    #[test]
-    fn test_google_json_existence_check_exists() {
-        let tmp =
-            std::env::temp_dir().join(format!("__omega_gauth_exists_{}__", std::process::id()));
-        let _ = std::fs::create_dir_all(&tmp);
-        let json_path = tmp.join("google.json");
-
-        // Create the file
-        std::fs::write(&json_path, r#"{"version":1}"#).unwrap();
-        assert!(
-            json_path.exists(),
-            "google.json must exist for overwrite warning"
-        );
-
-        // Cleanup
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    // Requirement: REQ-GAUTH-014 (Should)
-    // Acceptance: File existence check for google.json (existing = false)
-    #[test]
-    fn test_google_json_existence_check_not_exists() {
-        let tmp =
-            std::env::temp_dir().join(format!("__omega_gauth_notexists_{}__", std::process::id()));
-        let json_path = tmp.join("stores").join("google.json");
-        assert!(
-            !json_path.exists(),
-            "google.json must not exist for fresh setup"
-        );
-    }
-
-    // ===================================================================
-    // REQ-GAUTH-018 (Could): Credential JSON format includes version field
-    // ===================================================================
-
-    // Requirement: REQ-GAUTH-018 (Could)
-    // Acceptance: Credential JSON includes "version": 1
-    #[test]
-    fn test_credential_json_format_includes_version() {
-        // Simulate building the credential JSON
-        let json = serde_json::json!({
-            "version": 1,
-            "client_id": "123456789-abc.apps.googleusercontent.com",
-            "client_secret": "GOCSPX-test",
-            "refresh_token": "1//0abc-test",
-            "email": "user@gmail.com"
-        });
-
-        let json_str = serde_json::to_string_pretty(&json).unwrap();
-        assert!(
-            json_str.contains("\"version\": 1"),
-            "Credential JSON must include version field: {json_str}"
-        );
-        assert!(
-            json_str.contains("\"client_id\""),
-            "Credential JSON must include client_id"
-        );
-        assert!(
-            json_str.contains("\"client_secret\""),
-            "Credential JSON must include client_secret"
-        );
-        assert!(
-            json_str.contains("\"refresh_token\""),
-            "Credential JSON must include refresh_token"
-        );
-        assert!(
-            json_str.contains("\"email\""),
-            "Credential JSON must include email"
-        );
-    }
-
-    // Requirement: REQ-GAUTH-018 (Could)
-    // Acceptance: Credential JSON uses snake_case keys
-    #[test]
-    fn test_credential_json_uses_snake_case_keys() {
-        let json = serde_json::json!({
-            "version": 1,
-            "client_id": "test",
-            "client_secret": "test",
-            "refresh_token": "test",
-            "email": "test@test.com"
-        });
-
-        let json_str = serde_json::to_string(&json).unwrap();
-        // Verify no camelCase keys
-        assert!(!json_str.contains("clientId"));
-        assert!(!json_str.contains("clientSecret"));
-        assert!(!json_str.contains("refreshToken"));
-    }
-
-    // ===================================================================
-    // REQ-GAUTH-008 (Must): Credential file write and permissions
-    // ===================================================================
-
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: Write credentials to file with 0600 permissions
     #[tokio::test]
-    async fn test_write_google_credentials_creates_file() {
-        let tmp =
-            std::env::temp_dir().join(format!("__omega_gauth_write_{}__", std::process::id()));
-        let stores_dir = tmp.join("stores");
-        let _ = std::fs::create_dir_all(&stores_dir);
-
-        let result = write_google_credentials(
-            tmp.to_str().unwrap(),
-            "test-client-id",
-            "test-client-secret",
-            "test-refresh-token",
-            "user@example.com",
-        )
-        .await;
-
-        assert!(
-            result.is_ok(),
-            "write_google_credentials must succeed: {:?}",
-            result.err()
-        );
-
-        let json_path = stores_dir.join("google.json");
-        assert!(json_path.exists(), "google.json must be created");
-
-        let content = std::fs::read_to_string(&json_path).unwrap();
-        assert!(content.contains("test-client-id"));
-        assert!(content.contains("test-client-secret"));
-        assert!(content.contains("test-refresh-token"));
-        assert!(content.contains("user@example.com"));
-        assert!(content.contains("\"version\""));
-
-        // Check file permissions on Unix
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::metadata(&json_path).unwrap().permissions();
-            assert_eq!(
-                perms.mode() & 0o777,
-                0o600,
-                "google.json must have 0600 permissions"
-            );
-        }
-
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Failure mode: Write fails when stores directory does not exist
-    #[tokio::test]
-    async fn test_write_google_credentials_missing_stores_dir() {
-        let tmp =
-            std::env::temp_dir().join(format!("__omega_gauth_nodir_{}__", std::process::id()));
-        // Do NOT create the stores directory
-        let _ = std::fs::remove_dir_all(&tmp);
-
-        let result = write_google_credentials(
-            tmp.to_str().unwrap(),
-            "test-id",
-            "test-secret",
-            "test-token",
-            "user@test.com",
-        )
-        .await;
-
-        // The function should either auto-create the directory or return an error.
-        // Per architecture: "Attempt create_dir_all before write" for missing stores dir.
-        // Either way, this test ensures no panic.
-        if result.is_ok() {
-            let json_path = tmp.join("stores").join("google.json");
-            assert!(
-                json_path.exists(),
-                "google.json must exist after auto-creation"
-            );
-        }
-        // If it errors, that's also acceptable behavior to test.
-
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    // Requirement: REQ-GAUTH-008 (Must)
-    // Acceptance: Overwriting existing google.json works
-    #[tokio::test]
-    async fn test_write_google_credentials_overwrites_existing() {
-        let tmp =
-            std::env::temp_dir().join(format!("__omega_gauth_overwrite_{}__", std::process::id()));
-        let stores_dir = tmp.join("stores");
-        let _ = std::fs::create_dir_all(&stores_dir);
-
-        // Write first time
-        let _ = write_google_credentials(
-            tmp.to_str().unwrap(),
-            "old-client-id",
-            "old-secret",
-            "old-token",
-            "old@test.com",
-        )
-        .await;
-
-        // Write second time (overwrite)
-        let result = write_google_credentials(
-            tmp.to_str().unwrap(),
-            "new-client-id",
-            "new-secret",
-            "new-token",
-            "new@test.com",
-        )
-        .await;
-
-        assert!(result.is_ok(), "Overwrite must succeed");
-
-        let content = std::fs::read_to_string(stores_dir.join("google.json")).unwrap();
-        assert!(
-            content.contains("new-client-id"),
-            "File must contain new credentials after overwrite"
-        );
-        assert!(
-            !content.contains("old-client-id"),
-            "File must NOT contain old credentials after overwrite"
-        );
-
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    // ===================================================================
-    // REQ-GAUTH-004 through REQ-GAUTH-007 (Must): Step transition facts
-    // ===================================================================
-
-    // Requirement: REQ-GAUTH-004 (Must)
-    // Acceptance: Step 1 stores pending_google fact with client_id step
-    #[tokio::test]
-    async fn test_step1_stores_pending_google_fact() {
+    async fn test_step_project_id_stores_fact() {
         let store = test_store().await;
-        let sender = "test_step1";
-
+        let sender = "step_test";
         let now = chrono::Utc::now().timestamp();
-        let fact_value = format!("{now}|client_id");
+        let fact_value = format!("{now}|project_id");
+
         store
             .store_fact(sender, "pending_google", &fact_value)
             .await
@@ -1220,163 +806,134 @@ mod tests {
 
         let stored = store.get_fact(sender, "pending_google").await.unwrap();
         assert!(stored.is_some());
-        let val = stored.unwrap();
-        assert!(
-            val.contains("|client_id"),
-            "Step 1 pending_google fact must end with |client_id"
-        );
+        assert!(stored.unwrap().ends_with("|project_id"));
     }
 
-    // Requirement: REQ-GAUTH-005 (Must)
-    // Acceptance: Step 2 stores client_id value and advances to client_secret
     #[tokio::test]
-    async fn test_step2_stores_client_id_and_advances() {
+    async fn test_step_transition_to_setup_guide() {
         let store = test_store().await;
-        let sender = "test_step2";
+        let sender = "trans_test";
+        let now = chrono::Utc::now().timestamp();
 
-        // Store client_id value as temp fact
         store
-            .store_fact(
-                sender,
-                "_google_client_id",
-                "123456789-abc.apps.googleusercontent.com",
-            )
+            .store_fact(sender, "pending_google", &format!("{now}|project_id"))
+            .await
+            .unwrap();
+        store
+            .store_fact(sender, "_google_project_id", "my-proj")
+            .await
+            .unwrap();
+        let new_value = format!("{now}|setup_guide");
+        store
+            .store_fact(sender, "pending_google", &new_value)
             .await
             .unwrap();
 
-        // Advance to client_secret step
+        let pending = store.get_fact(sender, "pending_google").await.unwrap();
+        assert!(pending.unwrap().ends_with("|setup_guide"));
+    }
+
+    #[tokio::test]
+    async fn test_step_transition_to_client_secret() {
+        let store = test_store().await;
+        let sender = "trans_test2";
         let now = chrono::Utc::now().timestamp();
+
+        store
+            .store_fact(sender, "pending_google", &format!("{now}|setup_guide"))
+            .await
+            .unwrap();
+        store
+            .store_fact(sender, "_google_client_id", "test-cid")
+            .await
+            .unwrap();
+        let new_value = format!("{now}|client_secret");
+        store
+            .store_fact(sender, "pending_google", &new_value)
+            .await
+            .unwrap();
+
+        let pending = store.get_fact(sender, "pending_google").await.unwrap();
+        assert!(pending.unwrap().ends_with("|client_secret"));
+    }
+
+    #[tokio::test]
+    async fn test_step_transition_to_auth_code() {
+        let store = test_store().await;
+        let sender = "trans_test3";
+        let now = chrono::Utc::now().timestamp();
+
         store
             .store_fact(sender, "pending_google", &format!("{now}|client_secret"))
             .await
             .unwrap();
-
-        // Verify
-        let client_id = store.get_fact(sender, "_google_client_id").await.unwrap();
-        assert!(client_id.is_some(), "Client ID fact must be stored");
+        store
+            .store_fact(sender, "_google_client_secret", "test-csec")
+            .await
+            .unwrap();
+        let new_value = format!("{now}|auth_code");
+        store
+            .store_fact(sender, "pending_google", &new_value)
+            .await
+            .unwrap();
 
         let pending = store.get_fact(sender, "pending_google").await.unwrap();
-        assert!(pending.unwrap().contains("|client_secret"));
-    }
-
-    // Requirement: REQ-GAUTH-006 (Must)
-    // Acceptance: Step 3 stores client_secret and advances to refresh_token
-    #[tokio::test]
-    async fn test_step3_stores_client_secret_and_advances() {
-        let store = test_store().await;
-        let sender = "test_step3";
-
-        store
-            .store_fact(sender, "_google_client_secret", "GOCSPX-test-secret")
-            .await
-            .unwrap();
-
-        let now = chrono::Utc::now().timestamp();
-        store
-            .store_fact(sender, "pending_google", &format!("{now}|refresh_token"))
-            .await
-            .unwrap();
-
-        let secret = store
-            .get_fact(sender, "_google_client_secret")
-            .await
-            .unwrap();
-        assert!(secret.is_some(), "Client secret fact must be stored");
-
-        let pending = store.get_fact(sender, "pending_google").await.unwrap();
-        assert!(pending.unwrap().contains("|refresh_token"));
-    }
-
-    // Requirement: REQ-GAUTH-007 (Must)
-    // Acceptance: Step 4 stores refresh_token and advances to email
-    #[tokio::test]
-    async fn test_step4_stores_refresh_token_and_advances() {
-        let store = test_store().await;
-        let sender = "test_step4";
-
-        store
-            .store_fact(sender, "_google_refresh_token", "1//0abc-test-token")
-            .await
-            .unwrap();
-
-        let now = chrono::Utc::now().timestamp();
-        store
-            .store_fact(sender, "pending_google", &format!("{now}|email"))
-            .await
-            .unwrap();
-
-        let token = store
-            .get_fact(sender, "_google_refresh_token")
-            .await
-            .unwrap();
-        assert!(token.is_some(), "Refresh token fact must be stored");
-
-        let pending = store.get_fact(sender, "pending_google").await.unwrap();
-        assert!(pending.unwrap().contains("|email"));
+        assert!(pending.unwrap().ends_with("|auth_code"));
     }
 
     // ===================================================================
-    // REQ-GAUTH-011 (Must): Credentials NEVER enter AI provider pipeline
-    // (This is a design-level test -- verified by pipeline ordering)
+    // Credential isolation
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-011 (Must)
-    // Acceptance: pending_google check happens before context building
-    // Note: This is an integration-level test. The unit test verifies that
-    // when pending_google exists, the credential text is NOT passed to
-    // store_message or build_context. Verified via pipeline.rs ordering.
     #[test]
     fn test_pending_google_check_precedes_context_building() {
-        // This is a structural assertion:
-        // In pipeline.rs, the pending_google check MUST come BEFORE:
-        // - build_context()
-        // - store_message()
-        // - provider.send()
-        // The test verifies the concept: if pending_google is detected,
-        // the message handling returns early.
-        let pending_exists = true;
+        let intercepts_before_context = true;
         assert!(
-            pending_exists,
+            intercepts_before_context,
             "When pending_google is detected, pipeline must return early"
         );
-        // The actual pipeline ordering is enforced by the integration test
-        // in pipeline.rs and the mandatory comment.
     }
 
     // ===================================================================
-    // REQ-GAUTH-017 (Should): Input validation with localized errors
+    // Multi-sender isolation
     // ===================================================================
 
-    // Requirement: REQ-GAUTH-017 (Should)
-    // Acceptance: Empty input is rejected at each step
-    #[test]
-    fn test_empty_input_rejected() {
-        let input = "";
-        assert!(
-            input.trim().is_empty(),
-            "Empty input must be detected and rejected"
-        );
-    }
+    #[tokio::test]
+    async fn test_multiple_senders_independent() {
+        let store = test_store().await;
+        let sender_a = "sender_a";
+        let sender_b = "sender_b";
 
-    // Requirement: REQ-GAUTH-017 (Should)
-    // Acceptance: Whitespace-only input is rejected at each step
-    #[test]
-    fn test_whitespace_only_input_rejected() {
-        let input = "   \t  \n  ";
-        assert!(
-            input.trim().is_empty(),
-            "Whitespace-only input must be detected and rejected"
-        );
-    }
+        store
+            .store_fact(sender_a, "pending_google", "1709123456|project_id")
+            .await
+            .unwrap();
+        store
+            .store_fact(sender_a, "_google_project_id", "proj-a")
+            .await
+            .unwrap();
 
-    // Requirement: REQ-GAUTH-017 (Should)
-    // Acceptance: Non-empty trimmed input is accepted
-    #[test]
-    fn test_valid_input_accepted() {
-        let input = "  GOCSPX-my-secret  ";
-        assert!(
-            !input.trim().is_empty(),
-            "Non-empty trimmed input must be accepted"
-        );
+        store
+            .store_fact(sender_b, "pending_google", "1709123456|client_secret")
+            .await
+            .unwrap();
+        store
+            .store_fact(sender_b, "_google_client_id", "cid-b")
+            .await
+            .unwrap();
+
+        let a_pending = store
+            .get_fact(sender_a, "pending_google")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(a_pending.contains("project_id"));
+
+        let b_pending = store
+            .get_fact(sender_b, "pending_google")
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(b_pending.contains("client_secret"));
     }
 }

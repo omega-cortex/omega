@@ -12,6 +12,7 @@ mod builds_parse;
 mod builds_topology;
 mod google_auth;
 mod google_auth_i18n;
+mod google_auth_oauth;
 mod heartbeat;
 mod heartbeat_helpers;
 mod keywords;
@@ -445,6 +446,20 @@ impl Gateway {
         }
 
         info!("Shutdown complete.");
+    }
+
+    /// Delete the user's incoming message from the chat (best-effort).
+    /// Used to remove credential messages for security.
+    async fn delete_user_message(&self, incoming: &IncomingMessage) {
+        if let (Some(channel), Some(msg_id), Some(target)) = (
+            self.channels.get(&incoming.channel),
+            incoming.platform_message_id.as_deref(),
+            incoming.reply_target.as_deref(),
+        ) {
+            if let Err(e) = channel.delete_message(target, msg_id).await {
+                warn!("failed to delete user message: {e}");
+            }
+        }
     }
 
     /// Send a plain text message back to the sender.

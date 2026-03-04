@@ -822,6 +822,7 @@ async fn test_build_context_advances_onboarding_stage() {
         reply_target: Some("chat1".to_string()),
         is_group: false,
         source: None,
+        platform_message_id: None,
     };
     let needs = ContextNeeds::default();
     let ctx = store
@@ -2021,6 +2022,7 @@ async fn test_search_messages_with_fts5_operators() {
         reply_target: Some("chat1".to_string()),
         is_group: false,
         source: None,
+        platform_message_id: None,
     };
     let response = omega_core::message::OutgoingMessage {
         text: "I will investigate".to_string(),

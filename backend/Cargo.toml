@@ -69,6 +69,7 @@ cliclack = "0.3"
 console = "0.15"
 axum = "0.8"
 base64 = "0.22"
+urlencoding = "2"
 uuid = { workspace = true }
 
 [dev-dependencies]
