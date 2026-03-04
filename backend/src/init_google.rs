@@ -408,24 +408,49 @@ pub(crate) fn run_google_wizard() -> anyhow::Result<Option<String>> {
             ("Keep", "keep.googleapis.com"),
             ("Apps Script", "script.googleapis.com"),
         ];
-        let links: String = apis
-            .iter()
-            .map(|(name, api)| format!("{name:<12} → {}", gcp_api_library_url(&project_id, api)))
-            .collect::<Vec<_>>()
-            .join("\n");
 
-        if !wizard_step(
-            "Step 2 — Enable Google APIs",
-            &format!(
-                "Click each link below to enable the APIs you need:\n\
-                 \n\
-                 {links}\n\
-                 \n\
-                 Enable only the ones you need."
-            ),
-            "Done? Continue to next step",
-        )? {
-            return Ok(None);
+        let hint = console::Style::new()
+            .bold()
+            .apply_to("Space to select multiple, or just press Enter to go one by one");
+        init_style::omega_info(&hint.to_string())?;
+
+        let mut ms = cliclack::multiselect("Step 2 — Select Google APIs to enable");
+        for (i, (name, api)) in apis.iter().enumerate() {
+            ms = ms.item(i, *name, *api);
+        }
+        let selected: Vec<usize> = ms.required(false).interact()?;
+
+        let chosen: Vec<usize> = if selected.is_empty() {
+            let mut confirmed = Vec::new();
+            for (i, (name, _)) in apis.iter().enumerate() {
+                let yes: bool = cliclack::confirm(format!("Enable {name}?"))
+                    .initial_value(true)
+                    .interact()?;
+                if yes {
+                    confirmed.push(i);
+                }
+            }
+            confirmed
+        } else {
+            selected
+        };
+
+        if !chosen.is_empty() {
+            let links: String = chosen
+                .iter()
+                .map(|&i| {
+                    let (name, api) = apis[i];
+                    format!("{name:<12} → {}", gcp_api_library_url(&project_id, api))
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            init_style::omega_note("Enable these APIs (click each link)", &links)?;
+            let cont: bool = cliclack::confirm("Done enabling? Continue to next step")
+                .initial_value(true)
+                .interact()?;
+            if !cont {
+                return Ok(None);
+            }
         }
     }
 

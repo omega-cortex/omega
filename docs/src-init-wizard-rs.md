@@ -47,8 +47,12 @@ Google Workspace OAuth setup has moved to `backend/src/init_google.rs`. It uses 
 1. Checks if `omg-gog` is installed (offers install if missing)
 2. Walks user through GCP project creation
 3. Collects GCP Project ID (validated: non-empty, no spaces, no slashes)
-4. Generates direct one-click GCP Console links for all subsequent steps:
-   - 14 API enable links (Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Classroom, Tasks, People, CloudIdentity, Keep, Apps Script)
+4. Generates direct one-click GCP Console links via **multiselect with Enter-fallback**:
+   - Shows bold hint: "Space to select multiple, or just press Enter to go one by one"
+   - Presents `cliclack::multiselect` with all 14 APIs (`.required(false)`)
+   - If user selects with Space: shows links only for selected APIs
+   - If user presses Enter (empty): walks through each API with `cliclack::confirm` (default true)
+   - 14 APIs: Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Classroom, Tasks, People, CloudIdentity, Keep, Apps Script
    - OAuth consent screen link
    - OAuth client creation link
    - App publish link
