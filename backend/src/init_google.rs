@@ -193,11 +193,14 @@ fn extract_google_url(text: &str) -> Option<String> {
         })
 }
 
-/// Run `omg-gog auth add --web` with piped I/O.
+/// Run `omg-gog auth add --web --force-consent` with piped I/O.
 ///
 /// Always displays the authorization URL via cliclack so the user can
 /// open it on any device (like Claude Code's "Browser didn't open?"
 /// pattern). Collects the auth code via cliclack and pipes it back.
+///
+/// Uses `--force-consent` so Google always returns a refresh token
+/// (required even if the user previously authorized this app).
 fn run_omg_gog_oauth() -> anyhow::Result<bool> {
     use std::io::{Read, Write};
     use std::process::{Command, Stdio};
@@ -205,7 +208,7 @@ fn run_omg_gog_oauth() -> anyhow::Result<bool> {
     use std::time::Duration;
 
     let mut child = Command::new("omg-gog")
-        .args(["auth", "add", "--web"])
+        .args(["auth", "add", "--web", "--force-consent"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -214,27 +217,35 @@ fn run_omg_gog_oauth() -> anyhow::Result<bool> {
     let child_stdin = child.stdin.take().expect("stdin was piped");
     let child_stderr = child.stderr.take().expect("stderr was piped");
 
-    // omg-gog writes URL + prompt to stderr. Read it in a background
-    // thread (byte-by-byte to catch the prompt without trailing newline).
-    let (tx, rx) = mpsc::channel::<Option<String>>();
+    // omg-gog writes URL + prompt to stderr. Read in a background thread
+    // (byte-by-byte to catch the prompt without trailing newline).
+    // After detecting the prompt, keep reading to capture error output.
+    let (tx_prompt, rx_prompt) = mpsc::channel::<Option<String>>();
+    let (tx_rest, rx_rest) = mpsc::channel::<String>();
     std::thread::spawn(move || {
         let mut output = String::new();
         let mut buf = [0u8; 1];
         let mut reader = child_stderr;
+        let mut prompt_sent = false;
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(_) => {
                     output.push(buf[0] as char);
-                    if output.to_lowercase().contains("authorization code:") {
-                        let _ = tx.send(Some(output));
-                        return;
+                    if !prompt_sent && output.to_lowercase().contains("authorization code:") {
+                        let _ = tx_prompt.send(Some(output.clone()));
+                        prompt_sent = true;
+                        output.clear();
                     }
                 }
                 Err(_) => break,
             }
         }
-        let _ = tx.send(None);
+        if !prompt_sent {
+            let _ = tx_prompt.send(None);
+        }
+        // Send remaining stderr (contains error messages if any).
+        let _ = tx_rest.send(output);
     });
 
     // Drain stdout in a background thread so the pipe doesn't block.
@@ -250,7 +261,7 @@ fn run_omg_gog_oauth() -> anyhow::Result<bool> {
     });
 
     let timeout = Duration::from_secs(120);
-    match rx.recv_timeout(timeout) {
+    match rx_prompt.recv_timeout(timeout) {
         Ok(Some(output)) => {
             // Extract URL and display it — always, like Claude Code does.
             let url = extract_google_url(&output);
@@ -283,7 +294,20 @@ fn run_omg_gog_oauth() -> anyhow::Result<bool> {
             let deadline = std::time::Instant::now() + timeout;
             loop {
                 match child.try_wait()? {
-                    Some(status) => return Ok(status.success()),
+                    Some(status) => {
+                        if status.success() {
+                            return Ok(true);
+                        }
+                        // Surface the error from omg-gog.
+                        let rest = rx_rest
+                            .recv_timeout(Duration::from_secs(2))
+                            .unwrap_or_default();
+                        let err = extract_error_message(&rest);
+                        if !err.is_empty() {
+                            anyhow::bail!("{err}");
+                        }
+                        return Ok(false);
+                    }
                     None if std::time::Instant::now() >= deadline => {
                         child.kill()?;
                         anyhow::bail!("omg-gog timed out after 120s");
@@ -302,6 +326,15 @@ fn run_omg_gog_oauth() -> anyhow::Result<bool> {
             anyhow::bail!("omg-gog timed out after 120s");
         }
     }
+}
+
+/// Extract the first `Error: ...` line from omg-gog stderr output.
+fn extract_error_message(stderr: &str) -> String {
+    stderr
+        .lines()
+        .find(|l| l.starts_with("Error:"))
+        .unwrap_or("")
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
