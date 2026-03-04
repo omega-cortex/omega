@@ -78,7 +78,8 @@ impl Default for Prompts {
                      the system will ask the user to confirm with a simple 'yes'. Never scaffold or create project files directly.".into(),
             meta: "SKILL_IMPROVE: <name> | <lesson> to update skills after mistakes.\n\
                    BUG_REPORT: <description> for infrastructure gaps.\n\
-                   WHATSAPP_QR to trigger WhatsApp setup.".into(),
+                   WHATSAPP_QR to trigger WhatsApp setup.\n\
+                   GOOGLE_SETUP to trigger Google account setup.".into(),
             summarize: "Summarize this conversation in 1-2 sentences. Be factual and concise. \
                         Do not add commentary.".into(),
             facts: "Extract ONLY personal facts about the user — things that describe WHO they are, not what was discussed.\n\
