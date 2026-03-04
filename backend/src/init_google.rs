@@ -140,6 +140,35 @@ pub(crate) fn install_omg_gog() -> anyhow::Result<bool> {
 }
 
 // ---------------------------------------------------------------------------
+// GCP URL helpers
+// ---------------------------------------------------------------------------
+
+/// Build a direct Google Cloud Console API Library URL for the given project.
+fn gcp_api_library_url(project: &str, api: &str) -> String {
+    format!("https://console.cloud.google.com/apis/library/{api}?project={project}")
+}
+
+/// Build a direct Google Cloud Console URL for a given path and project.
+fn gcp_console_url(project: &str, path: &str) -> String {
+    format!("https://console.cloud.google.com/{path}?project={project}")
+}
+
+/// Validate a GCP project ID: non-empty, no spaces, no slashes.
+fn validate_project_id(input: &str) -> Result<(), &'static str> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("Project ID is required");
+    }
+    if trimmed.contains(' ') {
+        return Err("Project ID cannot contain spaces");
+    }
+    if trimmed.contains('/') {
+        return Err("Project ID cannot contain slashes");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Step-by-step wizard helpers
 // ---------------------------------------------------------------------------
 
@@ -354,77 +383,111 @@ pub(crate) fn run_google_wizard() -> anyhow::Result<Option<String>> {
         return Ok(None);
     }
 
+    // ── Step 1b — Collect Project ID ────────────────────────────────────
+    let project_id: String = cliclack::input("Google Cloud Project ID or number")
+        .placeholder("my-project-123456  or  424288504335")
+        .validate(|input: &String| validate_project_id(input))
+        .interact()?;
+    let project_id = project_id.trim().to_string();
+
     // ── Step 2 — Enable Google APIs ─────────────────────────────────────
-    if !wizard_step(
-        "Step 2 — Enable Google APIs",
-        "In the Google Cloud Console search box, find and Enable\n\
-         each API you plan to use:\n\
-         \n\
-         Gmail        → Gmail API\n\
-         Calendar     → Google Calendar API\n\
-         Drive        → Google Drive API\n\
-         Docs         → Google Docs API\n\
-         Sheets       → Google Sheets API\n\
-         Slides       → Google Slides API\n\
-         Forms        → Google Forms API\n\
-         Chat         → Google Chat API\n\
-         Classroom    → Google Classroom API\n\
-         Tasks        → Google Tasks API\n\
-         Contacts     → People API\n\
-         Groups       → Cloud Identity API\n\
-         Keep         → Google Keep API\n\
-         Apps Script  → Apps Script API\n\
-         \n\
-         Enable only the ones you need.",
-        "Done? Continue to next step",
-    )? {
-        return Ok(None);
+    {
+        let apis = [
+            ("Gmail", "gmail.googleapis.com"),
+            ("Calendar", "calendar-json.googleapis.com"),
+            ("Drive", "drive.googleapis.com"),
+            ("Docs", "docs.googleapis.com"),
+            ("Sheets", "sheets.googleapis.com"),
+            ("Slides", "slides.googleapis.com"),
+            ("Forms", "forms.googleapis.com"),
+            ("Chat", "chat.googleapis.com"),
+            ("Classroom", "classroom.googleapis.com"),
+            ("Tasks", "tasks.googleapis.com"),
+            ("Contacts", "people.googleapis.com"),
+            ("Groups", "cloudidentity.googleapis.com"),
+            ("Keep", "keep.googleapis.com"),
+            ("Apps Script", "script.googleapis.com"),
+        ];
+        let links: String = apis
+            .iter()
+            .map(|(name, api)| format!("{name:<12} → {}", gcp_api_library_url(&project_id, api)))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if !wizard_step(
+            "Step 2 — Enable Google APIs",
+            &format!(
+                "Click each link below to enable the APIs you need:\n\
+                 \n\
+                 {links}\n\
+                 \n\
+                 Enable only the ones you need."
+            ),
+            "Done? Continue to next step",
+        )? {
+            return Ok(None);
+        }
     }
 
     // ── Step 3 — Configure OAuth Consent Screen ─────────────────────────
-    if !wizard_step(
-        "Step 3 — Configure OAuth Consent Screen",
-        "1. In the left menu, click \"OAuth consent screen\"\n\
-         2. Click \"Get Started\"\n\
-         3. App Information:\n\
-            • App name: omg-gog\n\
-            • User support email: your email\n\
-         4. Audience: External\n\
-         5. Contact Information: your email\n\
-         6. Accept the agreement and click \"Continue\"\n\
-         7. Click \"Create\"",
-        "Done? Continue to next step",
-    )? {
-        return Ok(None);
+    {
+        let consent_url = gcp_console_url(&project_id, "apis/credentials/consent");
+        if !wizard_step(
+            "Step 3 — Configure OAuth Consent Screen",
+            &format!(
+                "1. Open: {consent_url}\n\
+                 2. Click \"Get Started\"\n\
+                 3. App Information:\n\
+                    • App name: omg-gog\n\
+                    • User support email: your email\n\
+                 4. Audience: External\n\
+                 5. Contact Information: your email\n\
+                 6. Accept the agreement and click \"Continue\"\n\
+                 7. Click \"Create\""
+            ),
+            "Done? Continue to next step",
+        )? {
+            return Ok(None);
+        }
     }
 
     // ── Step 4 — Create OAuth Client Credentials ────────────────────────
-    if !wizard_step(
-        "Step 4 — Create OAuth Client Credentials",
-        "1. From OAuth Overview, click \"Create OAuth Client\"\n\
-         2. Application type: Web application\n\
-         3. Name: leave the default\n\
-         4. Under \"Authorized redirect URIs\", click \"Add URI\":\n\
-            https://omgagi.ai/oauth/callback/\n\
-         5. Click \"Create\"\n\
-         6. In the popup, click \"Download JSON\"",
-        "Done? Continue to next step",
-    )? {
-        return Ok(None);
+    {
+        let oauth_client_url = gcp_console_url(&project_id, "apis/credentials/oauthclient");
+        if !wizard_step(
+            "Step 4 — Create OAuth Client Credentials",
+            &format!(
+                "1. Open: {oauth_client_url}\n\
+                 2. Application type: Web application\n\
+                 3. Name: leave the default\n\
+                 4. Under \"Authorized redirect URIs\", click \"Add URI\":\n\
+                    https://omgagi.ai/oauth/callback/\n\
+                 5. Click \"Create\"\n\
+                 6. In the popup, click \"Download JSON\""
+            ),
+            "Done? Continue to next step",
+        )? {
+            return Ok(None);
+        }
     }
 
     // ── Step 5 — Publish the App ────────────────────────────────────────
-    if !wizard_step(
-        "Step 5 — Publish the App",
-        "1. Go to OAuth consent screen → Audience\n\
-         2. Click \"Publish App\"\n\
-         3. Confirm when prompted\n\
-         \n\
-         Publishing lets your own Google account complete the OAuth flow\n\
-         without \"unverified app\" warnings.",
-        "Done? Continue to paste credentials",
-    )? {
-        return Ok(None);
+    {
+        let publish_url = gcp_console_url(&project_id, "apis/credentials/consent");
+        if !wizard_step(
+            "Step 5 — Publish the App",
+            &format!(
+                "1. Open: {publish_url}\n\
+                 2. Go to \"Audience\" and click \"Publish App\"\n\
+                 3. Confirm when prompted\n\
+                 \n\
+                 Publishing lets your own Google account complete the OAuth flow\n\
+                 without \"unverified app\" warnings."
+            ),
+            "Done? Continue to paste credentials",
+        )? {
+            return Ok(None);
+        }
     }
 
     // ── Collect client_secret JSON (paste or file path) ────────────────
@@ -447,11 +510,15 @@ pub(crate) fn run_google_wizard() -> anyhow::Result<Option<String>> {
                 }
                 // Validate the file contains valid JSON.
                 match std::fs::read_to_string(&expanded) {
-                    Ok(content) => match serde_json::from_str::<serde_json::Value>(content.trim()) {
-                        Ok(v) if v.get("web").is_some() || v.get("installed").is_some() => Ok(()),
-                        Ok(_) => Err("File JSON must contain a \"web\" or \"installed\" key"),
-                        Err(_) => Err("File does not contain valid JSON"),
-                    },
+                    Ok(content) => {
+                        match serde_json::from_str::<serde_json::Value>(content.trim()) {
+                            Ok(v) if v.get("web").is_some() || v.get("installed").is_some() => {
+                                Ok(())
+                            }
+                            Ok(_) => Err("File JSON must contain a \"web\" or \"installed\" key"),
+                            Err(_) => Err("File does not contain valid JSON"),
+                        }
+                    }
                     Err(_) => Err("Could not read file"),
                 }
             } else {
@@ -621,5 +688,55 @@ mod tests {
         let url = extract_google_url(output).unwrap();
         assert!(url.starts_with("https://accounts.google.com/"));
         assert!(url.contains("q=1"));
+    }
+
+    #[test]
+    fn test_gcp_api_library_url() {
+        let url = gcp_api_library_url("my-project-123", "gmail.googleapis.com");
+        assert_eq!(
+            url,
+            "https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=my-project-123"
+        );
+    }
+
+    #[test]
+    fn test_gcp_api_library_url_numeric_project() {
+        let url = gcp_api_library_url("424288504335", "drive.googleapis.com");
+        assert_eq!(
+            url,
+            "https://console.cloud.google.com/apis/library/drive.googleapis.com?project=424288504335"
+        );
+    }
+
+    #[test]
+    fn test_gcp_console_url() {
+        let url = gcp_console_url("my-proj", "apis/credentials/consent");
+        assert_eq!(
+            url,
+            "https://console.cloud.google.com/apis/credentials/consent?project=my-proj"
+        );
+    }
+
+    #[test]
+    fn test_validate_project_id_valid() {
+        assert!(validate_project_id(&"my-project-123".to_string()).is_ok());
+        assert!(validate_project_id(&"424288504335".to_string()).is_ok());
+        assert!(validate_project_id(&"a".to_string()).is_ok());
+    }
+
+    #[test]
+    fn test_validate_project_id_empty() {
+        assert!(validate_project_id(&String::new()).is_err());
+        assert!(validate_project_id(&"   ".to_string()).is_err());
+    }
+
+    #[test]
+    fn test_validate_project_id_spaces() {
+        assert!(validate_project_id(&"my project".to_string()).is_err());
+    }
+
+    #[test]
+    fn test_validate_project_id_slashes() {
+        assert!(validate_project_id(&"projects/my-proj".to_string()).is_err());
     }
 }

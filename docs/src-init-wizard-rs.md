@@ -44,16 +44,19 @@ WhatsApp QR pairing flow:
 ### `run_google_setup() -> Result<Option<String>>` (moved to `init_google.rs`)
 
 Google Workspace OAuth setup has moved to `backend/src/init_google.rs`. It uses the `omg-gog` CLI tool:
-1. Checks if `omg-gog` is installed (skips silently if not)
-2. Asks user if they want to set up Google Workspace
-3. Shows setup instructions (GCP console, API enabling, OAuth consent)
-4. Prompts for `client_secret.json` file path
-5. Runs `omg-gog auth credentials <path>`
-6. Prompts for Gmail address
-7. Offers incognito browser option for OAuth flow
-8. Runs `omg-gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets`
-9. Verifies with `omg-gog auth list`
-10. Returns `Some(email)` on success, `None` on failure/decline
+1. Checks if `omg-gog` is installed (offers install if missing)
+2. Walks user through GCP project creation
+3. Collects GCP Project ID (validated: non-empty, no spaces, no slashes)
+4. Generates direct one-click GCP Console links for all subsequent steps:
+   - 14 API enable links (Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Classroom, Tasks, People, CloudIdentity, Keep, Apps Script)
+   - OAuth consent screen link
+   - OAuth client creation link
+   - App publish link
+5. Collects `client_secret.json` (paste or file path)
+6. Runs `omg-gog auth credentials <path>`
+7. Runs OAuth flow via `omg-gog auth add --web --force-consent` with piped I/O
+8. Verifies with `omg-gog auth list`
+9. Returns `Some(email)` on success, `None` on failure/decline
 
 ## Data Structures
 

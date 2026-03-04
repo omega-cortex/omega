@@ -24,9 +24,7 @@ pub async fn run() -> anyhow::Result<()> {
     let config_path = shellexpand("~/.omega/config.toml");
     if Path::new(&config_path).exists() {
         init_style::omega_intro(LOGO, "omega init")?;
-        init_style::omega_warning(
-            "OMEGA is already installed. Use `omega setup` to reconfigure.",
-        )?;
+        init_style::omega_warning("OMEGA is already installed. Use `omega setup` to reconfigure.")?;
         init_style::omega_outro("Nothing changed")?;
         return Ok(());
     }
@@ -236,7 +234,11 @@ pub async fn run_setup() -> anyhow::Result<()> {
                 .item("whisper", "Voice Transcription", "OpenAI Whisper API key")
                 .item("whatsapp", "WhatsApp", "Pair via QR code")
                 .item("google", "Google Workspace", "Gmail, Calendar, Drive...")
-                .item("service", "System Service", "Install or reinstall the service")
+                .item(
+                    "service",
+                    "System Service",
+                    "Install or reinstall the service",
+                )
                 .required(false)
                 .interact()?;
 
@@ -275,11 +277,7 @@ pub async fn run_setup() -> anyhow::Result<()> {
                     .default_input("")
                     .interact()?;
                 if let Ok(id) = id_str.parse::<i64>() {
-                    updates.push((
-                        "channel",
-                        "telegram.allowed_users",
-                        format!("[{id}]"),
-                    ));
+                    updates.push(("channel", "telegram.allowed_users", format!("[{id}]")));
                 }
                 changed.push("Telegram");
             } else {
@@ -800,11 +798,7 @@ mod tests {
         std::fs::write(&path, "[omega]\nname = \"test\"\n").unwrap();
 
         let path_str = path.to_str().unwrap();
-        update_config(
-            path_str,
-            &[("google", "account", "a@b.com".to_string())],
-        )
-        .unwrap();
+        update_config(path_str, &[("google", "account", "a@b.com".to_string())]).unwrap();
 
         let result = std::fs::read_to_string(&path).unwrap();
         let doc: toml::Table = result.parse().unwrap();
@@ -816,11 +810,7 @@ mod tests {
     fn test_update_config_array_value() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        std::fs::write(
-            &path,
-            "[channel.telegram]\nallowed_users = []\n",
-        )
-        .unwrap();
+        std::fs::write(&path, "[channel.telegram]\nallowed_users = []\n").unwrap();
 
         let path_str = path.to_str().unwrap();
         update_config(

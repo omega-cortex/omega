@@ -360,10 +360,11 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>>
 **Step 1–5: Guided wizard steps**
 Walk user through Google Cloud Console setup via `wizard_step()` (note + confirm):
 1. Create a Google Cloud Project
-2. Enable Google APIs (Gmail, Calendar, Drive, Docs, etc.)
-3. Configure OAuth Consent Screen
-4. Create OAuth Client Credentials (web application type, redirect URI `https://omgagi.ai/oauth/callback/`)
-5. Publish the App
+1b. Collect GCP Project ID (validated: non-empty, no spaces, no slashes)
+2. Enable Google APIs — direct one-click links per API using project ID (14 APIs: Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Classroom, Tasks, Contacts/People, Groups/CloudIdentity, Keep, Apps Script)
+3. Configure OAuth Consent Screen — direct link to consent page
+4. Create OAuth Client Credentials — direct link to OAuth client creation page (web application type, redirect URI `https://omgagi.ai/oauth/callback/`)
+5. Publish the App — direct link to consent/audience page
 
 **Step 6: Collect client_secret JSON**
 1. User pastes the full JSON content of the downloaded credentials file
@@ -400,13 +401,16 @@ Walk user through Google Cloud Console setup via `wizard_step()` (note + confirm
 ### Internal Functions
 | Function | Purpose |
 |----------|---------|
+| `gcp_api_library_url(project, api)` | Builds direct GCP API Library enable URL |
+| `gcp_console_url(project, path)` | Builds direct GCP Console URL for any path |
+| `validate_project_id(input)` | Validates project ID: non-empty, no spaces, no slashes |
 | `extract_google_url(text)` | Extracts first `https://accounts.google.com` URL from text |
 | `run_omg_gog_oauth()` | Piped I/O subprocess with headless prompt detection |
 | `ensure_omg_gog()` | Binary check + install offer |
 | `wizard_step(title, body, label)` | Note + confirm UI pattern |
 | `detect_email_from_omg_gog()` | Parses email from `omg-gog auth list` output |
 
-### Tests (6 tests)
+### Tests (13 tests)
 | Test | Assertions |
 |------|------------|
 | `test_detect_email_from_output_empty` | Function compiles (omg-gog not available in CI) |
@@ -415,6 +419,13 @@ Walk user through Google Cloud Console setup via `wizard_step()` (note + confirm
 | `test_extract_google_url_from_output` | Extracts URL from realistic omg-gog output |
 | `test_extract_google_url_missing` | Returns None when no URL present |
 | `test_extract_google_url_with_surrounding_chars` | Handles URL with surrounding punctuation |
+| `test_gcp_api_library_url` | Builds correct API library URL with string project ID |
+| `test_gcp_api_library_url_numeric_project` | Builds correct API library URL with numeric project ID |
+| `test_gcp_console_url` | Builds correct console URL for arbitrary path |
+| `test_validate_project_id_valid` | Accepts valid project IDs (string and numeric) |
+| `test_validate_project_id_empty` | Rejects empty and whitespace-only input |
+| `test_validate_project_id_spaces` | Rejects project IDs with spaces |
+| `test_validate_project_id_slashes` | Rejects project IDs with slashes |
 
 ---
 
