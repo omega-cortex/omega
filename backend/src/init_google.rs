@@ -427,23 +427,53 @@ pub(crate) fn run_google_wizard() -> anyhow::Result<Option<String>> {
         return Ok(None);
     }
 
-    // ── Collect client_secret JSON ──────────────────────────────────────
-    init_style::omega_info("Open the downloaded JSON file and copy its entire content.")?;
+    // ── Collect client_secret JSON (paste or file path) ────────────────
+    init_style::omega_info(
+        "Paste the JSON content from the downloaded file, or provide the file path (e.g. ~/Downloads/client_secret_*.json).",
+    )?;
 
-    let json_content: String = cliclack::input("Paste the client_secret JSON content")
-        .placeholder(r#"{"web":{"client_id":"...","client_secret":"...","redirect_uris":[...]}}"#)
+    let raw_input: String = cliclack::input("Paste JSON content or file path")
+        .placeholder("~/Downloads/client_secret_*.json  OR  {\"web\":{...}}")
         .validate(|input: &String| {
             let trimmed = input.trim();
             if trimmed.is_empty() {
-                return Err("JSON content is required");
+                return Err("JSON content or file path is required");
             }
-            match serde_json::from_str::<serde_json::Value>(trimmed) {
-                Ok(v) if v.get("web").is_some() || v.get("installed").is_some() => Ok(()),
-                Ok(_) => Err("JSON must contain a \"web\" or \"installed\" key"),
-                Err(_) => Err("Invalid JSON — paste the full content of the downloaded file"),
+            // If it looks like a file path, validate file exists.
+            if !trimmed.starts_with('{') {
+                let expanded = omega_core::shellexpand(trimmed);
+                if !std::path::Path::new(&expanded).exists() {
+                    return Err("File not found — check the path and try again");
+                }
+                // Validate the file contains valid JSON.
+                match std::fs::read_to_string(&expanded) {
+                    Ok(content) => match serde_json::from_str::<serde_json::Value>(content.trim()) {
+                        Ok(v) if v.get("web").is_some() || v.get("installed").is_some() => Ok(()),
+                        Ok(_) => Err("File JSON must contain a \"web\" or \"installed\" key"),
+                        Err(_) => Err("File does not contain valid JSON"),
+                    },
+                    Err(_) => Err("Could not read file"),
+                }
+            } else {
+                match serde_json::from_str::<serde_json::Value>(trimmed) {
+                    Ok(v) if v.get("web").is_some() || v.get("installed").is_some() => Ok(()),
+                    Ok(_) => Err("JSON must contain a \"web\" or \"installed\" key"),
+                    Err(_) => Err("Invalid JSON — paste the full content of the downloaded file"),
+                }
             }
         })
         .interact()?;
+
+    // Resolve input: file path → read content, otherwise use pasted JSON.
+    let json_content = {
+        let trimmed = raw_input.trim();
+        if trimmed.starts_with('{') {
+            trimmed.to_string()
+        } else {
+            let expanded = shellexpand(trimmed);
+            std::fs::read_to_string(&expanded)?
+        }
+    };
 
     // Write to a temp file with restricted permissions.
     let tmp_path = "/tmp/client_secret.json";
@@ -498,14 +528,11 @@ pub(crate) fn run_google_wizard() -> anyhow::Result<Option<String>> {
         "You are authorizing YOUR app to access YOUR data — no third-party involved.",
     )?;
 
-    init_style::omega_note(
-        "OAuth — next steps",
-        "An authorization URL will appear below — open it in any browser.\n\
-         \n\
-         • Click \"Advanced\" → \"Go to omg-gog (unsafe)\" → Allow\n\
-         • If blocked, go back to OAuth consent screen → Publish app\n\
-         • After authorizing, copy the code and paste it here",
-    )?;
+    init_style::omega_step("IMPORTANT — Read before continuing:")?;
+    init_style::omega_warning("An authorization URL will appear below — open it in any browser.")?;
+    init_style::omega_step("1. Click \"Advanced\" → \"Go to omg-gog (unsafe)\" → Allow")?;
+    init_style::omega_step("2. If blocked: go back to OAuth consent screen → Publish app")?;
+    init_style::omega_step("3. After authorizing, copy the code and paste it here")?;
 
     // --web flow: pipe stdin/stdout/stderr so we can detect interactive
     // prompts on headless systems where the browser can't open.

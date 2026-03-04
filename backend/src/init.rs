@@ -228,128 +228,125 @@ pub async fn run_setup() -> anyhow::Result<()> {
 
     init_style::omega_intro(LOGO, "omega setup")?;
 
-    let selected: Vec<&str> = cliclack::multiselect("Select components to reconfigure")
-        .item("claude", "Claude Auth", "OAuth token for Claude Code")
-        .item("telegram", "Telegram", "Bot token and allowed users")
-        .item("whisper", "Voice Transcription", "OpenAI Whisper API key")
-        .item("whatsapp", "WhatsApp", "Pair via QR code")
-        .item("google", "Google Workspace", "Gmail, Calendar, Drive...")
-        .item("service", "System Service", "Install or reinstall the service")
-        .required(false)
-        .interact()?;
+    loop {
+        let selected: Vec<&str> =
+            cliclack::multiselect("Select components to reconfigure (space to select)")
+                .item("claude", "Claude Auth", "OAuth token for Claude Code")
+                .item("telegram", "Telegram", "Bot token and allowed users")
+                .item("whisper", "Voice Transcription", "OpenAI Whisper API key")
+                .item("whatsapp", "WhatsApp", "Pair via QR code")
+                .item("google", "Google Workspace", "Gmail, Calendar, Drive...")
+                .item("service", "System Service", "Install or reinstall the service")
+                .required(false)
+                .interact()?;
 
-    if selected.is_empty() {
-        init_style::omega_info("Nothing selected.")?;
-        init_style::omega_outro("No changes made")?;
-        return Ok(());
-    }
-
-    let mut updates: Vec<(&str, &str, String)> = Vec::new();
-    let mut changed: Vec<&str> = Vec::new();
-
-    // ── Claude Auth ──────────────────────────────────────────────────────
-    if selected.contains(&"claude") {
-        if let Some(token) = init_wizard::run_anthropic_auth()? {
-            updates.push(("provider", "claude-code.oauth_token", token));
-            changed.push("Claude Auth");
+        if selected.is_empty() {
+            init_style::omega_outro("Done")?;
+            return Ok(());
         }
-    }
 
-    // ── Telegram ─────────────────────────────────────────────────────────
-    if selected.contains(&"telegram") {
-        let bot_token: String = cliclack::input("Telegram bot token")
-            .placeholder("Paste token from @BotFather (or Enter to skip)")
-            .required(false)
-            .default_input("")
-            .interact()?;
-        let bot_token = bot_token.trim().to_string();
+        let mut updates: Vec<(&str, &str, String)> = Vec::new();
+        let mut changed: Vec<&str> = Vec::new();
 
-        if !bot_token.is_empty() {
-            updates.push(("channel", "telegram.bot_token", bot_token));
-            updates.push(("channel", "telegram.enabled", "true".to_string()));
+        // ── Claude Auth ──────────────────────────────────────────────────
+        if selected.contains(&"claude") {
+            if let Some(token) = init_wizard::run_anthropic_auth()? {
+                updates.push(("provider", "claude-code.oauth_token", token));
+                changed.push("Claude Auth");
+            }
+        }
 
-            let id_str: String = cliclack::input("Your Telegram user ID")
-                .placeholder("Send /start to @userinfobot (blank = allow all)")
+        // ── Telegram ─────────────────────────────────────────────────────
+        if selected.contains(&"telegram") {
+            let bot_token: String = cliclack::input("Telegram bot token")
+                .placeholder("Paste token from @BotFather (or Enter to skip)")
                 .required(false)
                 .default_input("")
                 .interact()?;
-            if let Ok(id) = id_str.parse::<i64>() {
-                updates.push(("channel", "telegram.allowed_users", format!("[{id}]")));
-            }
-            changed.push("Telegram");
-        } else {
-            init_style::omega_info("Skipping Telegram — no changes")?;
-        }
-    }
+            let bot_token = bot_token.trim().to_string();
 
-    // ── Whisper ──────────────────────────────────────────────────────────
-    if selected.contains(&"whisper") {
-        let key: String = cliclack::input("OpenAI API key (for Whisper)")
-            .placeholder("sk-... (Enter to skip)")
-            .required(false)
-            .default_input("")
-            .interact()?;
-        let key = key.trim().to_string();
-        if !key.is_empty() {
-            updates.push(("channel", "telegram.whisper_api_key", key));
-            changed.push("Voice Transcription");
-        }
-    }
+            if !bot_token.is_empty() {
+                updates.push(("channel", "telegram.bot_token", bot_token));
+                updates.push(("channel", "telegram.enabled", "true".to_string()));
 
-    // ── WhatsApp ─────────────────────────────────────────────────────────
-    if selected.contains(&"whatsapp") {
-        let paired = init_wizard::run_whatsapp_setup().await?;
-        if paired {
-            updates.push(("channel", "whatsapp.enabled", "true".to_string()));
-            changed.push("WhatsApp");
-        }
-    }
-
-    // ── Google Workspace ─────────────────────────────────────────────────
-    if selected.contains(&"google") {
-        let omg_gog_installed = crate::init_google::is_omg_gog_installed();
-        let ready = if omg_gog_installed {
-            true
-        } else {
-            crate::init_google::install_omg_gog()?
-        };
-        if ready {
-            if let Some(email) = crate::init_google::run_google_wizard()? {
-                updates.push(("google", "account", email));
-                changed.push("Google Workspace");
+                let id_str: String = cliclack::input("Your Telegram user ID")
+                    .placeholder("Send /start to @userinfobot (blank = allow all)")
+                    .required(false)
+                    .default_input("")
+                    .interact()?;
+                if let Ok(id) = id_str.parse::<i64>() {
+                    updates.push((
+                        "channel",
+                        "telegram.allowed_users",
+                        format!("[{id}]"),
+                    ));
+                }
+                changed.push("Telegram");
+            } else {
+                init_style::omega_info("Skipping Telegram — no changes")?;
             }
         }
-    }
 
-    // ── Apply config updates ─────────────────────────────────────────────
-    if !updates.is_empty() {
-        update_config(&config_path, &updates)?;
-        init_style::omega_success(&format!(
-            "Updated ~/.omega/config.toml — {}",
-            changed.join(", ")
-        ))?;
-    }
-
-    // ── System Service ───────────────────────────────────────────────────
-    if selected.contains(&"service") {
-        match service::install("~/.omega/config.toml") {
-            Ok(()) => {
-                init_style::omega_success("System service installed")?;
-                changed.push("System Service");
+        // ── Whisper ──────────────────────────────────────────────────────
+        if selected.contains(&"whisper") {
+            let key: String = cliclack::input("OpenAI API key (for Whisper)")
+                .placeholder("sk-... (Enter to skip)")
+                .required(false)
+                .default_input("")
+                .interact()?;
+            let key = key.trim().to_string();
+            if !key.is_empty() {
+                updates.push(("channel", "telegram.whisper_api_key", key));
+                changed.push("Voice Transcription");
             }
-            Err(e) => {
-                init_style::omega_warning(&format!("Service install failed: {e}"))?;
+        }
+
+        // ── WhatsApp ─────────────────────────────────────────────────────
+        if selected.contains(&"whatsapp") {
+            let paired = init_wizard::run_whatsapp_setup().await?;
+            if paired {
+                updates.push(("channel", "whatsapp.enabled", "true".to_string()));
+                changed.push("WhatsApp");
+            }
+        }
+
+        // ── Google Workspace ─────────────────────────────────────────────
+        if selected.contains(&"google") {
+            let omg_gog_installed = crate::init_google::is_omg_gog_installed();
+            let ready = if omg_gog_installed {
+                true
+            } else {
+                crate::init_google::install_omg_gog()?
+            };
+            if ready {
+                if let Some(email) = crate::init_google::run_google_wizard()? {
+                    updates.push(("google", "account", email));
+                    changed.push("Google Workspace");
+                }
+            }
+        }
+
+        // ── Apply config updates ─────────────────────────────────────────
+        if !updates.is_empty() {
+            update_config(&config_path, &updates)?;
+            init_style::omega_success(&format!(
+                "Updated ~/.omega/config.toml — {}",
+                changed.join(", ")
+            ))?;
+        }
+
+        // ── System Service ───────────────────────────────────────────────
+        if selected.contains(&"service") {
+            match service::install("~/.omega/config.toml") {
+                Ok(()) => {
+                    init_style::omega_success("System service installed")?;
+                }
+                Err(e) => {
+                    init_style::omega_warning(&format!("Service install failed: {e}"))?;
+                }
             }
         }
     }
-
-    if changed.is_empty() {
-        init_style::omega_outro("No changes made")?;
-    } else {
-        init_style::omega_outro("Setup complete")?;
-    }
-
-    Ok(())
 }
 
 /// Update `config.toml` in-place by setting keys in nested tables.
