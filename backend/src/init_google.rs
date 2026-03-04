@@ -213,6 +213,8 @@ fn run_omg_gog_oauth() -> anyhow::Result<bool> {
     use std::sync::mpsc;
     use std::time::Duration;
 
+    // omg-gog prints the URL and prompt on stderr, so we merge
+    // stderr into stdout to read everything from one pipe.
     let mut child = Command::new("omg-gog")
         .args(["auth", "add", "--web"])
         .stdin(Stdio::piped())
@@ -222,10 +224,40 @@ fn run_omg_gog_oauth() -> anyhow::Result<bool> {
 
     let child_stdin = child.stdin.take().expect("stdin was piped");
     let child_stdout = child.stdout.take().expect("stdout was piped");
+    let child_stderr = child.stderr.take().expect("stderr was piped");
 
-    // Read stdout byte-by-byte in a background thread so we can detect
-    // the interactive prompt (which has no trailing newline).
+    // Read both stdout and stderr in background threads, merging into
+    // a single channel so we detect the prompt regardless of which
+    // stream omg-gog uses.
     let (tx, rx) = mpsc::channel::<OAuthSignal>();
+    let tx2 = tx.clone();
+
+    // Stderr reader (where omg-gog actually writes the URL and prompt).
+    std::thread::spawn(move || {
+        let mut output = String::new();
+        let mut buf = [0u8; 1];
+        let mut reader = child_stderr;
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(_) => {
+                    output.push(buf[0] as char);
+                    let lower = output.to_lowercase();
+                    if lower.contains("authorization code:")
+                        || lower.contains("redirect url:")
+                        || lower.contains("paste the")
+                    {
+                        let _ = tx2.send(OAuthSignal::Prompt(output));
+                        return;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = tx2.send(OAuthSignal::Done);
+    });
+
+    // Stdout reader (fallback — in case future omg-gog versions change).
     std::thread::spawn(move || {
         let mut output = String::new();
         let mut buf = [0u8; 1];
