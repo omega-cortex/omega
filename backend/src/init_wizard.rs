@@ -1,86 +1,10 @@
-//! Interactive-only helpers for the init wizard (browser detection, auth, WhatsApp).
+//! Interactive-only helpers for the init wizard (auth, WhatsApp).
 //! Google Workspace setup lives in `init_google.rs`.
 
 use crate::init_style;
 use omega_channels::whatsapp;
 use omega_core::shellexpand;
 use std::path::Path;
-
-/// Browser that supports private/incognito mode from the command line.
-pub(crate) struct PrivateBrowser {
-    pub label: &'static str,
-    pub app: &'static str,
-    pub flag: &'static str,
-}
-
-/// Known browsers with incognito/private mode support on macOS.
-pub(crate) const PRIVATE_BROWSERS: &[PrivateBrowser] = &[
-    PrivateBrowser {
-        label: "Google Chrome",
-        app: "Google Chrome",
-        flag: "--incognito",
-    },
-    PrivateBrowser {
-        label: "Brave",
-        app: "Brave Browser",
-        flag: "--incognito",
-    },
-    PrivateBrowser {
-        label: "Firefox",
-        app: "Firefox",
-        flag: "--private-window",
-    },
-    PrivateBrowser {
-        label: "Microsoft Edge",
-        app: "Microsoft Edge",
-        flag: "--inprivate",
-    },
-];
-
-/// Detect installed browsers that support incognito/private mode (macOS).
-///
-/// Returns indices into `PRIVATE_BROWSERS` for browsers found in `/Applications`.
-pub(crate) fn detect_private_browsers() -> Vec<usize> {
-    PRIVATE_BROWSERS
-        .iter()
-        .enumerate()
-        .filter(|(_, b)| Path::new(&format!("/Applications/{}.app", b.app)).exists())
-        .map(|(i, _)| i)
-        .collect()
-}
-
-/// Create a temporary shell script that opens a URL in incognito/private mode.
-///
-/// Returns the path to the script on success.
-pub(crate) fn create_incognito_script(
-    browser: &PrivateBrowser,
-) -> anyhow::Result<std::path::PathBuf> {
-    let script_path = std::env::temp_dir().join("omega_incognito_browser.sh");
-    let script = format!(
-        "#!/bin/sh\nopen -na '{}' --args {} \"$1\"\n",
-        browser.app, browser.flag
-    );
-    // Create with restricted permissions first (0o700), then write content.
-    // Prevents TOCTOU: no window where the file is world-readable.
-    #[cfg(unix)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o700)
-            .open(&script_path)?;
-        f.write_all(script.as_bytes())?;
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::write(&script_path, script)?;
-    }
-    Ok(script_path)
-}
 
 /// Probe whether the Claude CLI has valid authentication.
 ///
@@ -243,66 +167,5 @@ pub(crate) async fn run_whatsapp_setup() -> anyhow::Result<bool> {
             init_style::omega_error(&format!("{e} — you can try again later with /whatsapp."))?;
             Ok(false)
         }
-    }
-}
-
-// Google Workspace setup moved to `init_google.rs`.
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_private_browsers_constant_has_entries() {
-        assert!(
-            !PRIVATE_BROWSERS.is_empty(),
-            "should have at least one browser defined"
-        );
-        for b in PRIVATE_BROWSERS {
-            assert!(!b.label.is_empty(), "label must not be empty");
-            assert!(!b.app.is_empty(), "app must not be empty");
-            assert!(!b.flag.is_empty(), "flag must not be empty");
-        }
-    }
-
-    #[test]
-    fn test_detect_private_browsers_returns_valid_indices() {
-        let indices = detect_private_browsers();
-        for &idx in &indices {
-            assert!(
-                idx < PRIVATE_BROWSERS.len(),
-                "index {idx} out of bounds for PRIVATE_BROWSERS"
-            );
-        }
-    }
-
-    #[test]
-    fn test_create_incognito_script() {
-        let browser = &PRIVATE_BROWSERS[0]; // Google Chrome
-        let path = create_incognito_script(browser).expect("should create script");
-        assert!(path.exists(), "script file should exist");
-
-        let content = std::fs::read_to_string(&path).expect("should read script");
-        assert!(content.starts_with("#!/bin/sh\n"), "should have shebang");
-        assert!(
-            content.contains(browser.app),
-            "should contain browser app name"
-        );
-        assert!(
-            content.contains(browser.flag),
-            "should contain browser flag"
-        );
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::metadata(&path)
-                .expect("should get metadata")
-                .permissions();
-            assert_eq!(perms.mode() & 0o700, 0o700, "script should be executable");
-        }
-
-        // Cleanup.
-        let _ = std::fs::remove_file(path);
     }
 }

@@ -12,7 +12,7 @@
 //! - `pair.rs` (10 calls)
 
 use console::{Style, Term};
-use std::io;
+use std::io::{self, Write};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -81,6 +81,9 @@ fn status_line(marker: &str, marker_style: Style, message: &str) -> io::Result<(
 /// Logo is printed in cyan bold (instant). Subtitle appears below
 /// the logo with a gutter bar.
 pub(crate) fn omega_intro(logo: &str, subtitle: &str) -> io::Result<()> {
+    // Raw ANSI: clear screen + move cursor to top-left. Works on all terminals.
+    print!("\x1B[2J\x1B[H");
+    let _ = io::stdout().flush();
     let term = Term::stderr();
     for line in logo.lines() {
         term.write_line(&format!("{}", brand().apply_to(line)))?;

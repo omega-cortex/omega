@@ -6,7 +6,6 @@
 //! access *their own* data — no third-party access is involved.
 
 use crate::init_style;
-use crate::init_wizard::{create_incognito_script, detect_private_browsers, PRIVATE_BROWSERS};
 use omega_core::shellexpand;
 
 // ---------------------------------------------------------------------------
@@ -358,84 +357,43 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>> {
         }
     }
 
-    // ── Run OAuth flow ──────────────────────────────────────────────────
+    // ── Run OAuth flow ─────────────────────────────────────────────────
     init_style::omega_info(
-        "A browser will open for Google sign-in.\n\
-         You are authorizing YOUR app to access YOUR data — no third-party involved.",
+        "You are authorizing YOUR app to access YOUR data — no third-party involved.",
     )?;
 
-    // Offer incognito browser.
-    let browsers = detect_private_browsers();
-    let incognito_script = if !browsers.is_empty() {
-        let use_incognito: bool =
-            cliclack::confirm("Open in incognito/private window? (recommended)")
-                .initial_value(true)
-                .interact()?;
-
-        if use_incognito {
-            let browser_idx = if browsers.len() == 1 {
-                browsers[0]
-            } else {
-                let mut select = cliclack::select("Which browser?");
-                for &idx in &browsers {
-                    let b = &PRIVATE_BROWSERS[idx];
-                    select = select.item(idx, b.label, "");
-                }
-                select.interact()?
-            };
-
-            match create_incognito_script(&PRIVATE_BROWSERS[browser_idx]) {
-                Ok(path) => Some(path),
-                Err(e) => {
-                    init_style::omega_warning(&format!(
-                        "Could not set up incognito browser: {e} — using default"
-                    ))?;
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
     init_style::omega_note(
-        "OAuth Tips",
-        "• Click \"Advanced\" → \"Go to omg-gog (unsafe)\" → Allow\n\
+        "OAuth — next steps",
+        "omg-gog will print an authorization URL below.\n\
+         Open it in an incognito/private browser window (recommended).\n\
+         \n\
+         • Click \"Advanced\" → \"Go to omg-gog (unsafe)\" → Allow\n\
          • If blocked, go back to OAuth consent screen → Publish app",
     )?;
 
-    let spinner = cliclack::spinner();
-    spinner.start("Waiting for OAuth approval in browser ...");
+    // --web flow: prints URL, user opens in browser, callback via omgagi.ai.
+    // stdin/stdout/stderr inherited so the user sees the URL and interacts.
+    let status = std::process::Command::new("omg-gog")
+        .args(["auth", "add", "--web"])
+        .status();
 
-    let mut cmd = std::process::Command::new("omg-gog");
-    cmd.args(["auth", "add", "--web"]);
-    if let Some(ref script_path) = incognito_script {
-        cmd.env("BROWSER", script_path);
-    }
-    let auth_result = cmd.output();
-
-    // Clean up temp browser script.
-    if let Some(script_path) = incognito_script {
-        let _ = std::fs::remove_file(script_path);
-    }
-
-    match auth_result {
-        Ok(output) if output.status.success() => {
-            spinner.stop("OAuth approved");
+    let oauth_ok = match status {
+        Ok(s) if s.success() => {
+            init_style::omega_success("OAuth approved")?;
+            true
         }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            spinner.error(format!("omg-gog auth add failed: {stderr}"));
-            init_style::omega_warning("Try manually: omg-gog auth add --web")?;
-            return Ok(None);
+        Ok(_) => {
+            init_style::omega_warning("OAuth did not complete. Try manually: omg-gog auth add")?;
+            false
         }
         Err(e) => {
-            spinner.error(format!("Failed to run omg-gog: {e}"));
-            init_style::omega_warning("Google Workspace setup incomplete.")?;
-            return Ok(None);
+            init_style::omega_error(&format!("Failed to run omg-gog: {e}"))?;
+            false
         }
+    };
+
+    if !oauth_ok {
+        return Ok(None);
     }
 
     // ── Detect connected account ────────────────────────────────────────
