@@ -238,10 +238,10 @@ See [WhatsApp Setup Flow](#whatsapp-setup-flow-run_whatsapp_setup) below for ful
 **Action:** Present optional tools via `cliclack::multiselect` with `.required(false)`.
 
 **UX Pattern (shared with `run_setup` and Google API selection):**
-1. Show a **bold hint** via `init_style::omega_info()`: "Space to select multiple, or just press Enter to go one by one"
+1. Show a **bold hint** via `init_style::omega_info()`: "Space to select, Enter to pick one"
 2. Present `cliclack::multiselect` with `.required(false)` — allows empty selection
 3. If result is **non-empty** (user used Space): proceed with selected items
-4. If result is **empty** (user just pressed Enter): loop through each item with `cliclack::confirm` defaulting to `true`, collect confirmed ones
+4. If result is **empty** (user just pressed Enter): fall back to `cliclack::select` so the user can pick one item with Enter (plus a Skip/Done option)
 
 **Current items:** Google Workspace only (extensible).
 
@@ -370,7 +370,7 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>>
 Walk user through Google Cloud Console setup via `wizard_step()` (note + confirm):
 1. Create a Google Cloud Project
 1b. Collect GCP Project ID (validated: non-empty, no spaces, no slashes)
-2. Enable Google APIs — **multiselect with Enter-fallback**: bold hint, then `cliclack::multiselect` listing all 14 APIs with `.required(false)`. If non-empty: show direct links for selected APIs. If empty (Enter only): individual `cliclack::confirm` per API (default true). Links use project ID (14 APIs: Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Classroom, Tasks, Contacts/People, Groups/CloudIdentity, Keep, Apps Script)
+2. Enable Google APIs — **multiselect with Enter-fallback**: bold hint, then `cliclack::multiselect` listing all 14 APIs with `.required(false)`. If non-empty: show direct links for selected APIs. If empty (Enter only): `cliclack::select` fallback for single-pick with Enter (plus Skip option). Links use project ID (14 APIs: Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Classroom, Tasks, Contacts/People, Groups/CloudIdentity, Keep, Apps Script)
 3. Configure OAuth Consent Screen — direct link to consent page
 4. Create OAuth Client Credentials — direct link to OAuth client creation page (web application type, redirect URI `https://omgagi.ai/oauth/callback/`)
 5. Publish the App — direct link to consent/audience page
@@ -451,7 +451,7 @@ Menu-driven reconfiguration for an existing OMEGA installation. Invoked by `omeg
 ### Flow
 1. Check `~/.omega/config.toml` exists — if not, warn and bail
 2. Show OMEGA intro with "omega setup" subtitle
-3. Show **bold hint**: "Space to select multiple, or just press Enter to go one by one"
+3. Show **bold hint**: "Space to select, Enter to pick one"
 4. Present `cliclack::multiselect` with 6 items and `.required(false)`:
    - Claude Auth — re-run OAuth token flow (`init_wizard::run_anthropic_auth`)
    - Telegram — collect bot token and user ID
@@ -459,7 +459,7 @@ Menu-driven reconfiguration for an existing OMEGA installation. Invoked by `omeg
    - WhatsApp — run QR pairing (`init_wizard::run_whatsapp_setup`)
    - Google Workspace — run Google setup (`init_google::run_google_wizard`)
    - System Service — install/reinstall (`service::install`)
-5. **Enter-fallback**: if selection is empty (user pressed Enter without Space), loop through each component with `cliclack::confirm` defaulting to `true`. If all declined, exit loop
+5. **Enter-fallback**: if selection is empty (user pressed Enter without Space), fall back to `cliclack::select` with the same items plus "Done" — Enter picks the highlighted item. If "Done" is selected, exit loop
 6. For each selected/confirmed item, run the relevant wizard section and collect config updates
 7. Apply all config updates via `update_config()` (round-trip TOML serialization)
 8. Service installation runs after config updates (no config key — just runs `service::install`)
@@ -477,7 +477,7 @@ Menu-driven reconfiguration for an existing OMEGA installation. Invoked by `omeg
 
 ### Error Handling
 - Missing config.toml: non-error early return with warning
-- Empty multiselect + all confirms declined: exit loop (same as previous empty-selection behavior)
+- Empty multiselect + "Done" selected in fallback: exit loop (same as previous empty-selection behavior)
 - Individual component failures: handled by the underlying wizard functions (non-fatal)
 
 ---

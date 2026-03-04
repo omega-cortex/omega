@@ -51,7 +51,7 @@ Google Workspace OAuth setup has moved to `backend/src/init_google.rs`. It uses 
    - Shows bold hint: "Space to select multiple, or just press Enter to go one by one"
    - Presents `cliclack::multiselect` with all 14 APIs (`.required(false)`)
    - If user selects with Space: shows links only for selected APIs
-   - If user presses Enter (empty): walks through each API with `cliclack::confirm` (default true)
+   - If user presses Enter (empty): falls back to `cliclack::select` for single-pick (Enter selects highlighted item, plus Skip option)
    - 14 APIs: Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Classroom, Tasks, People, CloudIdentity, Keep, Apps Script
    - OAuth consent screen link
    - OAuth client creation link

@@ -132,7 +132,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let hint = console::Style::new()
         .bold()
-        .apply_to("Space to select multiple, or just press Enter to go one by one");
+        .apply_to("Space to select, Enter to pick one");
     init_style::omega_info(&hint.to_string())?;
 
     let selected_tools: Vec<&str> = cliclack::multiselect("Optional tools — select to set up")
@@ -141,15 +141,15 @@ pub async fn run() -> anyhow::Result<()> {
         .interact()?;
 
     let selected_tools: Vec<&str> = if selected_tools.is_empty() {
-        let mut confirmed = Vec::new();
-        let yes: bool =
-            cliclack::confirm(format!("Set up Google Workspace? — {google_hint}"))
-                .initial_value(true)
-                .interact()?;
-        if yes {
-            confirmed.push("google");
+        let choice: &str = cliclack::select("Pick a tool to set up")
+            .item("google", "Google Workspace", google_hint)
+            .item("skip", "Skip", "Continue without setting up tools")
+            .interact()?;
+        if choice == "skip" {
+            Vec::new()
+        } else {
+            vec![choice]
         }
-        confirmed
     } else {
         selected_tools
     };
@@ -248,7 +248,7 @@ pub async fn run_setup() -> anyhow::Result<()> {
     loop {
         let hint = console::Style::new()
             .bold()
-            .apply_to("Space to select multiple, or just press Enter to go one by one");
+            .apply_to("Space to select, Enter to pick one");
         init_style::omega_info(&hint.to_string())?;
 
         let selected: Vec<&str> =
@@ -267,28 +267,24 @@ pub async fn run_setup() -> anyhow::Result<()> {
                 .interact()?;
 
         let selected: Vec<&str> = if selected.is_empty() {
-            let items: &[(&str, &str)] = &[
-                ("claude", "Reconfigure Claude Auth?"),
-                ("telegram", "Reconfigure Telegram?"),
-                ("whisper", "Reconfigure Voice Transcription?"),
-                ("whatsapp", "Reconfigure WhatsApp?"),
-                ("google", "Reconfigure Google Workspace?"),
-                ("service", "Reinstall System Service?"),
-            ];
-            let mut confirmed = Vec::new();
-            for &(key, question) in items {
-                let yes: bool = cliclack::confirm(question)
-                    .initial_value(true)
-                    .interact()?;
-                if yes {
-                    confirmed.push(key);
-                }
-            }
-            if confirmed.is_empty() {
+            let choice: &str = cliclack::select("Pick one component to reconfigure")
+                .item("claude", "Claude Auth", "OAuth token for Claude Code")
+                .item("telegram", "Telegram", "Bot token and allowed users")
+                .item("whisper", "Voice Transcription", "OpenAI Whisper API key")
+                .item("whatsapp", "WhatsApp", "Pair via QR code")
+                .item("google", "Google Workspace", "Gmail, Calendar, Drive...")
+                .item(
+                    "service",
+                    "System Service",
+                    "Install or reinstall the service",
+                )
+                .item("done", "Done", "Exit setup")
+                .interact()?;
+            if choice == "done" {
                 init_style::omega_outro("Done")?;
                 return Ok(());
             }
-            confirmed
+            vec![choice]
         } else {
             selected
         };
