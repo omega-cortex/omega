@@ -363,14 +363,14 @@ Walk user through Google Cloud Console setup via `wizard_step()` (note + confirm
 
 **Step 8: OAuth authorization (`run_omg_gog_oauth`)**
 1. Spawn `omg-gog auth add --web` with **piped** stdin/stdout/stderr
-2. Background thread reads stdout byte-by-byte to detect interactive prompts
-3. **Headless detection:** If stdout contains `"authorization code:"`, `"redirect url:"`, or `"paste the"`:
-   - Extract the `https://accounts.google.com` URL from output
-   - Display via `cliclack::note` (user copies to external browser)
+2. Background thread reads stderr byte-by-byte (where omg-gog writes URL + prompt)
+3. When prompt detected (`"authorization code:"`):
+   - Extract the `https://accounts.google.com` URL from captured output
+   - Always display via `cliclack::note` ("Browser didn't open? Use the URL below")
    - Collect auth code via `cliclack::input`
    - Write code to child's stdin, close stdin
    - Poll `try_wait()` every 500ms with 120s timeout
-4. **Browser flow:** If process exits without prompting, check exit status
+4. If process exits without prompting: check exit status
 5. **Timeout:** If 120s elapses with no output, kill child process
 
 **Step 9: Detect connected account**

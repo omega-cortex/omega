@@ -193,28 +193,17 @@ fn extract_google_url(text: &str) -> Option<String> {
         })
 }
 
-/// Signals sent from the stdout reader thread.
-enum OAuthSignal {
-    /// The process printed a prompt — headless mode needed.
-    Prompt(String),
-    /// The process exited without prompting — browser flow worked.
-    Done,
-}
-
 /// Run `omg-gog auth add --web` with piped I/O.
 ///
-/// On a workstation, the browser opens and the flow completes automatically.
-/// On a headless VPS, the browser can't open — we detect the interactive
-/// prompt, display the URL via cliclack, and collect the auth code from
-/// the user.
+/// Always displays the authorization URL via cliclack so the user can
+/// open it on any device (like Claude Code's "Browser didn't open?"
+/// pattern). Collects the auth code via cliclack and pipes it back.
 fn run_omg_gog_oauth() -> anyhow::Result<bool> {
     use std::io::{Read, Write};
     use std::process::{Command, Stdio};
     use std::sync::mpsc;
     use std::time::Duration;
 
-    // omg-gog prints the URL and prompt on stderr, so we merge
-    // stderr into stdout to read everything from one pipe.
     let mut child = Command::new("omg-gog")
         .args(["auth", "add", "--web"])
         .stdin(Stdio::piped())
@@ -223,16 +212,11 @@ fn run_omg_gog_oauth() -> anyhow::Result<bool> {
         .spawn()?;
 
     let child_stdin = child.stdin.take().expect("stdin was piped");
-    let child_stdout = child.stdout.take().expect("stdout was piped");
     let child_stderr = child.stderr.take().expect("stderr was piped");
 
-    // Read both stdout and stderr in background threads, merging into
-    // a single channel so we detect the prompt regardless of which
-    // stream omg-gog uses.
-    let (tx, rx) = mpsc::channel::<OAuthSignal>();
-    let tx2 = tx.clone();
-
-    // Stderr reader (where omg-gog actually writes the URL and prompt).
+    // omg-gog writes URL + prompt to stderr. Read it in a background
+    // thread (byte-by-byte to catch the prompt without trailing newline).
+    let (tx, rx) = mpsc::channel::<Option<String>>();
     std::thread::spawn(move || {
         let mut output = String::new();
         let mut buf = [0u8; 1];
@@ -242,62 +226,42 @@ fn run_omg_gog_oauth() -> anyhow::Result<bool> {
                 Ok(0) => break,
                 Ok(_) => {
                     output.push(buf[0] as char);
-                    let lower = output.to_lowercase();
-                    if lower.contains("authorization code:")
-                        || lower.contains("redirect url:")
-                        || lower.contains("paste the")
-                    {
-                        let _ = tx2.send(OAuthSignal::Prompt(output));
+                    if output.to_lowercase().contains("authorization code:") {
+                        let _ = tx.send(Some(output));
                         return;
                     }
                 }
                 Err(_) => break,
             }
         }
-        let _ = tx2.send(OAuthSignal::Done);
+        let _ = tx.send(None);
     });
 
-    // Stdout reader (fallback — in case future omg-gog versions change).
+    // Drain stdout in a background thread so the pipe doesn't block.
+    let child_stdout = child.stdout.take().expect("stdout was piped");
     std::thread::spawn(move || {
-        let mut output = String::new();
-        let mut buf = [0u8; 1];
-        let mut reader = child_stdout;
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(_) => {
-                    output.push(buf[0] as char);
-                    let lower = output.to_lowercase();
-                    if lower.contains("authorization code:")
-                        || lower.contains("redirect url:")
-                        || lower.contains("paste the")
-                    {
-                        let _ = tx.send(OAuthSignal::Prompt(output));
-                        return;
-                    }
-                }
-                Err(_) => break,
+        let mut sink = child_stdout;
+        let mut buf = [0u8; 256];
+        while let Ok(n) = sink.read(&mut buf) {
+            if n == 0 {
+                break;
             }
         }
-        let _ = tx.send(OAuthSignal::Done);
     });
 
     let timeout = Duration::from_secs(120);
     match rx.recv_timeout(timeout) {
-        Ok(OAuthSignal::Prompt(output)) => {
-            // Headless mode: extract URL, ask user to open it externally.
-            let url = extract_google_url(&output)
-                .unwrap_or_else(|| "https://accounts.google.com (check omg-gog output)".into());
+        Ok(Some(output)) => {
+            // Extract URL and display it — always, like Claude Code does.
+            let url = extract_google_url(&output);
 
-            init_style::omega_note(
-                "Headless OAuth",
-                &format!(
-                    "Browser could not open automatically.\n\
-                     Copy this URL and open it in any browser:\n\n\
-                     {url}\n\n\
-                     After authorizing, you will receive a code."
-                ),
-            )?;
+            if let Some(ref url) = url {
+                init_style::omega_note("Browser didn't open? Use the URL below to sign in", url)?;
+            } else {
+                init_style::omega_warning(
+                    "Could not extract the authorization URL from omg-gog output.",
+                )?;
+            }
 
             let code: String = cliclack::input("Paste the authorization code")
                 .placeholder("4/0Axx...")
@@ -328,13 +292,12 @@ fn run_omg_gog_oauth() -> anyhow::Result<bool> {
                 }
             }
         }
-        Ok(OAuthSignal::Done) => {
-            // Browser flow completed — just check exit status.
+        Ok(None) => {
+            // Process exited without prompting — check exit status.
             let status = child.wait()?;
             Ok(status.success())
         }
         Err(_) => {
-            // Timeout waiting for any output.
             child.kill()?;
             anyhow::bail!("omg-gog timed out after 120s");
         }
@@ -526,11 +489,11 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>> {
 
     init_style::omega_note(
         "OAuth — next steps",
-        "omg-gog will print an authorization URL below.\n\
-         Open it in an incognito/private browser window (recommended).\n\
+        "An authorization URL will appear below — open it in any browser.\n\
          \n\
          • Click \"Advanced\" → \"Go to omg-gog (unsafe)\" → Allow\n\
-         • If blocked, go back to OAuth consent screen → Publish app",
+         • If blocked, go back to OAuth consent screen → Publish app\n\
+         • After authorizing, copy the code and paste it here",
     )?;
 
     // --web flow: pipe stdin/stdout/stderr so we can detect interactive
