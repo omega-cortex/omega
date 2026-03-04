@@ -6,63 +6,89 @@ use omega_channels::whatsapp;
 use omega_core::shellexpand;
 use std::path::Path;
 
-/// Check Claude CLI authentication via `claude auth status`.
-///
-/// Returns `(logged_in, Option<email>)` parsed from the JSON output.
-fn check_claude_auth_status() -> (bool, Option<String>) {
-    let output = std::process::Command::new("claude")
-        .args(["auth", "status"])
-        .output();
+/// Validate an OAuth token by running `claude -p "ok"` with the token
+/// injected as `CLAUDE_CODE_OAUTH_TOKEN` (15-second timeout).
+fn validate_oauth_token(token: &str) -> bool {
+    let child = std::process::Command::new("claude")
+        .args(["-p", "ok", "--output-format", "json", "--max-turns", "1"])
+        .env("CLAUDE_CODE_OAUTH_TOKEN", token)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 
-    let Ok(output) = output else {
-        return (false, None);
+    let Ok(child) = child else {
+        return false;
     };
 
-    if !output.status.success() {
-        return (false, None);
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut child = child;
+        let _ = tx.send(child.wait());
+    });
+
+    match rx.recv_timeout(std::time::Duration::from_secs(15)) {
+        Ok(Ok(status)) => status.success(),
+        _ => false,
     }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(stdout.trim()) else {
-        return (false, None);
-    };
-
-    let logged_in = value
-        .get("loggedIn")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let email = value
-        .get("email")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    (logged_in, email)
 }
 
-/// Check Claude CLI authentication status and inform the user.
+/// Collect and validate an Anthropic OAuth token.
 ///
-/// If logged in, shows the email and continues. If not, instructs the user
-/// to run `claude login` before re-running `omega init`.
-pub(crate) fn run_anthropic_auth() -> anyhow::Result<()> {
-    let spinner = cliclack::spinner();
-    spinner.start("Checking Claude Code authentication...");
-    let (logged_in, email) = check_claude_auth_status();
+/// OMEGA manages authentication by storing the token in config.toml and
+/// exporting `CLAUDE_CODE_OAUTH_TOKEN` when spawning Claude Code.
+///
+/// Returns `Some(token)` to persist in config.toml, or `None` if skipped.
+pub(crate) fn run_anthropic_auth() -> anyhow::Result<Option<String>> {
+    init_style::omega_note(
+        "Anthropic OAuth token",
+        "1. Run `claude login` in another terminal\n\
+         2. Run `claude setup-token` and authorize in the browser\n\
+         3. Paste the generated token below",
+    )?;
 
-    if logged_in {
-        let msg = if let Some(ref email) = email {
-            format!("Claude Code — logged in as {email}")
+    const MAX_ATTEMPTS: u8 = 3;
+    let mut last_token = String::new();
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        let token: String = cliclack::input("Paste OAuth token (or Enter to skip)")
+            .placeholder("sk-ant-oat01-...")
+            .required(false)
+            .default_input("")
+            .interact()?;
+
+        let token = token.trim().to_string();
+
+        if token.is_empty() {
+            init_style::omega_warning(
+                "Skipped — set oauth_token in config.toml later, or run `omega init` again.",
+            )?;
+            return Ok(None);
+        }
+
+        let spinner = cliclack::spinner();
+        spinner.start("Validating token...");
+
+        if validate_oauth_token(&token) {
+            spinner.stop("Anthropic authentication — configured");
+            return Ok(Some(token));
+        }
+
+        last_token = token;
+
+        if attempt < MAX_ATTEMPTS {
+            spinner.error(format!(
+                "Token validation failed — attempt {attempt}/{MAX_ATTEMPTS}. Try again."
+            ));
         } else {
-            "Claude Code — authenticated".to_string()
-        };
-        spinner.stop(msg);
-    } else {
-        spinner.error("Claude Code — not logged in");
-        init_style::omega_warning(
-            "Run `claude login` to authenticate, then run `omega init` again.",
-        )?;
+            spinner.error("Token validation failed — claude could not authenticate");
+            init_style::omega_warning(
+                "The token will still be saved to config.toml.\n\
+                 You can re-authenticate later with: claude setup-token",
+            )?;
+        }
     }
 
-    Ok(())
+    Ok(Some(last_token))
 }
 
 /// Check if a WhatsApp session already exists.
