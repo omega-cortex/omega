@@ -14,7 +14,7 @@ Interactive-only helpers extracted from `init.rs` to keep the init module under 
 - `is_claude_authenticated()` — private fn: probes Claude CLI auth via `claude -p "ok"` (exit code check)
 - `run_anthropic_auth()` — `pub(crate)` fn: auto-detects auth, then setup-token flow or skip
 - `run_whatsapp_setup()` — `pub(crate) async` fn: WhatsApp QR pairing via cliclack
-- `run_google_setup()` — moved to `backend/src/init_google.rs`: Google OAuth flow via `omg-gog` CLI with incognito browser offer
+- `run_google_setup()` — moved to `backend/src/init_google.rs`: Google OAuth flow via `omg-gog` CLI with headless detection (piped I/O, cliclack fallback for auth code)
 - `whatsapp_already_paired()` — private helper
 
 ## Called By

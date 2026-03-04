@@ -180,6 +180,136 @@ fn detect_email_from_omg_gog() -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// OAuth subprocess with headless detection
+// ---------------------------------------------------------------------------
+
+/// Extract the first `https://accounts.google.com` URL from text.
+fn extract_google_url(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .find(|w| w.starts_with("https://accounts.google.com"))
+        .map(|w| {
+            w.trim_matches(|c: char| !c.is_alphanumeric() && !":/?=&%.+-_".contains(c))
+                .to_string()
+        })
+}
+
+/// Signals sent from the stdout reader thread.
+enum OAuthSignal {
+    /// The process printed a prompt — headless mode needed.
+    Prompt(String),
+    /// The process exited without prompting — browser flow worked.
+    Done,
+}
+
+/// Run `omg-gog auth add --web` with piped I/O.
+///
+/// On a workstation, the browser opens and the flow completes automatically.
+/// On a headless VPS, the browser can't open — we detect the interactive
+/// prompt, display the URL via cliclack, and collect the auth code from
+/// the user.
+fn run_omg_gog_oauth() -> anyhow::Result<bool> {
+    use std::io::{Read, Write};
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let mut child = Command::new("omg-gog")
+        .args(["auth", "add", "--web"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let child_stdin = child.stdin.take().expect("stdin was piped");
+    let child_stdout = child.stdout.take().expect("stdout was piped");
+
+    // Read stdout byte-by-byte in a background thread so we can detect
+    // the interactive prompt (which has no trailing newline).
+    let (tx, rx) = mpsc::channel::<OAuthSignal>();
+    std::thread::spawn(move || {
+        let mut output = String::new();
+        let mut buf = [0u8; 1];
+        let mut reader = child_stdout;
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(_) => {
+                    output.push(buf[0] as char);
+                    let lower = output.to_lowercase();
+                    if lower.contains("authorization code:")
+                        || lower.contains("redirect url:")
+                        || lower.contains("paste the")
+                    {
+                        let _ = tx.send(OAuthSignal::Prompt(output));
+                        return;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = tx.send(OAuthSignal::Done);
+    });
+
+    let timeout = Duration::from_secs(120);
+    match rx.recv_timeout(timeout) {
+        Ok(OAuthSignal::Prompt(output)) => {
+            // Headless mode: extract URL, ask user to open it externally.
+            let url = extract_google_url(&output)
+                .unwrap_or_else(|| "https://accounts.google.com (check omg-gog output)".into());
+
+            init_style::omega_note(
+                "Headless OAuth",
+                &format!(
+                    "Browser could not open automatically.\n\
+                     Copy this URL and open it in any browser:\n\n\
+                     {url}\n\n\
+                     After authorizing, you will receive a code."
+                ),
+            )?;
+
+            let code: String = cliclack::input("Paste the authorization code")
+                .placeholder("4/0Axx...")
+                .validate(|input: &String| {
+                    if input.trim().is_empty() {
+                        Err("Authorization code is required")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .interact()?;
+
+            // Send the code to omg-gog's stdin and close it.
+            let mut stdin = child_stdin;
+            writeln!(stdin, "{}", code.trim())?;
+            drop(stdin);
+
+            // Wait for completion with timeout (poll every 500ms).
+            let deadline = std::time::Instant::now() + timeout;
+            loop {
+                match child.try_wait()? {
+                    Some(status) => return Ok(status.success()),
+                    None if std::time::Instant::now() >= deadline => {
+                        child.kill()?;
+                        anyhow::bail!("omg-gog timed out after 120s");
+                    }
+                    None => std::thread::sleep(Duration::from_millis(500)),
+                }
+            }
+        }
+        Ok(OAuthSignal::Done) => {
+            // Browser flow completed — just check exit status.
+            let status = child.wait()?;
+            Ok(status.success())
+        }
+        Err(_) => {
+            // Timeout waiting for any output.
+            child.kill()?;
+            anyhow::bail!("omg-gog timed out after 120s");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Main wizard entry point
 // ---------------------------------------------------------------------------
 
@@ -371,23 +501,19 @@ pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>> {
          • If blocked, go back to OAuth consent screen → Publish app",
     )?;
 
-    // --web flow: prints URL, user opens in browser, callback via omgagi.ai.
-    // stdin/stdout/stderr inherited so the user sees the URL and interacts.
-    let status = std::process::Command::new("omg-gog")
-        .args(["auth", "add", "--web"])
-        .status();
-
-    let oauth_ok = match status {
-        Ok(s) if s.success() => {
+    // --web flow: pipe stdin/stdout/stderr so we can detect interactive
+    // prompts on headless systems where the browser can't open.
+    let oauth_ok = match run_omg_gog_oauth() {
+        Ok(true) => {
             init_style::omega_success("OAuth approved")?;
             true
         }
-        Ok(_) => {
+        Ok(false) => {
             init_style::omega_warning("OAuth did not complete. Try manually: omg-gog auth add")?;
             false
         }
         Err(e) => {
-            init_style::omega_error(&format!("Failed to run omg-gog: {e}"))?;
+            init_style::omega_error(&format!("OAuth flow failed: {e}"))?;
             false
         }
     };
@@ -438,5 +564,29 @@ mod tests {
     fn test_is_omg_gog_installed_does_not_panic() {
         // Must not panic even if the binary does not exist.
         let _ = is_omg_gog_installed();
+    }
+
+    #[test]
+    fn test_extract_google_url_from_output() {
+        let output = "Open this URL:\nhttps://accounts.google.com/o/oauth2/v2/auth?client_id=123&scope=email\nPaste the authorization code:";
+        let url = extract_google_url(output);
+        assert!(url.is_some());
+        assert!(url
+            .unwrap()
+            .starts_with("https://accounts.google.com/o/oauth2/"));
+    }
+
+    #[test]
+    fn test_extract_google_url_missing() {
+        let output = "Some random text without a URL";
+        assert!(extract_google_url(output).is_none());
+    }
+
+    #[test]
+    fn test_extract_google_url_with_surrounding_chars() {
+        let output = "Visit: https://accounts.google.com/auth?q=1&r=2 now.";
+        let url = extract_google_url(output).unwrap();
+        assert!(url.starts_with("https://accounts.google.com/"));
+        assert!(url.contains("q=1"));
     }
 }

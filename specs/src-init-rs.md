@@ -329,89 +329,78 @@ All errors are caught and converted to `Ok(false)` with a warning message. Whats
 
 ## Google Workspace Setup Flow (`run_google_setup`)
 
+> **File:** `backend/src/init_google.rs`
+
 ### Signature
 ```rust
-fn run_google_setup() -> anyhow::Result<Option<String>>
+pub(crate) fn run_google_setup() -> anyhow::Result<Option<String>>
 ```
 
 ### Logic Flow
 
-**Step 1: Check `omg-gog` CLI availability**
-1. Execute `omg-gog --version` as subprocess
-2. Map exit status to boolean with `.map(|o| o.status.success()).unwrap_or(false)`
-3. If NOT found: return `Ok(None)` silently (no prompt, no message)
+**Step 0: Ensure `omg-gog` CLI**
+1. Check `omg-gog --help` exit code
+2. If missing: offer to install via script or build from source
+3. If still missing: show manual install instructions, return `Ok(None)`
 
-**Step 2: Offer setup**
-1. Prompt with `cliclack::confirm("Set up Google Workspace? (Gmail, Calendar, Drive)")` (initial value: `false`)
-2. If user declines: return `Ok(None)`
+**Step 1–5: Guided wizard steps**
+Walk user through Google Cloud Console setup via `wizard_step()` (note + confirm):
+1. Create a Google Cloud Project
+2. Enable Google APIs (Gmail, Calendar, Drive, Docs, etc.)
+3. Configure OAuth Consent Screen
+4. Create OAuth Client Credentials (web application type, redirect URI `https://omgagi.ai/oauth/callback/`)
+5. Publish the App
 
-**Step 3: Display Google Cloud Console instructions**
-1. Call `init_style::omega_note("Google Workspace Setup", ...)` with a 6-step guide:
-   - Go to console.cloud.google.com
-   - Create a project (or use existing)
-   - Enable: Gmail API, Calendar API, Drive API
-   - Go to Credentials -> Create OAuth Client ID -> Desktop app
-   - Download the JSON file
-   - Go to OAuth consent screen → Audience → Publish app
+**Step 6: Collect client_secret JSON**
+1. User pastes the full JSON content of the downloaded credentials file
+2. Validate: must be valid JSON with `"web"` or `"installed"` key
+3. Write to `/tmp/client_secret.json` (mode 0600 on Unix)
 
-**Step 4: Collect credentials file path**
-1. Call `cliclack::input("Path to client_secret.json")` with:
-   - `.placeholder("~/Downloads/client_secret_xxxxx.json")`
-   - `.validate(...)` closure that:
-     - Rejects empty input with `"Path is required"`
-     - Expands path via `shellexpand(input)`
-     - Checks `Path::new(&expanded).exists()` -- rejects with `"File not found"` if missing
-   - `.interact()?`
-2. Expand the path via `shellexpand(&cred_path)`
+**Step 7: Register credentials**
+1. Execute `omg-gog auth credentials /tmp/client_secret.json`
+2. Always clean up temp file afterward
+3. On failure: warning + return `Ok(None)`
 
-**Step 5: Register credentials**
-1. Start spinner: `"Running: omg-gog auth credentials ..."`
-2. Execute `omg-gog auth credentials <expanded_path>` as subprocess
-3. On success: stop spinner with `"Credentials registered"`
-4. On failure (non-zero exit): stop spinner with error, log warning, return `Ok(None)`
-5. On execution error: stop spinner with error, log warning, return `Ok(None)`
+**Step 8: OAuth authorization (`run_omg_gog_oauth`)**
+1. Spawn `omg-gog auth add --web` with **piped** stdin/stdout/stderr
+2. Background thread reads stdout byte-by-byte to detect interactive prompts
+3. **Headless detection:** If stdout contains `"authorization code:"`, `"redirect url:"`, or `"paste the"`:
+   - Extract the `https://accounts.google.com` URL from output
+   - Display via `cliclack::note` (user copies to external browser)
+   - Collect auth code via `cliclack::input`
+   - Write code to child's stdin, close stdin
+   - Poll `try_wait()` every 500ms with 120s timeout
+4. **Browser flow:** If process exits without prompting, check exit status
+5. **Timeout:** If 120s elapses with no output, kill child process
 
-**Step 6: Collect Gmail address**
-1. Call `cliclack::input("Your Gmail address")` with:
-   - `.placeholder("you@gmail.com")`
-   - `.validate(...)` closure that rejects empty input or input without `@` with `"Please enter a valid email address"`
-   - `.interact()?`
-
-**Step 7: Incognito browser offer**
-1. Call `detect_private_browsers()` to find installed browsers with incognito support (Chrome, Brave, Firefox, Edge)
-2. If browsers found: prompt `cliclack::confirm("Open OAuth URL in incognito/private window? (recommended)")` (default: `true`)
-3. If user accepts and multiple browsers found: prompt `cliclack::select("Which browser?")` to choose
-4. If user accepts: call `create_incognito_script(browser)` to write a temp shell script at `$TMPDIR/omega_incognito_browser.sh` that opens URLs in private mode
-5. If no browsers found or user declines: use default browser (no BROWSER env var set)
-
-**Step 8: Display OAuth Tips**
-1. Display `init_style::omega_note("OAuth Tips", ...)` with troubleshooting guidance:
-   - Click 'Advanced' → 'Go to omg-gog (unsafe)' → Allow
-   - If 'Access blocked: not verified', publish app or add test user
-
-**Step 9: OAuth authorization**
-1. Start spinner: `"Waiting for OAuth approval in browser..."`
-2. Build `omg-gog auth add <email> --services gmail,calendar,drive,contacts,docs,sheets` command
-3. If incognito script was created: set `BROWSER` env var on the subprocess to the temp script path
-4. Execute the command
-5. Clean up temp script (regardless of outcome)
-6. On success: stop spinner with `"OAuth approved"`
-7. On failure (non-zero exit): stop spinner with error, log warning, display manual incognito retry suggestion, return `Ok(None)`
-8. On execution error: stop spinner with error, log warning, return `Ok(None)`
-
-**Step 10: Verify with `omg-gog auth list`**
-1. Execute `omg-gog auth list` as subprocess
-2. Check if stdout contains the email address
-3. If verified: log success `"Google Workspace connected!"`, return `Ok(Some(email))`
-4. If not verified: log warning `"Could not verify Google auth — check manually with 'omg-gog auth list'."`, return `Ok(Some(email))` (auth might still have worked)
+**Step 9: Detect connected account**
+1. Execute `omg-gog auth list`, scan for email address
+2. Return `Ok(Some(email))` or `Ok(None)`
 
 ### Error Handling
-- Missing `omg-gog` CLI: silently skipped, user is never prompted
+- Missing `omg-gog` CLI: user offered install, then skipped if still missing
 - All `omg-gog` subprocess failures produce warnings and return `Ok(None)` -- never fatal to the wizard
-- Failed OAuth shows manual incognito retry suggestion to help users troubleshoot browser-related issues
-- Incognito script creation failure is non-fatal: falls back to default browser with a warning
-- Temp incognito script is always cleaned up after the `omg-gog auth add` command completes
-- Verification failure is non-fatal; returns the email optimistically
+- OAuth timeout (120s): child process killed, error reported
+- Headless fallback: graceful degradation when browser cannot open
+
+### Internal Functions
+| Function | Purpose |
+|----------|---------|
+| `extract_google_url(text)` | Extracts first `https://accounts.google.com` URL from text |
+| `run_omg_gog_oauth()` | Piped I/O subprocess with headless prompt detection |
+| `ensure_omg_gog()` | Binary check + install offer |
+| `wizard_step(title, body, label)` | Note + confirm UI pattern |
+| `detect_email_from_omg_gog()` | Parses email from `omg-gog auth list` output |
+
+### Tests (6 tests)
+| Test | Assertions |
+|------|------------|
+| `test_detect_email_from_output_empty` | Function compiles (omg-gog not available in CI) |
+| `test_wizard_step_label_not_empty` | Labels passed to wizard_step are non-empty |
+| `test_is_omg_gog_installed_does_not_panic` | No panic even if binary is missing |
+| `test_extract_google_url_from_output` | Extracts URL from realistic omg-gog output |
+| `test_extract_google_url_missing` | Returns None when no URL present |
+| `test_extract_google_url_with_surrounding_chars` | Handles URL with surrounding punctuation |
 
 ---
 
