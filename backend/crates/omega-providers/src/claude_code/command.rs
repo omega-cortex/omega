@@ -195,6 +195,10 @@ impl ClaudeCodeProvider {
         };
         // Remove CLAUDECODE env var so the CLI doesn't think it's nested.
         cmd.env_remove("CLAUDECODE");
+        // Inject OAuth token if configured.
+        if let Some(ref token) = self.oauth_token {
+            cmd.env("CLAUDE_CODE_OAUTH_TOKEN", token);
+        }
         cmd
     }
 

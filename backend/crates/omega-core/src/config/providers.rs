@@ -37,6 +37,10 @@ pub struct ClaudeCodeConfig {
     /// Complex model for multi-step autonomous execution.
     #[serde(default = "default_model_complex")]
     pub model_complex: String,
+    /// OAuth token for Claude Code CLI authentication.
+    /// Injected as `CLAUDE_CODE_OAUTH_TOKEN` env var when spawning the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_token: Option<String>,
 }
 
 impl Default for ClaudeCodeConfig {
@@ -49,6 +53,7 @@ impl Default for ClaudeCodeConfig {
             max_resume_attempts: default_max_resume_attempts(),
             model: default_model(),
             model_complex: default_model_complex(),
+            oauth_token: None,
         }
     }
 }

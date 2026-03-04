@@ -29,6 +29,7 @@ fn test_from_config_with_timeout() {
         None,
         3,
         "claude-sonnet-4-6".into(),
+        None,
     );
     assert_eq!(provider.max_turns, 5);
     assert_eq!(provider.timeout, Duration::from_secs(300));
@@ -47,6 +48,7 @@ fn test_from_config_with_working_dir() {
         Some(dir.clone()),
         5,
         String::new(),
+        None,
     );
     assert_eq!(provider.working_dir, Some(dir));
 }

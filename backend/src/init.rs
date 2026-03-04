@@ -54,7 +54,7 @@ pub async fn run() -> anyhow::Result<()> {
     }
 
     // 3. Anthropic authentication.
-    init_wizard::run_anthropic_auth()?;
+    let oauth_token = init_wizard::run_anthropic_auth()?;
 
     // 4. Telegram bot token.
     let bot_token: String = cliclack::input("Telegram bot token")
@@ -128,6 +128,7 @@ pub async fn run() -> anyhow::Result<()> {
             whisper_api_key.as_deref(),
             whatsapp_enabled,
             google_email.as_deref(),
+            oauth_token.as_deref(),
         );
         std::fs::write(config_path, config)?;
         init_style::omega_success("Generated ~/.omega/config.toml")?;
@@ -223,23 +224,9 @@ pub fn run_noninteractive(
         )?;
     }
 
-    // 4. Apply Claude setup-token if provided.
-    if let Some(token) = claude_setup_token {
-        let result = std::process::Command::new("claude")
-            .args(["setup-token", token.trim()])
-            .output();
-        match result {
-            Ok(output) if output.status.success() => {
-                init_style::omega_success("Claude setup-token: applied")?;
-            }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                init_style::omega_warning(&format!("claude setup-token failed: {stderr}"))?;
-            }
-            Err(e) => {
-                init_style::omega_warning(&format!("could not run claude setup-token: {e}"))?;
-            }
-        }
+    // 4. Claude OAuth token — stored in config.toml, injected as env var by the provider.
+    if claude_setup_token.is_some() {
+        init_style::omega_success("Claude OAuth token: will be saved to config.toml")?;
     }
 
     // 5. Google credentials setup (non-interactive part only).
@@ -290,6 +277,7 @@ pub fn run_noninteractive(
         whisper_key,
         false, // WhatsApp handled post-deployment
         google_email,
+        claude_setup_token,
     );
     std::fs::write(config_path, &config)?;
     init_style::omega_success("Generated: ~/.omega/config.toml")?;
@@ -334,6 +322,7 @@ pub fn generate_config(
     whisper_api_key: Option<&str>,
     whatsapp_enabled: bool,
     google_email: Option<&str>,
+    oauth_token: Option<&str>,
 ) -> String {
     let allowed_users = if user_ids.is_empty() {
         "[]".to_string()
@@ -357,6 +346,11 @@ pub fn generate_config(
         _ => String::new(),
     };
 
+    let oauth_line = match oauth_token {
+        Some(token) if !token.is_empty() => format!("oauth_token = \"{token}\""),
+        _ => "# oauth_token = \"\"  # Paste token from `claude setup-token`".to_string(),
+    };
+
     let mut config = format!(
         r#"[omega]
 name = "OMEGA Ω"
@@ -373,6 +367,7 @@ default = "claude-code"
 enabled = true
 max_turns = 100
 allowed_tools = ["Bash", "Read", "Write", "Edit"]
+{oauth_line}
 
 [channel.telegram]
 enabled = {telegram_enabled}
@@ -409,7 +404,14 @@ mod tests {
 
     #[test]
     fn test_generate_config_full() {
-        let config = generate_config("123:ABC", &[42], Some("sk-key"), true, Some("me@gmail.com"));
+        let config = generate_config(
+            "123:ABC",
+            &[42],
+            Some("sk-key"),
+            true,
+            Some("me@gmail.com"),
+            Some("sk-ant-oat01-test"),
+        );
         assert!(config.contains("bot_token = \"123:ABC\""));
         assert!(config.contains("allowed_users = [42]"));
         assert!(
@@ -419,23 +421,25 @@ mod tests {
         assert!(config.contains("whisper_api_key = \"sk-key\""));
         assert!(config.contains("[channel.whatsapp]\nenabled = true"));
         assert!(config.contains("[google]\naccount = \"me@gmail.com\""));
+        assert!(config.contains("oauth_token = \"sk-ant-oat01-test\""));
         assert!(!config.contains("[sandbox]"), "no sandbox section");
     }
 
     #[test]
     fn test_generate_config_minimal() {
-        let config = generate_config("", &[], None, false, None);
+        let config = generate_config("", &[], None, false, None, None);
         assert!(config.contains("bot_token = \"\""));
         assert!(config.contains("allowed_users = []"));
         assert!(config.contains("[channel.telegram]\nenabled = false"));
         assert!(config.contains("[channel.whatsapp]\nenabled = false"));
+        assert!(config.contains("# oauth_token"));
         assert!(!config.contains("[google]"));
         assert!(!config.contains("[sandbox]"));
     }
 
     #[test]
     fn test_generate_config_telegram_only() {
-        let config = generate_config("tok:EN", &[999], None, false, None);
+        let config = generate_config("tok:EN", &[999], None, false, None, None);
         assert!(config.contains("bot_token = \"tok:EN\""));
         assert!(config.contains("allowed_users = [999]"));
         assert!(config.contains("[channel.telegram]\nenabled = true"));
@@ -445,14 +449,14 @@ mod tests {
 
     #[test]
     fn test_generate_config_google_only() {
-        let config = generate_config("", &[], None, false, Some("test@example.com"));
+        let config = generate_config("", &[], None, false, Some("test@example.com"), None);
         assert!(config.contains("[google]\naccount = \"test@example.com\""));
         assert!(config.contains("[channel.telegram]\nenabled = false"));
     }
 
     #[test]
     fn test_generate_config_whatsapp_only() {
-        let config = generate_config("", &[], None, true, None);
+        let config = generate_config("", &[], None, true, None, None);
         assert!(config.contains("[channel.whatsapp]\nenabled = true"));
         assert!(config.contains("[channel.telegram]\nenabled = false"));
         assert!(!config.contains("[google]"));
@@ -460,20 +464,20 @@ mod tests {
 
     #[test]
     fn test_generate_config_with_whisper() {
-        let config = generate_config("tok:EN", &[42], Some("sk-abc"), false, None);
+        let config = generate_config("tok:EN", &[42], Some("sk-abc"), false, None, None);
         assert!(config.contains("whisper_api_key = \"sk-abc\""));
     }
 
     #[test]
     fn test_generate_config_without_whisper() {
-        let config = generate_config("tok:EN", &[42], None, false, None);
+        let config = generate_config("tok:EN", &[42], None, false, None, None);
         assert!(config.contains("# whisper_api_key"));
         assert!(config.contains("OPENAI_API_KEY"));
     }
 
     #[test]
     fn test_generate_config_multiple_users() {
-        let config = generate_config("tok:EN", &[111, 222, 333], None, false, None);
+        let config = generate_config("tok:EN", &[111, 222, 333], None, false, None, None);
         assert!(config.contains("allowed_users = [111, 222, 333]"));
     }
 

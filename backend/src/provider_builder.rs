@@ -34,6 +34,7 @@ pub fn build_provider(
                     ws,
                     cc.max_resume_attempts,
                     cc.model,
+                    cc.oauth_token,
                 )),
                 model_fast,
                 model_complex,

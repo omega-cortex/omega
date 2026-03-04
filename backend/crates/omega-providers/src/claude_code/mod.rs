@@ -35,6 +35,8 @@ pub struct ClaudeCodeProvider {
     max_resume_attempts: u32,
     /// Default model to pass via `--model` (empty = let CLI decide).
     model: String,
+    /// OAuth token injected as `CLAUDE_CODE_OAUTH_TOKEN` env var.
+    oauth_token: Option<String>,
 }
 
 /// JSON response from `claude -p --output-format json`.
@@ -69,6 +71,7 @@ impl ClaudeCodeProvider {
             working_dir: None,
             max_resume_attempts: 5,
             model: String::new(),
+            oauth_token: None,
         }
     }
 
@@ -80,6 +83,7 @@ impl ClaudeCodeProvider {
         working_dir: Option<PathBuf>,
         max_resume_attempts: u32,
         model: String,
+        oauth_token: Option<String>,
     ) -> Self {
         Self {
             max_turns,
@@ -88,6 +92,7 @@ impl ClaudeCodeProvider {
             working_dir,
             max_resume_attempts,
             model,
+            oauth_token,
         }
     }
 

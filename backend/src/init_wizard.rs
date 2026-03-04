@@ -6,42 +6,84 @@ use omega_channels::whatsapp;
 use omega_core::shellexpand;
 use std::path::Path;
 
-/// Probe whether the Claude CLI has valid authentication.
+/// Probe whether the Claude CLI has valid authentication (15-second timeout).
 ///
 /// Runs a minimal `claude -p` invocation. If the CLI has credentials the
 /// command succeeds (exit 0); otherwise it fails fast before any network call.
 fn is_claude_authenticated() -> bool {
-    std::process::Command::new("claude")
+    let child = std::process::Command::new("claude")
         .args(["-p", "ok", "--output-format", "json", "--max-turns", "1"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .spawn();
+
+    let Ok(child) = child else {
+        return false;
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut child = child;
+        let _ = tx.send(child.wait());
+    });
+
+    match rx.recv_timeout(std::time::Duration::from_secs(15)) {
+        Ok(Ok(status)) => status.success(),
+        _ => false,
+    }
+}
+
+/// Validate an OAuth token by running `claude -p "ok"` with the token
+/// as `CLAUDE_CODE_OAUTH_TOKEN` env var (15-second timeout).
+fn validate_oauth_token(token: &str) -> bool {
+    let child = std::process::Command::new("claude")
+        .args(["-p", "ok", "--output-format", "json", "--max-turns", "1"])
+        .env("CLAUDE_CODE_OAUTH_TOKEN", token)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+
+    let Ok(child) = child else {
+        return false;
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut child = child;
+        let _ = tx.send(child.wait());
+    });
+
+    match rx.recv_timeout(std::time::Duration::from_secs(15)) {
+        Ok(Ok(status)) => status.success(),
+        _ => false,
+    }
 }
 
 /// Run Anthropic authentication setup.
 ///
 /// Probes Claude CLI authentication first. If credentials are already valid the
-/// step is auto-completed. Otherwise the user is guided through the setup-token
-/// flow (or may skip and authenticate later).
-pub(crate) fn run_anthropic_auth() -> anyhow::Result<()> {
+/// step is auto-completed. Otherwise the user is guided through pasting an
+/// OAuth token generated via `claude setup-token`.
+///
+/// Returns the OAuth token if one was provided and validated, so the caller
+/// can persist it in config.toml.
+pub(crate) fn run_anthropic_auth() -> anyhow::Result<Option<String>> {
     let spinner = cliclack::spinner();
     spinner.start("Checking Anthropic authentication...");
     let authenticated = is_claude_authenticated();
 
     if authenticated {
         spinner.stop("Anthropic authentication — already configured");
-        return Ok(());
+        return Ok(None);
     }
 
     spinner.stop("Anthropic authentication — not detected");
 
     let auth_method: &str = cliclack::select("Anthropic auth method")
         .item(
-            "setup-token",
-            "Paste setup-token (Recommended)",
-            "Run `claude setup-token` elsewhere, then paste the token here",
+            "paste-token",
+            "Paste OAuth token (Recommended)",
+            "Run `claude setup-token` elsewhere, then paste the generated token here",
         )
         .item(
             "skip",
@@ -54,16 +96,17 @@ pub(crate) fn run_anthropic_auth() -> anyhow::Result<()> {
         init_style::omega_warning(
             "You can authenticate later with: claude login or claude setup-token",
         )?;
-        return Ok(());
+        return Ok(None);
     }
 
     init_style::omega_note(
-        "Anthropic setup-token",
-        "Run `claude setup-token` in your terminal.\nThen paste the generated token below.",
+        "Anthropic OAuth token",
+        "Run `claude setup-token` in another terminal.\n\
+         Authorize in the browser, then paste the generated token below.",
     )?;
 
-    let token: String = cliclack::input("Paste Anthropic setup-token")
-        .placeholder("Paste the token here")
+    let token: String = cliclack::input("Paste OAuth token")
+        .placeholder("sk-ant-oat01-...")
         .validate(|input: &String| {
             if input.trim().is_empty() {
                 return Err("Token is required");
@@ -72,29 +115,22 @@ pub(crate) fn run_anthropic_auth() -> anyhow::Result<()> {
         })
         .interact()?;
 
+    let token = token.trim().to_string();
+
     let spinner = cliclack::spinner();
-    spinner.start("Applying setup-token...");
+    spinner.start("Validating OAuth token...");
 
-    let result = std::process::Command::new("claude")
-        .args(["setup-token", token.trim()])
-        .output();
-
-    match result {
-        Ok(output) if output.status.success() => {
-            spinner.stop("Anthropic authentication — configured");
-        }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            spinner.error(format!("setup-token failed: {stderr}"));
-            init_style::omega_warning("You can authenticate later with: claude setup-token")?;
-        }
-        Err(e) => {
-            spinner.error(format!("Failed to run claude: {e}"));
-            init_style::omega_warning("You can authenticate later with: claude setup-token")?;
-        }
+    if validate_oauth_token(&token) {
+        spinner.stop("Anthropic authentication — configured");
+        Ok(Some(token))
+    } else {
+        spinner.error("Token validation failed — claude could not authenticate");
+        init_style::omega_warning(
+            "The token will still be saved to config.toml.\n\
+             You can re-authenticate later with: claude login or claude setup-token",
+        )?;
+        Ok(Some(token))
     }
-
-    Ok(())
 }
 
 /// Check if a WhatsApp session already exists.
