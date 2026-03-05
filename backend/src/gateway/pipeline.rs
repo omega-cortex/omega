@@ -265,6 +265,9 @@ impl Gateway {
             .flatten();
 
         if let Some(google_value) = pending_google {
+            if let Some(h) = typing_handle {
+                h.abort();
+            }
             self.handle_google_response(&incoming, &google_value).await;
             return;
         }
