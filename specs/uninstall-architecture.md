@@ -39,6 +39,9 @@ omega uninstall
 [remove ~/.omega/]     -- complete: remove_dir_all
       |                -- keep-config: remove subdirs only
       v
+[remove omg-gog config dir]     -- both modes, warn on failure
+      |
+      v
 [remove /usr/local/bin/omega]   -- warn on permission error
       |
       v
@@ -112,6 +115,12 @@ fn step_daemon_reload(result: &mut UninstallResult)
 /// Remove ~/.omega/ directory (complete mode) or subdirectories (keep-config mode).
 fn step_remove_data_dir(mode: &UninstallMode, result: &mut UninstallResult)
 
+/// Remove the omg-gog credential directory (both modes).
+fn step_remove_omg_gog_config(home: &str, result: &mut UninstallResult)
+
+/// Return the platform-specific omg-gog config directory path.
+fn omg_gog_config_dir(home: &str) -> PathBuf
+
 /// Remove a binary symlink (/usr/local/bin/omega or /usr/local/bin/omg-gog).
 fn step_remove_symlink(path: &str, label: &str, result: &mut UninstallResult)
 ```
@@ -139,6 +148,7 @@ fn step_remove_symlink(path: &str, label: &str, result: &mut UninstallResult)
    | `~/.omega/topologies/` | -- | DELETE |
    | `~/.omega/whatsapp_session/` | -- | DELETE |
    | `~/.omega/config.toml` | (included in dir) | PRESERVED |
+   | `omg-gog` config dir (platform) | DELETE | DELETE |
    | Service file (platform-specific) | DELETE | DELETE |
    | `/usr/local/bin/omega` | DELETE | DELETE |
    | `/usr/local/bin/omg-gog` | DELETE | DELETE |
@@ -154,6 +164,7 @@ fn step_remove_symlink(path: &str, label: &str, result: &mut UninstallResult)
    - `step_remove_service_file` -- call `service::service_file_path()`, if exists call `std::fs::remove_file()`. Log via `omega_success` or `omega_warning`.
    - `step_daemon_reload` -- on Linux only: `Command::new("systemctl").args(["--user", "daemon-reload"])`. Log warning on failure.
    - `step_remove_data_dir` -- complete mode: `fs::remove_dir_all("~/.omega/")`. Keep-config mode: iterate known subdirs, `fs::remove_dir_all` each. Log per-item success/warning.
+   - `step_remove_omg_gog_config` -- `fs::remove_dir_all` on `omg_gog_config_dir(home)`. Both modes. OAuth credentials are not user config. macOS: `~/Library/Application Support/omega-google/`. Linux: `~/.config/omega-google/`.
    - `step_remove_symlink("/usr/local/bin/omega", "omega binary")` -- `fs::remove_file`. On permission error, `omega_warning` with "Run: sudo rm /usr/local/bin/omega".
    - `step_remove_symlink("/usr/local/bin/omg-gog", "omg-gog binary")` -- same pattern.
 
@@ -252,7 +263,8 @@ No logic changes. No signature changes. Pure visibility upgrade.
 | Data | Classification | Storage | Deleted By |
 |------|---------------|---------|------------|
 | API keys/tokens | Secret | `~/.omega/config.toml` | Complete mode (or preserved in keep-config) |
-| OAuth credentials | Secret | `~/.omega/stores/google.json` | Both modes |
+| OAuth credentials (stores) | Secret | `~/.omega/stores/google.json` | Both modes |
+| OAuth credentials (omg-gog) | Secret | `omg_gog_config_dir()/credentials.json` | Both modes |
 | Conversation history | Confidential | `~/.omega/data/memory.db` | Both modes |
 | WhatsApp session | Confidential | `~/.omega/whatsapp_session/` | Both modes |
 | Skills/Projects | Internal | `~/.omega/skills/`, `~/.omega/projects/` | Both modes |
@@ -315,6 +327,9 @@ uninstall::run()
       | step_remove_data_dir()
       | -> fs::remove_dir_all() or per-subdir
       |
+      | step_remove_omg_gog_config()
+      | -> fs::remove_dir_all(omg_gog_config_dir)
+      |
       | step_remove_symlink() x2
       | -> fs::remove_file()
       |
@@ -370,3 +385,4 @@ Single milestone. The feature is a self-contained CLI command with no external m
 | REQ-UNINST-012 | Failure Modes table, UninstallResult accumulator | `backend/src/uninstall.rs` |
 | REQ-UNINST-013 | Flow Detail (step 6: step_daemon_reload) | `backend/src/uninstall.rs` |
 | REQ-UNINST-014 | Flow Detail (step 7: Outro with config path) | `backend/src/uninstall.rs` |
+| REQ-UNINST-015 | Flow Detail (step 6: step_remove_omg_gog_config) | `backend/src/uninstall.rs` |

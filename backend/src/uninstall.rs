@@ -60,6 +60,25 @@ const KEEP_CONFIG_SUBDIRS: &[&str] = &[
 ];
 
 // ---------------------------------------------------------------------------
+// omg-gog config directory resolution
+// ---------------------------------------------------------------------------
+
+/// Return the `omg-gog` credential directory for the current platform.
+///
+/// - macOS: `~/Library/Application Support/omega-google/`
+/// - Linux: `~/.config/omega-google/`
+fn omg_gog_config_dir(home: &str) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("omega-google")
+    } else {
+        PathBuf::from(home).join(".config").join("omega-google")
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -114,6 +133,7 @@ pub(crate) fn run() -> anyhow::Result<()> {
     step_remove_service_file(&mut result);
     step_daemon_reload(&mut result);
     step_remove_data_dir(&home, &mode, &mut result);
+    step_remove_omg_gog_config(&home, &mut result);
     step_remove_symlink("/usr/local/bin/omega", "omega binary", &mut result);
     step_remove_symlink("/usr/local/bin/omg-gog", "omg-gog binary", &mut result);
 
@@ -212,6 +232,17 @@ fn scan_artifacts(home: &str, mode: &UninstallMode) -> Vec<ArtifactEntry> {
                 preserved: false,
             });
         }
+    }
+
+    // omg-gog credential directory (removed in both modes).
+    let gog_dir = omg_gog_config_dir(home);
+    if gog_dir.exists() {
+        let display = gog_dir.display().to_string();
+        artifacts.push(ArtifactEntry {
+            path: gog_dir,
+            label: format!("omg-gog credentials ({display})"),
+            preserved: false,
+        });
     }
 
     artifacts
@@ -337,6 +368,28 @@ fn step_remove_data_dir(home: &str, mode: &UninstallMode, result: &mut Uninstall
                     }
                 }
             }
+        }
+    }
+}
+
+/// Remove the `omg-gog` credential directory.
+///
+/// Deleted in both Complete and KeepConfig modes — OAuth credentials are not
+/// user configuration worth preserving across reinstalls.
+fn step_remove_omg_gog_config(home: &str, result: &mut UninstallResult) {
+    let gog_dir = omg_gog_config_dir(home);
+    if !gog_dir.exists() {
+        return;
+    }
+
+    match std::fs::remove_dir_all(&gog_dir) {
+        Ok(()) => {
+            let _ = init_style::omega_success(&format!("Removed {}", gog_dir.display()));
+        }
+        Err(e) => {
+            let msg = format!("Failed to remove {}: {e}", gog_dir.display());
+            let _ = init_style::omega_warning(&msg);
+            result.warn(msg);
         }
     }
 }
@@ -591,6 +644,75 @@ mod tests {
             UninstallMode::from("anything_else"),
             UninstallMode::Complete
         );
+    }
+
+    // ===================================================================
+    // scan_artifacts — omg-gog config dir included when present
+    // ===================================================================
+
+    #[test]
+    fn test_scan_artifacts_includes_omg_gog_dir() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let home = tmp.path().to_str().expect("temp path to str");
+
+        // Create .omega so scan has something to report.
+        std::fs::create_dir_all(tmp.path().join(".omega")).expect("create .omega");
+
+        // Create the omg-gog config dir.
+        let gog_dir = omg_gog_config_dir(home);
+        std::fs::create_dir_all(&gog_dir).expect("create omg-gog dir");
+        std::fs::write(gog_dir.join("credentials.json"), "{}").expect("write creds");
+
+        // Both modes should list it.
+        for mode in [UninstallMode::Complete, UninstallMode::KeepConfig] {
+            let artifacts = scan_artifacts(home, &mode);
+            let gog_entry = artifacts
+                .iter()
+                .find(|a| a.label.contains("omg-gog credentials"));
+            assert!(
+                gog_entry.is_some(),
+                "omg-gog dir should appear in {mode:?} mode"
+            );
+            assert!(
+                !gog_entry.expect("checked").preserved,
+                "omg-gog credentials should never be preserved"
+            );
+        }
+    }
+
+    // ===================================================================
+    // step_remove_omg_gog_config — removes directory
+    // ===================================================================
+
+    #[test]
+    fn test_step_remove_omg_gog_config_removes_dir() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let home = tmp.path().to_str().expect("temp path to str");
+
+        let gog_dir = omg_gog_config_dir(home);
+        std::fs::create_dir_all(&gog_dir).expect("create omg-gog dir");
+        std::fs::write(gog_dir.join("credentials.json"), "{}").expect("write creds");
+
+        let mut result = UninstallResult::new();
+        step_remove_omg_gog_config(home, &mut result);
+
+        assert!(!gog_dir.exists(), "omg-gog dir should be removed");
+        assert!(result.warnings.is_empty(), "no warnings expected");
+    }
+
+    // ===================================================================
+    // step_remove_omg_gog_config — no-op when dir absent
+    // ===================================================================
+
+    #[test]
+    fn test_step_remove_omg_gog_config_noop_when_absent() {
+        let tmp = tempfile::tempdir().expect("create temp dir");
+        let home = tmp.path().to_str().expect("temp path to str");
+
+        let mut result = UninstallResult::new();
+        step_remove_omg_gog_config(home, &mut result);
+
+        assert!(result.warnings.is_empty(), "no warnings for missing dir");
     }
 
     // ===================================================================

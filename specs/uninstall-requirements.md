@@ -37,6 +37,9 @@ Add a top-level `omega uninstall` CLI command that lets a user completely remove
 ~/.config/systemd/user/omega.service                 # Linux service
 /usr/local/bin/omega                                 # Binary symlink
 /usr/local/bin/omg-gog                               # Google tool binary (optional)
+
+~/Library/Application Support/omega-google/          # macOS: omg-gog credentials
+~/.config/omega-google/                              # Linux: omg-gog credentials
 ```
 
 ## Requirements
@@ -57,8 +60,9 @@ Add a top-level `omega uninstall` CLI command that lets a user completely remove
 | REQ-UNINST-012 | Graceful handling of partial failures | Should | Each deletion step is independent; errors reported as warnings; final summary reflects partial failure |
 | REQ-UNINST-013 | Systemd daemon-reload after service removal on Linux | Should | `systemctl --user daemon-reload` called after removing unit; failure reported as warning |
 | REQ-UNINST-014 | Display reinstall guidance after keep-config uninstall | Could | Outro mentions preserved config path |
-| REQ-UNINST-015 | Non-interactive mode via `--yes` or `--force` flag | Won't | Deferred |
-| REQ-UNINST-016 | Backup data before deletion | Won't | Deferred |
+| REQ-UNINST-015 | Remove `omg-gog` credential directory (`omega-google/`) | Must | Deleted in both modes; macOS: `~/Library/Application Support/omega-google/`; Linux: `~/.config/omega-google/`; missing dir handled gracefully |
+| REQ-UNINST-016 | Non-interactive mode via `--yes` or `--force` flag | Won't | Deferred |
+| REQ-UNINST-017 | Backup data before deletion | Won't | Deferred |
 
 ## Acceptance Criteria (detailed)
 
@@ -127,6 +131,11 @@ Add a top-level `omega uninstall` CLI command that lets a user completely remove
 ### REQ-UNINST-014: Reinstall guidance
 - Keep-config outro includes "Config preserved at ~/.omega/config.toml"
 
+### REQ-UNINST-015: Remove omg-gog credential directory
+- Given `omega-google/` exists in the platform config dir, when uninstall proceeds (either mode), then the directory and all contents are deleted
+- Given `omega-google/` does not exist, this step is skipped without error
+- OAuth credentials are not user configuration — removed in both Complete and KeepConfig modes to prevent stale credential pollution on re-init
+
 ## Impact Analysis
 
 ### Existing Code Affected
@@ -159,6 +168,7 @@ Add a top-level `omega uninstall` CLI command that lets a user completely remove
 | REQ-UNINST-012 | Should | TBD | Failure Modes, UninstallResult accumulator | backend/src/uninstall.rs |
 | REQ-UNINST-013 | Should | TBD | Flow Detail (step 6: step_daemon_reload) | backend/src/uninstall.rs |
 | REQ-UNINST-014 | Could | TBD | Flow Detail (step 7: Outro with config path) | backend/src/uninstall.rs |
+| REQ-UNINST-015 | Must | TBD | Flow Detail (step 6: step_remove_omg_gog_config) | backend/src/uninstall.rs |
 
 ## Risks
 
@@ -173,4 +183,4 @@ Add a top-level `omega uninstall` CLI command that lets a user completely remove
 - Non-interactive `--yes`/`--force` flag (deferred)
 - Backup before deletion (deferred)
 - Removing the compiled binary at `~/.cargo/target-global/release/omega` (managed by cargo)
-- Removing `omg-gog` internal data beyond `~/.omega/stores/google.json`
+- Removing the compiled binary at `~/.cargo/target-global/release/omg-gog` (managed by cargo)
