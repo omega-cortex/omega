@@ -20,6 +20,20 @@ use super::google_auth_oauth;
 use super::keywords::{is_build_cancelled, GOOGLE_AUTH_TTL_SECS};
 use super::Gateway;
 
+/// Try to extract `client_id` and `client_secret` from a Google credentials JSON blob.
+/// Supports both `{"web":{...}}` and `{"installed":{...}}` formats (Google Cloud Console).
+/// Returns `None` if parsing fails or required fields are missing.
+fn try_extract_json_credentials(input: &str) -> Option<(String, String)> {
+    let val: serde_json::Value = serde_json::from_str(input.trim()).ok()?;
+    let inner = val.get("web").or_else(|| val.get("installed"))?;
+    let cid = inner.get("client_id")?.as_str()?;
+    let csec = inner.get("client_secret")?.as_str()?;
+    if cid.is_empty() || csec.is_empty() {
+        return None;
+    }
+    Some((cid.to_string(), csec.to_string()))
+}
+
 /// Validate an email address (basic: non-empty, trimmed, contains '@', has '.' after '@').
 fn is_valid_email(email: &str) -> bool {
     let trimmed = email.trim();
@@ -275,6 +289,47 @@ impl Gateway {
                 self.send_text(incoming, &msg).await;
             }
             "setup_guide" => {
+                // If user pasted full Google credentials JSON, extract both values at once.
+                if input.starts_with('{') {
+                    if let Some((cid, csec)) = try_extract_json_credentials(input) {
+                        // Delete message containing credentials.
+                        self.delete_user_message(incoming).await;
+
+                        if let Err(e) = self
+                            .memory
+                            .store_fact(&incoming.sender_id, "_google_client_id", &cid)
+                            .await
+                        {
+                            warn!("failed to store _google_client_id: {e}");
+                            self.send_text(incoming, google_store_error_message(&user_lang))
+                                .await;
+                            return;
+                        }
+                        if let Err(e) = self
+                            .memory
+                            .store_fact(&incoming.sender_id, "_google_client_secret", &csec)
+                            .await
+                        {
+                            warn!("failed to store _google_client_secret: {e}");
+                            self.send_text(incoming, google_store_error_message(&user_lang))
+                                .await;
+                            return;
+                        }
+
+                        // Skip client_secret step — go straight to auth_code.
+                        let auth_url = google_auth_oauth::build_authorization_url(&cid);
+                        let new_value = format!("{ts_str}|auth_code");
+                        let _ = self
+                            .memory
+                            .store_fact(&incoming.sender_id, "pending_google", &new_value)
+                            .await;
+                        let msg = google_step_auth_code_message(&user_lang, &auth_url);
+                        self.send_text_plain(incoming, &msg).await;
+                        return;
+                    }
+                    // JSON parse failed — fall through to treat as raw Client ID.
+                }
+
                 // User sends Client ID. Strip all whitespace (copy-paste artifacts).
                 let clean: String = input.chars().filter(|c| !c.is_whitespace()).collect();
                 if let Err(e) = self
@@ -299,8 +354,17 @@ impl Gateway {
                 // Delete the user's message (contains secret).
                 self.delete_user_message(incoming).await;
 
-                // Strip all whitespace (copy-paste artifacts).
-                let clean: String = input.chars().filter(|c| !c.is_whitespace()).collect();
+                // Safety net: if user pastes full JSON here, extract just the secret.
+                let clean: String = if input.starts_with('{') {
+                    if let Some((_cid, csec)) = try_extract_json_credentials(input) {
+                        csec
+                    } else {
+                        input.chars().filter(|c| !c.is_whitespace()).collect()
+                    }
+                } else {
+                    // Strip all whitespace (copy-paste artifacts).
+                    input.chars().filter(|c| !c.is_whitespace()).collect()
+                };
                 if let Err(e) = self
                     .memory
                     .store_fact(&incoming.sender_id, "_google_client_secret", &clean)
@@ -990,5 +1054,72 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(b_pending.contains("client_secret"));
+    }
+
+    // ===================================================================
+    // JSON credential extraction
+    // ===================================================================
+
+    #[test]
+    fn test_extract_json_credentials_web_format() {
+        let json = r#"{"web":{"client_id":"123.apps.googleusercontent.com","client_secret":"GOCSPX-abc","redirect_uris":["https://example.com"]}}"#;
+        let result = try_extract_json_credentials(json);
+        assert!(result.is_some());
+        let (cid, csec) = result.unwrap();
+        assert_eq!(cid, "123.apps.googleusercontent.com");
+        assert_eq!(csec, "GOCSPX-abc");
+    }
+
+    #[test]
+    fn test_extract_json_credentials_installed_format() {
+        let json = r#"{"installed":{"client_id":"456.apps.googleusercontent.com","client_secret":"GOCSPX-xyz","auth_uri":"https://accounts.google.com/o/oauth2/auth"}}"#;
+        let result = try_extract_json_credentials(json);
+        assert!(result.is_some());
+        let (cid, csec) = result.unwrap();
+        assert_eq!(cid, "456.apps.googleusercontent.com");
+        assert_eq!(csec, "GOCSPX-xyz");
+    }
+
+    #[test]
+    fn test_extract_json_credentials_raw_string() {
+        let result = try_extract_json_credentials("123.apps.googleusercontent.com");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_json_credentials_malformed_json() {
+        let result = try_extract_json_credentials("{bad json");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_json_credentials_missing_fields() {
+        let json = r#"{"web":{"client_id":"123"}}"#;
+        let result = try_extract_json_credentials(json);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_json_credentials_empty_values() {
+        let json = r#"{"web":{"client_id":"","client_secret":""}}"#;
+        let result = try_extract_json_credentials(json);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_json_credentials_with_whitespace() {
+        let json = r#"
+        {
+            "web": {
+                "client_id": "789.apps.googleusercontent.com",
+                "client_secret": "GOCSPX-123"
+            }
+        }
+        "#;
+        let result = try_extract_json_credentials(json);
+        assert!(result.is_some());
+        let (cid, csec) = result.unwrap();
+        assert_eq!(cid, "789.apps.googleusercontent.com");
+        assert_eq!(csec, "GOCSPX-123");
     }
 }

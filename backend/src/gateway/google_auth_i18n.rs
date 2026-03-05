@@ -70,7 +70,8 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              *4. Publicar la app*\n\
              {consent_url}\n\
              - Ve a \"Audience\" y haz clic en \"Publish App\"\n\n\
-             Envia tu *Client ID* cuando estes listo."
+             Envia tu *Client ID* cuando estes listo.\n\n\
+             Tambien puedes pegar el contenido completo del archivo JSON descargado."
         ),
         "Portuguese" => format!(
             "Projeto recebido: *{project_id}*\n\n\
@@ -94,7 +95,8 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              *4. Publicar o app*\n\
              {consent_url}\n\
              - Va a \"Audience\" e clique em \"Publish App\"\n\n\
-             Envie seu *Client ID* quando estiver pronto."
+             Envie seu *Client ID* quando estiver pronto.\n\n\
+             Voce tambem pode colar o conteudo completo do arquivo JSON baixado."
         ),
         "French" => format!(
             "Projet recu : *{project_id}*\n\n\
@@ -118,7 +120,8 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              *4. Publier l'app*\n\
              {consent_url}\n\
              - Allez a \"Audience\" et cliquez sur \"Publish App\"\n\n\
-             Envoyez votre *Client ID* quand vous etes pret."
+             Envoyez votre *Client ID* quand vous etes pret.\n\n\
+             Vous pouvez aussi coller le contenu complet du fichier JSON telecharge."
         ),
         "German" => format!(
             "Projekt erhalten: *{project_id}*\n\n\
@@ -142,7 +145,8 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              *4. App veroffentlichen*\n\
              {consent_url}\n\
              - Gehe zu \"Audience\" und klicke auf \"Publish App\"\n\n\
-             Sende deine *Client ID* wenn du bereit bist."
+             Sende deine *Client ID* wenn du bereit bist.\n\n\
+             Du kannst auch den vollstandigen Inhalt der heruntergeladenen JSON-Datei einfugen."
         ),
         "Italian" => format!(
             "Progetto ricevuto: *{project_id}*\n\n\
@@ -166,7 +170,8 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              *4. Pubblicare l'app*\n\
              {consent_url}\n\
              - Vai a \"Audience\" e clicca su \"Publish App\"\n\n\
-             Invia il tuo *Client ID* quando sei pronto."
+             Invia il tuo *Client ID* quando sei pronto.\n\n\
+             Puoi anche incollare il contenuto completo del file JSON scaricato."
         ),
         "Dutch" => format!(
             "Project ontvangen: *{project_id}*\n\n\
@@ -190,7 +195,8 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              *4. App publiceren*\n\
              {consent_url}\n\
              - Ga naar \"Audience\" en klik op \"Publish App\"\n\n\
-             Stuur je *Client ID* als je klaar bent."
+             Stuur je *Client ID* als je klaar bent.\n\n\
+             Je kunt ook de volledige inhoud van het gedownloade JSON-bestand plakken."
         ),
         "Russian" => format!(
             "Проект получен: *{project_id}*\n\n\
@@ -214,7 +220,8 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              *4. Опубликовать приложение*\n\
              {consent_url}\n\
              - Перейдите в \"Audience\" и нажмите \"Publish App\"\n\n\
-             Отправьте ваш *Client ID* когда будете готовы."
+             Отправьте ваш *Client ID* когда будете готовы.\n\n\
+             Вы также можете вставить полное содержимое скачанного JSON-файла."
         ),
         _ => format!(
             "Project received: *{project_id}*\n\n\
@@ -238,7 +245,8 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              *4. Publish the app*\n\
              {consent_url}\n\
              - Go to \"Audience\" and click \"Publish App\"\n\n\
-             Send your *Client ID* when ready."
+             Send your *Client ID* when ready.\n\n\
+             You can also paste the full content of the downloaded JSON file."
         ),
     };
 
