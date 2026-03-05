@@ -1,7 +1,7 @@
 # Functionalities: Calendar
 
 ## Overview
-Google Calendar API — event CRUD, calendar listing, freebusy queries, RSVP, cross-calendar search, conflict detection, and special event types (focus time, out-of-office, working location).
+Google Calendar API — event CRUD, calendar listing, freebusy queries, RSVP, cross-calendar search, conflict detection, special event types (focus time, out-of-office, working location), and push notification watches via Channel API.
 
 ## CLI Commands
 
@@ -25,6 +25,9 @@ Google Calendar API — event CRUD, calendar listing, freebusy queries, RSVP, cr
 | 16 | `calendar focus-time` | inline | src/cli/mod.rs | Create Focus Time block |
 | 17 | `calendar out-of-office` / `ooo` | inline | src/cli/mod.rs | Create out-of-office event |
 | 18 | `calendar working-location` / `wl` | inline | src/cli/mod.rs | Set working location |
+| 19 | `calendar watch start --callback-url <url>` | `watch_start` | src/services/calendar/watch.rs | Start push notifications; `--callback-url` (required), `--calendar` (default: primary) |
+| 20 | `calendar watch stop --channel-id <id> --resource-id <id>` | `watch_stop` | src/services/calendar/watch.rs | Stop push notifications |
+| 21 | `calendar watch status` | `watch_status` | src/services/calendar/watch.rs | Show watch status (informational — no API to query active watches) |
 
 ## URL/Body Builders
 
@@ -51,6 +54,8 @@ Google Calendar API — event CRUD, calendar listing, freebusy queries, RSVP, cr
 | 19 | `build_working_location_event` | src/services/calendar/special.rs | Working location event body |
 | 20 | `validate_location_type` | src/services/calendar/special.rs | Validate location type string |
 | 21 | `build_colors_url` | src/services/calendar/colors.rs | `GET /calendar/v3/colors` |
+| 22 | `build_calendar_watch_url` | src/services/calendar/watch.rs | `POST /calendar/v3/calendars/{id}/events/watch` |
+| 23 | `build_calendar_stop_url` | src/services/calendar/watch.rs | `POST /calendar/v3/channels/stop` |
 
 ## Utility Functions
 
@@ -82,3 +87,7 @@ Google Calendar API — event CRUD, calendar listing, freebusy queries, RSVP, cr
 | 15 | AclScope | Struct | src/services/calendar/types.rs | ACL scope |
 | 16 | ColorsResponse | Struct | src/services/calendar/types.rs | Color definitions |
 | 17 | ColorDefinition | Struct | src/services/calendar/types.rs | Color entry |
+| 18 | CalendarWatchArgs | Struct | src/cli/calendar.rs | CLI args for `calendar watch` |
+| 19 | CalendarWatchCommand | Enum | src/cli/calendar.rs | Watch subcommands: Start, Stop, Status |
+| 20 | CalendarWatchStartArgs | Struct | src/cli/calendar.rs | `--callback-url`, `--calendar` (default: primary) |
+| 21 | CalendarWatchStopArgs | Struct | src/cli/calendar.rs | `--channel-id`, `--resource-id` |

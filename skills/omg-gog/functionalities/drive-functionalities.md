@@ -1,7 +1,7 @@
 # Functionalities: Drive
 
 ## Overview
-Google Drive API — file listing/search, metadata, download/export, upload (simple + resumable), copy, move, rename, trash/delete, sharing/permissions, comments, shared drives, and MIME type handling.
+Google Drive API — file listing/search, metadata, download/export, upload (simple + resumable), copy, move, rename, trash/delete, sharing/permissions, comments, shared drives, MIME type handling, and push notification watches via Channel API.
 
 ## CLI Commands
 
@@ -23,6 +23,9 @@ Google Drive API — file listing/search, metadata, download/export, upload (sim
 | 14 | `drive url <file_ids>` | inline | src/cli/mod.rs | Generate Drive file URLs (offline) |
 | 15 | `drive comments list/create/reply` | inline | src/cli/mod.rs | Comments CRUD |
 | 16 | `drive drives` | inline | src/cli/mod.rs | List shared drives |
+| 17 | `drive watch start --callback-url <url>` | `watch_start` | src/services/drive/watch.rs | Start change notification watch; fetches start page token, registers web_hook |
+| 18 | `drive watch stop --channel-id <id> --resource-id <id>` | `watch_stop` | src/services/drive/watch.rs | Stop change notification watch |
+| 19 | `drive watch status` | `get_start_page_token` | src/services/drive/watch.rs | Show current start page token for change tracking |
 
 ## URL/Body Builders
 
@@ -56,6 +59,9 @@ Google Drive API — file listing/search, metadata, download/export, upload (sim
 | 26 | `build_comment_create_url` | src/services/drive/comments.rs | Comment create URL |
 | 27 | `build_comment_reply_url` | src/services/drive/comments.rs | Comment reply URL |
 | 28 | `build_drives_list_url` | src/services/drive/drives.rs | Shared drives list URL |
+| 29 | `build_start_page_token_url` | src/services/drive/watch.rs | `GET /drive/v3/changes/startPageToken` |
+| 30 | `build_drive_watch_url` | src/services/drive/watch.rs | `POST /drive/v3/changes/watch?pageToken={token}` |
+| 31 | `build_drive_stop_url` | src/services/drive/watch.rs | `POST /drive/v3/channels/stop` |
 
 ## Utility Functions
 
@@ -86,3 +92,7 @@ Google Drive API — file listing/search, metadata, download/export, upload (sim
 | 9 | CommentReply | Struct | src/services/drive/types.rs | Comment reply |
 | 10 | SharedDriveListResponse | Struct | src/services/drive/types.rs | Shared drive list |
 | 11 | SharedDrive | Struct | src/services/drive/types.rs | Shared drive |
+| 12 | DriveWatchArgs | Struct | src/cli/drive.rs | CLI args for `drive watch` |
+| 13 | DriveWatchCommand | Enum | src/cli/drive.rs | Watch subcommands: Start, Stop, Status |
+| 14 | DriveWatchStartArgs | Struct | src/cli/drive.rs | `--callback-url` (required) |
+| 15 | DriveWatchStopArgs | Struct | src/cli/drive.rs | `--channel-id`, `--resource-id` |

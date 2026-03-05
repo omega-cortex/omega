@@ -1,6 +1,6 @@
-# SKILL-INDEX — Ω omega-google Functionality Files
+# SKILL-INDEX — Detailed Functionality Files
 
-Index of all per-service functionality files for the omega-google tool. Each file contains: serde types, URL/body builders, CLI handler functions, and inline test inventories.
+Index of all per-service functionality files for `omega-google`. Each file contains: serde types, URL/body builders, CLI handler functions, and inline test inventories.
 
 All files are relative to `functionalities/` in this skill directory.
 
@@ -10,18 +10,18 @@ All files are relative to `functionalities/` in this skill directory.
 
 | # | Domain | File | Contents |
 |---|--------|------|----------|
-| 1 | Auth | [auth-functionalities.md](functionalities/auth-functionalities.md) | OAuth flows, token storage, credential backends, multi-account, aliasing |
+| 1 | Auth | [auth-functionalities.md](functionalities/auth-functionalities.md) | OAuth flows, token storage, credential backends (file, keyring, encrypted, OMEGA store), multi-account, aliasing |
 | 2 | Config | [config-functionalities.md](functionalities/config-functionalities.md) | JSON5 config CRUD, paths, keys |
 | 3 | Infrastructure | [infrastructure-functionalities.md](functionalities/infrastructure-functionalities.md) | HTTP client, retry, circuit breaker, output formatting, UI, errors, time |
-| 4 | Utilities | [utilities-functionalities.md](functionalities/utilities-functionalities.md) | version, open, completion, exit-codes, schema, agent, time |
+| 4 | Utilities | [utilities-functionalities.md](functionalities/utilities-functionalities.md) | version, open, completion, exit-codes, schema, agent, time, webhook serve, shared watch types |
 
 ## Core Services
 
 | # | Domain | File | Contents |
 |---|--------|------|----------|
-| 5 | Gmail | [gmail-functionalities.md](functionalities/gmail-functionalities.md) | Threads, messages, labels, drafts, settings, watch, history, batch, attachments |
-| 6 | Calendar | [calendar-functionalities.md](functionalities/calendar-functionalities.md) | Events, calendars, freebusy, RSVP, search, conflicts, special events |
-| 7 | Drive | [drive-functionalities.md](functionalities/drive-functionalities.md) | Files, upload (simple + resumable), download/export, permissions, comments, shared drives |
+| 5 | Gmail | [gmail-functionalities.md](functionalities/gmail-functionalities.md) | Threads, messages, labels, drafts, settings, watch (Pub/Sub push), history, batch, attachments |
+| 6 | Calendar | [calendar-functionalities.md](functionalities/calendar-functionalities.md) | Events, calendars, freebusy, RSVP, search, conflicts, special events, watch (push notifications) |
+| 7 | Drive | [drive-functionalities.md](functionalities/drive-functionalities.md) | Files, upload (simple + resumable), download/export, permissions, comments, shared drives, watch (change notifications) |
 
 ## Productivity Services
 

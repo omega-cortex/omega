@@ -39,10 +39,10 @@ Full Gmail API coverage — thread/message search, read, send, labels, drafts, s
 | 30 | `gmail settings delegates list/get/add/remove` | inline | src/cli/mod.rs | Delegates |
 | 31 | `gmail settings vacation get/update` | inline | src/cli/mod.rs | Vacation responder |
 | 32 | `gmail settings autoforward get/update` | inline | src/cli/mod.rs | Auto-forwarding |
-| 33 | `gmail watch start` | inline | src/cli/mod.rs | Start push notifications |
-| 34 | `gmail watch status` | inline | src/cli/mod.rs | Check watch status |
-| 35 | `gmail watch renew` | inline | src/cli/mod.rs | Renew watch |
-| 36 | `gmail watch stop` | inline | src/cli/mod.rs | Stop watch |
+| 33 | `gmail watch start --topic <topic>` | inline | src/cli/mod.rs | Start Pub/Sub push notifications; `--topic` (required): Pub/Sub topic name, `--label` (optional, repeatable): filter by label IDs |
+| 34 | `gmail watch status` | inline | src/cli/mod.rs | Check watch status (returns historyId, expiration) |
+| 35 | `gmail watch renew` | inline | src/cli/mod.rs | Renew watch (re-calls watch start) |
+| 36 | `gmail watch stop` | inline | src/cli/mod.rs | Stop push notifications |
 
 ## URL Builders
 
