@@ -231,22 +231,72 @@ pub async fn run_setup() -> anyhow::Result<()> {
     loop {
         init_style::omega_intro(LOGO, "omega setup")?;
 
+        // Detect which components are already configured.
+        let cfg: toml::Table = std::fs::read_to_string(&config_path)
+            .unwrap_or_default()
+            .parse()
+            .unwrap_or_default();
+        let has = |path: &[&str]| -> bool {
+            let mut val: &toml::Value = match cfg.get(path[0]) {
+                Some(v) => v,
+                None => return false,
+            };
+            for &key in &path[1..] {
+                val = match val.get(key) {
+                    Some(v) => v,
+                    None => return false,
+                };
+            }
+            match val {
+                toml::Value::String(s) => !s.is_empty(),
+                toml::Value::Boolean(b) => *b,
+                _ => true,
+            }
+        };
+        let check = |configured: bool, label: &str| -> String {
+            if configured {
+                format!("{label} (configured)")
+            } else {
+                label.to_string()
+            }
+        };
+        let has_claude = has(&["provider", "claude-code", "oauth_token"]);
+        let has_telegram = has(&["channel", "telegram", "bot_token"]);
+        let has_whisper = has(&["channel", "telegram", "whisper_api_key"])
+            || has(&["channel", "whatsapp", "whisper_api_key"]);
+        let has_whatsapp = has(&["channel", "whatsapp", "enabled"]);
+        let has_google = has(&["google", "account"]);
+        let has_service = if cfg!(target_os = "macos") {
+            Path::new(&shellexpand(
+                "~/Library/LaunchAgents/com.omega-cortex.omega.plist",
+            ))
+            .exists()
+        } else {
+            Path::new(&shellexpand(
+                "~/.config/systemd/user/omega.service",
+            ))
+            .exists()
+        };
+
         let hint = console::Style::new()
             .bold()
             .apply_to("Space to select, Enter to confirm");
         init_style::omega_info(&hint.to_string())?;
 
+        let lbl_claude = check(has_claude, "Claude Auth");
+        let lbl_telegram = check(has_telegram, "Telegram");
+        let lbl_whisper = check(has_whisper, "Voice Transcription");
+        let lbl_whatsapp = check(has_whatsapp, "WhatsApp");
+        let lbl_google = check(has_google, "Google Workspace");
+        let lbl_service = check(has_service, "System Service");
+
         let selected: Vec<&str> = cliclack::multiselect("Select components to reconfigure")
-            .item("claude", "Claude Auth", "OAuth token for Claude Code")
-            .item("telegram", "Telegram", "Bot token and allowed users")
-            .item("whisper", "Voice Transcription", "OpenAI Whisper API key")
-            .item("whatsapp", "WhatsApp", "Pair via QR code")
-            .item("google", "Google Workspace", "Gmail, Calendar, Drive...")
-            .item(
-                "service",
-                "System Service",
-                "Install or reinstall the service",
-            )
+            .item("claude", &lbl_claude, "OAuth token for Claude Code")
+            .item("telegram", &lbl_telegram, "Bot token and allowed users")
+            .item("whisper", &lbl_whisper, "OpenAI Whisper API key")
+            .item("whatsapp", &lbl_whatsapp, "Pair via QR code")
+            .item("google", &lbl_google, "Gmail, Calendar, Drive...")
+            .item("service", &lbl_service, "Install or reinstall the service")
             .item("exit", "Exit", "Return to terminal")
             .interact()?;
 
