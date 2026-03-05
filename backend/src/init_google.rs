@@ -645,6 +645,7 @@ pub(crate) fn run_google_wizard() -> anyhow::Result<Option<String>> {
     };
 
     if !oauth_ok {
+        std::thread::sleep(std::time::Duration::from_secs(2));
         return Ok(None);
     }
 
@@ -656,6 +657,9 @@ pub(crate) fn run_google_wizard() -> anyhow::Result<Option<String>> {
     } else {
         init_style::omega_success("Google Workspace connected!")?;
     }
+
+    // Brief pause so the user can read the result before returning to the menu.
+    std::thread::sleep(std::time::Duration::from_secs(2));
 
     Ok(email)
 }
