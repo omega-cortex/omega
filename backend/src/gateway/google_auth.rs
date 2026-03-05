@@ -367,6 +367,9 @@ impl Gateway {
         .await
         {
             Ok(()) => {
+                // Sync credentials to omg-gog's config dir so the CLI can refresh tokens.
+                sync_omg_gog_credentials(client_id, client_secret).await;
+
                 cleanup_google_session(&self.memory, &incoming.sender_id).await;
                 // Also clean up _google_refresh_token if it exists (email_fallback path).
                 let _ = self

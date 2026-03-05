@@ -118,6 +118,54 @@ pub(super) fn read_omg_gog_credentials() -> Option<(String, String)> {
     None
 }
 
+/// Sync OAuth client credentials to `omg-gog`'s config directory.
+///
+/// Writes `credentials.json` so the `omg-gog` CLI can refresh tokens.
+/// Best-effort: logs a warning on failure but does not propagate errors.
+pub(super) async fn sync_omg_gog_credentials(client_id: &str, client_secret: &str) {
+    // omg-gog credentials path: Linux ~/.config/omega-google/, macOS ~/Library/Application Support/omega-google/
+    let dir = if cfg!(target_os = "macos") {
+        shellexpand("~/Library/Application Support/omega-google")
+    } else {
+        shellexpand("~/.config/omega-google")
+    };
+    let dir_path = std::path::PathBuf::from(&dir);
+
+    if let Err(e) = tokio::fs::create_dir_all(&dir_path).await {
+        tracing::warn!("failed to create omg-gog config dir: {e}");
+        return;
+    }
+
+    let json = serde_json::json!({
+        "client_id": client_id,
+        "client_secret": client_secret
+    });
+    let json_str = match serde_json::to_string_pretty(&json) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("failed to serialize omg-gog credentials: {e}");
+            return;
+        }
+    };
+
+    let path = dir_path.join("credentials.json");
+    if let Err(e) = tokio::fs::write(&path, json_str.as_bytes()).await {
+        tracing::warn!("failed to write omg-gog credentials.json: {e}");
+        return;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        if let Err(e) = tokio::fs::set_permissions(&path, perms).await {
+            tracing::warn!("failed to chmod omg-gog credentials.json: {e}");
+        }
+    }
+
+    tracing::info!("synced credentials to omg-gog config: {}", path.display());
+}
+
 /// Clean up all temporary google auth facts for a sender.
 pub(super) async fn cleanup_google_session(memory: &Store, sender_id: &str) {
     let facts = [
