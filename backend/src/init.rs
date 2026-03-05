@@ -132,11 +132,12 @@ pub async fn run() -> anyhow::Result<()> {
 
     let hint = console::Style::new()
         .bold()
-        .apply_to("Space to select, Enter to confirm");
+        .apply_to("Space to select, Enter to confirm, Enter to skip");
     init_style::omega_info(&hint.to_string())?;
 
     let selected_tools: Vec<&str> = cliclack::multiselect("Optional tools — select to set up")
         .item("google", "Google Workspace", google_hint)
+        .required(false)
         .interact()?;
 
     let google_email = if selected_tools.contains(&"google") {
