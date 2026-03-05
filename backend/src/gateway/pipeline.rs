@@ -218,6 +218,25 @@ impl Gateway {
             return;
         }
 
+        // --- 3b. WHATSAPP HELP INTERCEPT ---
+        // WhatsApp has no command autocomplete menu. When a user asks what
+        // OMEGA can do (in any language), return the /help output directly
+        // instead of letting the AI improvise an incomplete capabilities list.
+        if incoming.channel == "whatsapp"
+            && kw_match(&clean_incoming.text.to_lowercase(), HELP_KW)
+        {
+            let user_lang = self
+                .memory
+                .get_fact(&incoming.sender_id, "preferred_language")
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "English".to_string());
+            let response = commands::handle_help_text(&user_lang);
+            self.send_text(&incoming, &response).await;
+            return;
+        }
+
         // --- 4. TYPING INDICATOR ---
         let typing_channel = self.channels.get(&incoming.channel).cloned();
         let typing_target = incoming.reply_target.clone();

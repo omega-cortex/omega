@@ -388,6 +388,98 @@ pub(super) const META_KW: &[&str] = &[
     "purge",
 ];
 
+/// Keywords that trigger the help/commands intercept on WhatsApp.
+/// On Telegram, the autocomplete menu shows all commands natively.
+/// On WhatsApp there is no autocomplete, so we detect natural-language
+/// help requests and return the `/help` output directly.
+pub(super) const HELP_KW: &[&str] = &[
+    // English
+    "what can you do",
+    "what do you do",
+    "your commands",
+    "your functions",
+    "available commands",
+    "show commands",
+    "list commands",
+    "what are your capabilities",
+    "what are your features",
+    "how do i use you",
+    "how does this work",
+    "what options",
+    // Spanish
+    "qué puedes hacer",
+    "que puedes hacer",
+    "qué sabes hacer",
+    "que sabes hacer",
+    "tus comandos",
+    "tus funciones",
+    "comandos disponibles",
+    "mostrar comandos",
+    "listar comandos",
+    "cómo te uso",
+    "como te uso",
+    "qué opciones",
+    "que opciones",
+    // Portuguese
+    "o que você faz",
+    "o que voce faz",
+    "o que consegues fazer",
+    "seus comandos",
+    "teus comandos",
+    "comandos disponíveis",
+    "comandos disponiveis",
+    "mostrar comandos",
+    "listar comandos",
+    "como te uso",
+    "que opções",
+    "que opcoes",
+    // French
+    "que peux-tu faire",
+    "qu'est-ce que tu fais",
+    "tes commandes",
+    "commandes disponibles",
+    "afficher commandes",
+    "lister commandes",
+    "comment t'utiliser",
+    "quelles options",
+    // German
+    "was kannst du",
+    "was machst du",
+    "deine befehle",
+    "verfügbare befehle",
+    "befehle anzeigen",
+    "befehle auflisten",
+    "wie benutze ich dich",
+    "welche optionen",
+    // Italian
+    "cosa puoi fare",
+    "cosa sai fare",
+    "i tuoi comandi",
+    "comandi disponibili",
+    "mostra comandi",
+    "elenca comandi",
+    "come ti uso",
+    "quali opzioni",
+    // Dutch
+    "wat kan je",
+    "wat kun je",
+    "wat doe je",
+    "jouw commando's",
+    "beschikbare commando's",
+    "toon commando's",
+    "hoe gebruik ik je",
+    "welke opties",
+    // Russian
+    "что ты умеешь",
+    "что ты можешь",
+    "что ты делаешь",
+    "твои команды",
+    "доступные команды",
+    "покажи команды",
+    "как тебя использовать",
+    "какие опции",
+];
+
 /// Maximum seconds a discovery session stays valid.
 pub(super) const DISCOVERY_TTL_SECS: i64 = 1800; // 30 minutes
 

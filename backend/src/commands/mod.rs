@@ -91,6 +91,11 @@ async fn resolve_lang(store: &Store, sender_id: &str) -> String {
         .unwrap_or_else(|| "English".to_string())
 }
 
+/// Return the /help text for the given language (public for gateway intercepts).
+pub fn handle_help_text(lang: &str) -> String {
+    status::handle_help(lang)
+}
+
 /// Handle a command and return the response text.
 pub async fn handle(cmd: Command, ctx: &CommandContext<'_>) -> String {
     let lang = resolve_lang(ctx.store, ctx.sender_id).await;
