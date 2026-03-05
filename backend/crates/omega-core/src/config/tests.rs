@@ -575,3 +575,132 @@ fn test_load_tilde_path_falls_back_to_defaults() {
         "should return defaults when tilde-path file does not exist"
     );
 }
+
+// ===================================================================
+// WhatsApp on-demand: WhatsAppConfig Default + patch_whatsapp_enabled
+// ===================================================================
+
+#[test]
+fn test_whatsapp_config_default() {
+    let cfg = WhatsAppConfig::default();
+    assert!(!cfg.enabled, "default should be disabled");
+    assert!(cfg.allowed_users.is_empty(), "default should have no users");
+    assert!(cfg.whisper_api_key.is_none(), "default should have no key");
+}
+
+#[test]
+fn test_patch_whatsapp_enabled_replaces_existing() {
+    let tmp = std::env::temp_dir().join("__omega_test_patch_wa_replace__");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let cfg_path = tmp.join("config.toml");
+    std::fs::write(
+        &cfg_path,
+        "[channel.whatsapp]\nenabled = false\nallowed_users = []\n",
+    )
+    .unwrap();
+
+    patch_whatsapp_enabled(cfg_path.to_str().unwrap());
+
+    let content = std::fs::read_to_string(&cfg_path).unwrap();
+    assert!(
+        content.contains("enabled = true"),
+        "should set enabled to true, got: {content}"
+    );
+    assert!(
+        !content.contains("enabled = false"),
+        "old value should be gone"
+    );
+    assert!(
+        content.contains("allowed_users"),
+        "should preserve other fields"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_patch_whatsapp_enabled_inserts_when_missing_key() {
+    let tmp = std::env::temp_dir().join("__omega_test_patch_wa_insert__");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let cfg_path = tmp.join("config.toml");
+    std::fs::write(&cfg_path, "[channel.whatsapp]\nallowed_users = []\n").unwrap();
+
+    patch_whatsapp_enabled(cfg_path.to_str().unwrap());
+
+    let content = std::fs::read_to_string(&cfg_path).unwrap();
+    assert!(
+        content.contains("enabled = true"),
+        "should insert enabled = true, got: {content}"
+    );
+    assert!(
+        content.contains("[channel.whatsapp]"),
+        "should keep section header"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_patch_whatsapp_enabled_appends_section() {
+    let tmp = std::env::temp_dir().join("__omega_test_patch_wa_append__");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let cfg_path = tmp.join("config.toml");
+    std::fs::write(&cfg_path, "[omega]\nname = \"OMEGA\"\n").unwrap();
+
+    patch_whatsapp_enabled(cfg_path.to_str().unwrap());
+
+    let content = std::fs::read_to_string(&cfg_path).unwrap();
+    assert!(
+        content.contains("[channel.whatsapp]"),
+        "should append whatsapp section"
+    );
+    assert!(
+        content.contains("enabled = true"),
+        "should contain enabled = true"
+    );
+    assert!(
+        content.contains("[omega]"),
+        "should preserve existing sections"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_patch_whatsapp_enabled_preserves_other_sections() {
+    let tmp = std::env::temp_dir().join("__omega_test_patch_wa_preserve__");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let cfg_path = tmp.join("config.toml");
+    std::fs::write(
+        &cfg_path,
+        "# Config\n[channel.telegram]\nenabled = true\nbot_token = \"tok\"\n\n[channel.whatsapp]\nenabled = false\n\n[heartbeat]\nenabled = true\n",
+    )
+    .unwrap();
+
+    patch_whatsapp_enabled(cfg_path.to_str().unwrap());
+
+    let content = std::fs::read_to_string(&cfg_path).unwrap();
+    assert!(content.contains("# Config"), "should preserve comment");
+    assert!(
+        content.contains("enabled = true\nbot_token"),
+        "should preserve telegram section"
+    );
+    assert!(
+        content.contains("[heartbeat]"),
+        "should preserve heartbeat section"
+    );
+    assert!(
+        content.contains("[channel.whatsapp]\nenabled = true"),
+        "should patch whatsapp, got: {content}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}

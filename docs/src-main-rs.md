@@ -250,8 +250,10 @@ Initialize Telegram channel (if enabled)
     ├─ Not enabled? → Skip
     └─ Enabled and configured? Continue
     ↓
-Check: At least one channel enabled?
-    ├─ No channels? → STOP with error
+Always insert WhatsApp channel (dormant if unconfigured/disabled)
+    ↓
+Check: At least one channel explicitly enabled?
+    ├─ No enabled channels? → STOP with error (dormant channels don't count)
     └─ Yes? Continue
     ↓
 Open SQLite database (~/.omega/data/memory.db)

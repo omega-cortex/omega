@@ -23,7 +23,7 @@ The gateway was modularized from a single `backend/src/gateway.rs` into `backend
 | `routing.rs` | `classify_and_route()`, `execute_steps()`, `handle_direct_response()` |
 | `process_markers.rs` | `process_markers()`, `send_task_confirmation()` |
 | `shared_markers.rs` | Shared CANCEL_TASK, UPDATE_TASK, REWARD, LESSON processing (deduplicated) |
-| `auth.rs` | `check_auth()`, `handle_whatsapp_qr()` |
+| `auth.rs` | `check_auth()`, `handle_whatsapp_qr()` (with on-demand dormant channel activation) |
 | `keywords.rs` | `kw_match()`, `is_valid_fact()`, setup i18n messages |
 | `keywords_data.rs` | Static keyword arrays (extracted for 500-line limit) |
 | `scheduler.rs` | `scheduler_loop()` -- background task delivery |

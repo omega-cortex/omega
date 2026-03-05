@@ -33,12 +33,15 @@ The WhatsApp channel connects Omega to WhatsApp using the WhatsApp Web protocol 
 ## Configuration
 
 ```rust
+#[derive(Default)]
 pub struct WhatsAppConfig {
-    pub enabled: bool,
+    pub enabled: bool,              // default: false
     pub allowed_users: Vec<String>,  // phone numbers, empty = allow all
     pub whisper_api_key: Option<String>,  // OpenAI API key for voice transcription
 }
 ```
+
+`WhatsAppConfig` derives `Default` so it can be used as a dormant placeholder when unconfigured.
 
 TOML:
 ```toml
@@ -138,6 +141,7 @@ pub struct WhatsAppChannel {
 | Method | Signature | Purpose |
 |--------|-----------|---------|
 | `is_connected` | `async fn(&self) -> bool` | Returns `true` if the WhatsApp client is currently connected. |
+| `is_started` | `async fn(&self) -> bool` | Returns `true` if the channel has been started (bot running, even if not yet connected). Used by on-demand activation to detect dormant channels. |
 | `pairing_channels` | `async fn(&self) -> (Receiver<String>, Receiver<bool>)` | Creates fresh `(qr_rx, done_rx)` receivers that forward events from the running bot. Replays buffered `last_qr` if available. Calling this replaces any previous senders. |
 | `restart_for_pairing` | `async fn(&self) -> Result<(), OmegaError>` | Deletes the stale session directory, clears the client, and builds+runs a fresh bot on the same message channel. Used when WhatsApp was unlinked from the phone — the library won't generate QR codes with invalidated session keys. |
 
@@ -176,6 +180,17 @@ The gateway extracts `WHATSAPP_QR` lines from AI responses (like `SCHEDULE:` and
 8. Waits for pairing confirmation (60s timeout)
 
 No second bot is created — `restart_for_pairing()` replaces the current bot in-process. This handles both first-time pairing and re-pairing after unlinking from the phone.
+
+### On-Demand Activation (Dormant → Running)
+
+WhatsApp is always inserted into the channels map at startup (even if disabled/unconfigured), using `WhatsAppConfig::default()` as a dormant placeholder. When the user sends `/whatsapp` via Telegram:
+
+1. `handle_whatsapp_qr()` checks `is_started()` on the dormant channel.
+2. If not started: clones the stored `gateway_tx`, calls `channel.start()`, spawns a forwarding task (channel_rx → gateway_tx).
+3. Calls `patch_whatsapp_enabled()` to persist `enabled = true` in config.toml so WhatsApp starts automatically on next restart.
+4. Proceeds with the normal QR pairing flow.
+
+After pairing, messages flow: `Bot event → msg_tx → channel_rx → forwarder → gateway_tx → rx in run() → handle_message()`. No service restart needed.
 
 ---
 

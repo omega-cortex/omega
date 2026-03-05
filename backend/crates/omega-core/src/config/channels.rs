@@ -25,7 +25,7 @@ pub struct TelegramConfig {
 ///
 /// Session data is stored at `{data_dir}/whatsapp_session/`.
 /// Pairing is done by scanning a QR code (like WhatsApp Web).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WhatsAppConfig {
     #[serde(default)]
     pub enabled: bool,

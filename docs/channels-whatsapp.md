@@ -36,7 +36,7 @@ $ omega init
 
 ### Via Telegram (`/whatsapp`)
 
-Send `/whatsapp` to your Omega bot on Telegram. The bot sends a QR code image. Scan it with your phone.
+Send `/whatsapp` to your Omega bot on Telegram. The bot sends a QR code image. Scan it with your phone. **WhatsApp does not need to be pre-configured** — if disabled or absent from `config.toml`, the `/whatsapp` command starts it on-demand and persists `enabled = true` to config.
 
 ### Via Conversation
 
@@ -55,7 +55,7 @@ whisper_api_key = ""        # Optional: OpenAI key for voice transcription
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | `bool` | `false` | Whether the WhatsApp channel is active |
+| `enabled` | `bool` | `false` | Whether the WhatsApp channel starts automatically. Set to `true` on-demand by `/whatsapp`. |
 | `allowed_users` | `Vec<String>` | `[]` | Allowed phone numbers. Empty = allow all. |
 | `whisper_api_key` | `Option<String>` | `None` | OpenAI API key for Whisper voice transcription. Presence = voice enabled. |
 
@@ -129,6 +129,18 @@ The `whatsapp` module exports public functions for QR code generation:
 - `start_pairing(data_dir)` — Standalone pairing flow for CLI (`omega init`), creates a separate bot
 - `pairing_channels()` — Instance method: returns receivers from the running bot for in-process pairing (used by gateway)
 - `restart_for_pairing()` — Instance method: deletes stale session and rebuilds the bot so it generates fresh QR codes (used by gateway when re-pairing after unlinking)
+- `is_started()` — Instance method: returns `true` if the channel's bot is running (even if not yet connected). Used by on-demand activation to detect dormant channels.
+
+### On-Demand Activation
+
+WhatsApp is always registered as a dormant channel at startup. When `/whatsapp` is sent via Telegram and WhatsApp hasn't been started yet:
+
+1. The gateway starts the WhatsApp channel on-demand
+2. Spawns a forwarding task to route WhatsApp messages into the gateway
+3. Persists `enabled = true` to `config.toml` via `patch_whatsapp_enabled()`
+4. Proceeds with the normal QR pairing flow
+
+This means WhatsApp can be set up entirely from Telegram — no config editing or service restart required.
 
 ---
 

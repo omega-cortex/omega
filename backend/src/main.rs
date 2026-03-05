@@ -283,14 +283,28 @@ async fn cmd_start(config_path: &str) -> anyhow::Result<()> {
         }
     }
 
-    if let Some(ref wa) = cfg.channel.whatsapp {
-        if wa.enabled {
-            let channel = WhatsAppChannel::new(wa.clone(), &cfg.omega.data_dir);
-            channels.insert("whatsapp".to_string(), Arc::new(channel));
-        }
+    // Always insert WhatsApp channel (dormant if unconfigured/disabled).
+    // This allows on-demand activation via /whatsapp from Telegram.
+    let wa_config = cfg.channel.whatsapp.clone().unwrap_or_default();
+    channels.insert(
+        "whatsapp".to_string(),
+        Arc::new(WhatsAppChannel::new(wa_config, &cfg.omega.data_dir)),
+    );
+    // Ensure channel_config.whatsapp is always Some so auth check_auth_inner
+    // finds it (empty allowed_users = allow all for WhatsApp).
+    if cfg.channel.whatsapp.is_none() {
+        cfg.channel.whatsapp = Some(Default::default());
     }
 
-    if channels.is_empty() {
+    // Check that at least one channel is explicitly enabled (dormant channels don't count).
+    let enabled_count = [
+        cfg.channel.telegram.as_ref().is_some_and(|t| t.enabled),
+        cfg.channel.whatsapp.as_ref().is_some_and(|w| w.enabled),
+    ]
+    .iter()
+    .filter(|&&e| e)
+    .count();
+    if enabled_count == 0 {
         anyhow::bail!("No channels enabled. Enable at least one channel in config.toml.");
     }
 

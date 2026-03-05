@@ -61,6 +61,11 @@ impl WhatsAppChannel {
         self.client.lock().await.is_some()
     }
 
+    /// Check if the channel has been started (bot is running, even if not yet connected).
+    pub async fn is_started(&self) -> bool {
+        self.msg_tx.lock().await.is_some()
+    }
+
     /// Create fresh pairing channels. Returns `(qr_rx, done_rx)` receivers
     /// that forward QR code and pairing-done events from the running bot.
     ///

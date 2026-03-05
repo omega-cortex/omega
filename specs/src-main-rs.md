@@ -275,7 +275,8 @@ This is the only unsafe code in main.rs. It prevents Omega from running with ele
      - Verify `bot_token` is not empty
      - Create TelegramChannel instance
      - Insert into map with key "telegram"
-   - Bail if no channels enabled (must have at least one)
+   - Always insert WhatsApp channel (dormant if unconfigured/disabled), using `WhatsAppConfig::default()` as placeholder. Ensures `channel_config.whatsapp` is always `Some` so auth works (empty `allowed_users` = allow all for WhatsApp).
+   - Check that at least one channel is explicitly enabled (Telegram or WhatsApp with `enabled = true`). Dormant channels don't count. Bail if none enabled.
 
 5. **Initialize memory**
    - Create Store instance with config settings

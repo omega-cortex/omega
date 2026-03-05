@@ -110,6 +110,8 @@ pub struct Gateway {
     pub(super) heartbeat_notify: Arc<Notify>,
     /// Path to config.toml — used for persisting runtime changes (e.g. heartbeat interval).
     pub(super) config_path: String,
+    /// Gateway sender — stored so dormant channels can be started on-demand.
+    pub(super) gateway_tx: Mutex<Option<mpsc::Sender<IncomingMessage>>>,
 }
 
 impl Gateway {
@@ -140,6 +142,7 @@ impl Gateway {
             heartbeat_interval,
             heartbeat_notify,
             config_path: cfg.config_path,
+            gateway_tx: Mutex::new(None),
         }
     }
 
@@ -170,7 +173,29 @@ impl Gateway {
 
         let (tx, mut rx) = mpsc::channel::<IncomingMessage>(256);
 
+        // Store gateway sender for on-demand channel activation.
+        *self.gateway_tx.lock().await = Some(tx.clone());
+
         for (name, channel) in &self.channels {
+            // Skip disabled/unconfigured channels — they stay dormant until on-demand start.
+            let is_enabled = match name.as_str() {
+                "telegram" => self
+                    .channel_config
+                    .telegram
+                    .as_ref()
+                    .is_some_and(|t| t.enabled),
+                "whatsapp" => self
+                    .channel_config
+                    .whatsapp
+                    .as_ref()
+                    .is_some_and(|w| w.enabled),
+                _ => true,
+            };
+            if !is_enabled {
+                info!("Channel dormant (on-demand): {name}");
+                continue;
+            }
+
             let mut channel_rx = channel
                 .start()
                 .await

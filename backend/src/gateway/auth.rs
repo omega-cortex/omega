@@ -65,6 +65,9 @@ impl Gateway {
     }
 
     /// Handle the WHATSAPP_QR flow: use the running bot's event stream for pairing.
+    ///
+    /// If WhatsApp is dormant (disabled/unconfigured), starts it on-demand
+    /// before proceeding with the QR pairing flow.
     pub(super) async fn handle_whatsapp_qr(&self, incoming: &IncomingMessage) {
         use omega_channels::whatsapp::WhatsAppChannel;
 
@@ -84,6 +87,45 @@ impl Gateway {
                 return;
             }
         };
+
+        // On-demand start: if WhatsApp was dormant (disabled/unconfigured), start it now.
+        if !wa_channel.is_started().await {
+            let gateway_tx = match self.gateway_tx.lock().await.clone() {
+                Some(tx) => tx,
+                None => {
+                    self.send_text(incoming, "Gateway not ready. Try again shortly.")
+                        .await;
+                    return;
+                }
+            };
+
+            let channel = self.channels.get("whatsapp").unwrap().clone();
+            match channel.start().await {
+                Ok(mut channel_rx) => {
+                    // Spawn forwarding task: channel_rx → gateway_tx.
+                    tokio::spawn(async move {
+                        while let Some(msg) = channel_rx.recv().await {
+                            if gateway_tx.send(msg).await.is_err() {
+                                tracing::info!(
+                                    "gateway receiver dropped, stopping whatsapp forwarder"
+                                );
+                                break;
+                            }
+                        }
+                    });
+                    tracing::info!("WhatsApp started on-demand via /whatsapp");
+
+                    // Persist enabled = true so WhatsApp starts automatically on next restart.
+                    omega_core::config::patch_whatsapp_enabled(&self.config_path);
+                }
+                Err(e) => {
+                    warn!("Failed to start WhatsApp on-demand: {e}");
+                    self.send_text(incoming, &format!("Failed to start WhatsApp: {e}"))
+                        .await;
+                    return;
+                }
+            }
+        }
 
         // If already connected, no need to pair again.
         if wa_channel.is_connected().await {

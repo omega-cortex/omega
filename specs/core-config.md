@@ -355,6 +355,29 @@ Called from `process_markers.rs` after the `HEARTBEAT_INTERVAL:` marker updates 
 
 ---
 
+## `patch_whatsapp_enabled()` Function
+
+```rust
+pub fn patch_whatsapp_enabled(config_path: &str)
+```
+
+### Behavior
+
+Text-based config patching (same philosophy as `patch_heartbeat_interval()`) — preserves comments, formatting, and field ordering. Non-fatal: logs on error, never panics.
+
+1. Reads `config_path` as text. On failure: warns and returns.
+2. If `[channel.whatsapp]` section exists and contains `enabled`:
+   - Replaces the entire line with `enabled = true`.
+3. If `[channel.whatsapp]` section exists but no `enabled` key:
+   - Inserts `enabled = true` after the section header.
+4. If no `[channel.whatsapp]` section at all:
+   - Appends `[channel.whatsapp]\nenabled = true` to end of file.
+5. Writes the patched content back. On failure: warns and returns.
+
+Called from `gateway/auth.rs` when WhatsApp is started on-demand via `/whatsapp`.
+
+---
+
 ## Environment Variable Overrides
 
 The config module itself does **not** implement env-var overrides. However, several values are documented in `config.example.toml` as having env-var alternatives:

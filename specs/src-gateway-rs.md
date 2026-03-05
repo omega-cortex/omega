@@ -23,7 +23,7 @@
 | `routing.rs` | `classify_and_route()` (dead code), `execute_steps()` (dead code), `handle_direct_response()`, passes `active_project` to `process_markers()` |
 | `process_markers.rs` | `process_markers(incoming, text, active_project)`, `process_purge_facts()`, `process_improvement_markers()`, `send_task_confirmation()` |
 | `shared_markers.rs` | `process_task_and_learning_markers()` -- shared CANCEL_TASK, UPDATE_TASK, REWARD, LESSON processing (deduplicated across pipeline, action, heartbeat) |
-| `auth.rs` | `check_auth()`, `handle_whatsapp_qr()` |
+| `auth.rs` | `check_auth()`, `handle_whatsapp_qr()` (with on-demand dormant channel activation) |
 | `keywords.rs` | `kw_match()`, `is_valid_fact()`, setup i18n messages (8 languages), tests |
 | `keywords_data.rs` | Static keyword data arrays (`MAX_ACTION_RETRIES`, `SCHEDULING_KW`, `RECALL_KW`, `TASKS_KW`, `PROJECTS_KW`, `PROFILE_KW`, `OUTCOMES_KW`, `BUILDS_KW`, `META_KW`, `SYSTEM_FACT_KEYS`). Extracted for 500-line limit |
 | `scheduler.rs` | Slim orchestrator: `scheduler_loop()` polls due tasks, delegates action execution to `scheduler_action.rs` |
@@ -87,6 +87,7 @@ pub struct Gateway {
     pub(super) skills: Vec<omega_skills::Skill>,          // Loaded skills for MCP trigger matching
     pub(super) heartbeat_interval: Arc<AtomicU64>,        // Dynamic heartbeat interval (minutes), updated via HEARTBEAT_INTERVAL: marker
     pub(super) config_path: String,                       // Path to config.toml for runtime persistence
+    pub(super) gateway_tx: Mutex<Option<mpsc::Sender<IncomingMessage>>>,  // Gateway sender for on-demand channel activation
 }
 ```
 
@@ -109,6 +110,7 @@ pub struct Gateway {
 - `skills`: Loaded skills for MCP trigger matching. When a message matches a skill's trigger keywords, the skill's MCP servers are injected into the provider context.
 - `heartbeat_interval`: An `Arc<AtomicU64>` holding the current heartbeat interval in minutes. Initialized from `heartbeat_config.interval_minutes` and shared with the heartbeat loop and scheduler loop. Updated at runtime via `HEARTBEAT_INTERVAL:` markers. Changes are persisted to `config.toml` via `config::patch_heartbeat_interval()` so they survive service restarts.
 - `config_path`: Path to `config.toml` — used for persisting runtime changes (e.g. heartbeat interval) via text-based patching.
+- `gateway_tx`: Stored gateway sender (`Mutex<Option<mpsc::Sender<IncomingMessage>>>`). Set in `run()` after creating the mpsc channel. Used by `handle_whatsapp_qr()` to start dormant channels on-demand — the sender is cloned and a forwarding task is spawned to route the newly started channel's messages into the main event loop.
 
 ## Token-Efficient Prompt Architecture (Keyword-Gated Conditional Injection)
 
@@ -230,8 +232,9 @@ If sandbox:        + sandbox constraint (unchanged)
 1. Log gateway initialization with provider name, channel names, and auth status.
 1b. Purge orphaned inbox files from previous runs via `purge_inbox(&self.data_dir)`.
 1c. If provider is `"claude-code"`, spawn `crate::claudemd::ensure_claudemd()` as a background task to create `~/.omega/workspace/CLAUDE.md` if missing.
-2. Create an mpsc channel with capacity 256 for incoming messages.
+2. Create an mpsc channel with capacity 256 for incoming messages. Store the sender in `gateway_tx` for on-demand channel activation.
 3. For each registered channel:
+   - Check if the channel is enabled (Telegram: `telegram.enabled`, WhatsApp: `whatsapp.enabled`). If disabled, log "Channel dormant (on-demand)" and skip — the channel stays in the map but is not started.
    - Call `channel.start()` to get a receiver for that channel's messages.
    - Spawn a background task that forwards all messages from the channel receiver to the gateway's main mpsc channel.
    - Log successful channel start.

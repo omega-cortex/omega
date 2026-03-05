@@ -316,6 +316,68 @@ pub fn patch_heartbeat_interval(config_path: &str, minutes: u64) {
     }
 }
 
+/// Patch `enabled = true` in config.toml's `[channel.whatsapp]` section.
+///
+/// Text-based patching preserves comments and formatting (same approach as `patch_heartbeat_interval`).
+/// Non-fatal: logs on error but never panics.
+pub fn patch_whatsapp_enabled(config_path: &str) {
+    let path = Path::new(config_path);
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("patch_whatsapp_enabled: failed to read {config_path}: {e}");
+            return;
+        }
+    };
+
+    let patched = if let Some(pos) = content.find("[channel.whatsapp]") {
+        // Find the section body (after the header line).
+        let section_start = content[pos..]
+            .find('\n')
+            .map(|i| pos + i + 1)
+            .unwrap_or(content.len());
+        // Look for existing `enabled` within this section (before next section header).
+        let section_end = content[section_start..]
+            .find("\n[")
+            .map(|i| section_start + i)
+            .unwrap_or(content.len());
+        let section_body = &content[section_start..section_end];
+
+        if let Some(key_offset) = section_body.find("enabled") {
+            // Replace the existing line.
+            let abs_start = section_start + key_offset;
+            let line_end = content[abs_start..]
+                .find('\n')
+                .map(|i| abs_start + i)
+                .unwrap_or(content.len());
+            format!(
+                "{}enabled = true{}",
+                &content[..abs_start],
+                &content[line_end..]
+            )
+        } else {
+            // Section exists but no enabled key — insert after header.
+            format!(
+                "{}enabled = true\n{}",
+                &content[..section_start],
+                &content[section_start..]
+            )
+        }
+    } else {
+        // No [channel.whatsapp] section — append it.
+        format!(
+            "{}\n[channel.whatsapp]\nenabled = true\n",
+            content.trim_end()
+        )
+    };
+
+    if let Err(e) = std::fs::write(path, patched) {
+        warn!("patch_whatsapp_enabled: failed to write {config_path}: {e}");
+    } else {
+        info!("whatsapp enabled = true persisted to config");
+    }
+}
+
 /// Load configuration from a TOML file.
 ///
 /// Falls back to defaults if the file does not exist.
