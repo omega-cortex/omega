@@ -97,37 +97,42 @@ pub(super) async fn exchange_code_for_tokens(
         .map_err(|e| OmegaError::Channel(format!("token response parse failed: {e}")))
 }
 
-/// Fetch the authenticated user's email address using an access token.
+/// Fetch the authenticated user's email via the Gmail API profile endpoint.
+///
+/// Uses `gmail.modify` scope (already requested) instead of requiring an
+/// extra `email`/`profile` scope that the userinfo endpoint needs.
 pub(super) async fn fetch_user_email(access_token: &str) -> Result<String, OmegaError> {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get("https://www.googleapis.com/oauth2/v2/userinfo")
+        .get("https://gmail.googleapis.com/gmail/v1/users/me/profile")
         .bearer_auth(access_token)
         .send()
         .await
-        .map_err(|e| OmegaError::Channel(format!("userinfo request failed: {e}")))?;
+        .map_err(|e| OmegaError::Channel(format!("gmail profile request failed: {e}")))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
         return Err(OmegaError::Channel(format!(
-            "userinfo failed ({status}): {body}"
+            "gmail profile failed ({status}): {body}"
         )));
     }
 
     #[derive(Deserialize)]
-    struct UserInfo {
-        email: Option<String>,
+    #[serde(rename_all = "camelCase")]
+    struct GmailProfile {
+        email_address: Option<String>,
     }
 
-    let info: UserInfo = resp
+    let profile: GmailProfile = resp
         .json()
         .await
-        .map_err(|e| OmegaError::Channel(format!("userinfo parse failed: {e}")))?;
+        .map_err(|e| OmegaError::Channel(format!("gmail profile parse failed: {e}")))?;
 
-    info.email
-        .ok_or_else(|| OmegaError::Channel("no email in userinfo response".into()))
+    profile
+        .email_address
+        .ok_or_else(|| OmegaError::Channel("no email in gmail profile response".into()))
 }
 
 /// Build a Google Cloud Console API Library URL for a given project and API.
