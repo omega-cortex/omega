@@ -60,15 +60,17 @@ pub(super) async fn exchange_code_for_tokens(
     client_secret: &str,
     code: &str,
 ) -> Result<TokenResponse, OmegaError> {
-    // URL-decode the code in case the user copied from the browser URL bar
-    // (where '/' appears as '%2F'). Also trim whitespace.
-    let decoded_code = urlencoding::decode(code.trim()).unwrap_or(std::borrow::Cow::Borrowed(code));
-    let clean_code = decoded_code.trim();
+    // Strip ALL whitespace (including embedded newlines from copy-paste of
+    // wrapped text on the callback page) then URL-decode in case the user
+    // copied from the browser URL bar (where '/' appears as '%2F').
+    let stripped: String = code.chars().filter(|c| !c.is_whitespace()).collect();
+    let decoded = urlencoding::decode(&stripped).unwrap_or(std::borrow::Cow::Borrowed(&stripped));
+    let clean_code = decoded.to_string();
 
     let client = reqwest::Client::new();
 
     let params = [
-        ("code", clean_code),
+        ("code", clean_code.as_str()),
         ("client_id", client_id),
         ("client_secret", client_secret),
         ("redirect_uri", REDIRECT_URI),

@@ -229,10 +229,11 @@ impl Gateway {
                 self.send_text(incoming, &msg).await;
             }
             "setup_guide" => {
-                // User sends Client ID. Store it and advance to client_secret.
+                // User sends Client ID. Strip all whitespace (copy-paste artifacts).
+                let clean: String = input.chars().filter(|c| !c.is_whitespace()).collect();
                 if let Err(e) = self
                     .memory
-                    .store_fact(&incoming.sender_id, "_google_client_id", input)
+                    .store_fact(&incoming.sender_id, "_google_client_id", &clean)
                     .await
                 {
                     warn!("failed to store _google_client_id: {e}");
@@ -249,12 +250,14 @@ impl Gateway {
                     .await;
             }
             "client_secret" => {
-                // Delete the user's message (contains client_id from prev step? No, this msg has secret).
+                // Delete the user's message (contains secret).
                 self.delete_user_message(incoming).await;
 
+                // Strip all whitespace (copy-paste artifacts).
+                let clean: String = input.chars().filter(|c| !c.is_whitespace()).collect();
                 if let Err(e) = self
                     .memory
-                    .store_fact(&incoming.sender_id, "_google_client_secret", input)
+                    .store_fact(&incoming.sender_id, "_google_client_secret", &clean)
                     .await
                 {
                     warn!("failed to store _google_client_secret: {e}");
