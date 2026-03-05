@@ -1,6 +1,6 @@
-# SKILL-INDEX — Detailed Functionality Files
+# SKILL-INDEX — Ω omega-google Functionality Files
 
-Index of all per-service functionality files for `omega-google`. Each file contains: serde types, URL/body builders, CLI handler functions, and inline test inventories.
+Index of all per-service functionality files for the omega-google tool. Each file contains: serde types, URL/body builders, CLI handler functions, and inline test inventories.
 
 All files are relative to `functionalities/` in this skill directory.
 

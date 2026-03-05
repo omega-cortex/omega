@@ -1,6 +1,8 @@
-# omega-google (omg-gog) — Functionalities Skill
+# Ω omega-google — Google Workspace Tool for OMEGA
 
-Reference skill for the `omega-google` CLI tool (`omg-gog`). For detailed per-service functionalities, see [SKILL-INDEX.md](SKILL-INDEX.md).
+OMEGA Ω tool for Google Workspace automation. Powered by the `omg-gog` CLI, this skill gives OMEGA full command-line access to 15 Google API services — Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Classroom, Tasks, Contacts, People, Groups, Keep, and Apps Script.
+
+For detailed per-service functionalities, see [SKILL-INDEX.md](SKILL-INDEX.md).
 
 ## Installation
 

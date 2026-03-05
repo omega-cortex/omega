@@ -2,13 +2,13 @@
 
 **Your AI, your server, your rules.**
 
-A personal AI agent infrastructure written in Rust. Omega connects to messaging platforms, delegates reasoning to configurable AI backends, and acts autonomously on your behalf. Single binary, no Docker, no cloud dependency.
+A personal AI agent infrastructure written in Rust. Omega connects to messaging platforms, delegates reasoning to Claude Code, and acts autonomously on your behalf. Single binary, no Docker, no cloud dependency.
 
 ## What Makes Omega Different
 
 - **Autonomous, not assistive** -- Omega executes tasks, schedules follow-ups, and closes its own loops. It doesn't wait to be asked twice.
-- **6 AI providers** -- Claude Code CLI, Anthropic API, OpenAI, Ollama, OpenRouter, Gemini. Swap with one config line.
-- **Smart model routing** -- Every message is classified by complexity. Simple tasks use a fast model (Sonnet); complex work is decomposed into steps and executed by a powerful model (Opus). Automatic, no user intervention.
+- **Powered by Claude Code** -- Uses Anthropic's Claude Code CLI as the AI engine. Claude handles reasoning, tool execution, and agentic workflows out of the box. Additional providers (Anthropic API, OpenAI, Ollama, OpenRouter, Gemini) are available in the codebase for future use.
+- **Smart model routing** -- Every message is classified by complexity. Simple tasks use Sonnet; complex work is decomposed into steps and executed by Opus. Automatic, no user intervention.
 - **Real memory** -- SQLite-backed conversations, facts, summaries, and FTS5 semantic search. Omega learns who you are across sessions.
 - **OS-level sandbox** -- Seatbelt (macOS) / Landlock (Linux) filesystem enforcement. Not just prompt-based -- three layers of protection.
 - **Skill system** -- Extensible skills loaded from `~/.omega/skills/*/SKILL.md` with trigger-based MCP server activation.
@@ -25,9 +25,9 @@ You (Telegram / WhatsApp)
         |
         v
   +-----------+     +----------------+     +-------------+
-  |  Gateway   |---->|  AI Provider   |---->|   Response   |
-  |            |     | (Claude Code,  |     |   + Markers  |
-  |  Auth      |     |  Ollama, etc.) |     +------+------+
+  |  Gateway   |---->|  Claude Code   |---->|   Response   |
+  |            |     |  (CLI agent)   |     |   + Markers  |
+  |  Auth      |     |                |     +------+------+
   |  Sanitize  |     +----------------+            |
   |  Classify  |                              +----v----+
   |  Route     |<-----------------------------| Process  |
@@ -47,7 +47,7 @@ Cargo workspace with 6 crates:
 | Crate | Purpose |
 |-------|---------|
 | `omega-core` | Types, traits, config, error handling, prompt sanitization |
-| `omega-providers` | 6 AI backends with unified `Provider` trait + agentic tool loop (bash/read/write/edit) + MCP client |
+| `omega-providers` | Claude Code CLI provider (default) + additional backends via unified `Provider` trait. Agentic tool loop + MCP client |
 | `omega-channels` | Telegram (voice transcription, photo support) + WhatsApp (voice, images, groups, markdown) |
 | `omega-memory` | SQLite storage, conversation history, facts, scheduled tasks, sessions, outcomes, audit log |
 | `omega-skills` | Skill loader with TOML/YAML frontmatter, project system, trigger-based MCP server activation |
@@ -137,18 +137,15 @@ Interactive `/setup` command creates new projects with:
 - HEARTBEAT.md generation for autonomous monitoring
 - ROLE.md generation with domain-specific instructions
 
-## Providers
+## Provider
 
-| Provider | Type | Auth | Notes |
-|----------|------|------|-------|
-| `claude-code` | CLI subprocess | Local `claude` auth | Default. Auto-resume on max_turns. MCP server injection. |
-| `anthropic` | HTTP | `x-api-key` header | Direct Anthropic API with agentic tool loop |
-| `openai` | HTTP | Bearer token | Works with any OpenAI-compatible endpoint |
-| `ollama` | HTTP | None | Local models (llama3.1, mistral, etc.) |
-| `openrouter` | HTTP | Bearer token | Access 100+ models via single API |
-| `gemini` | HTTP | x-goog-api-key header | Google Gemini API |
+Omega uses **Claude Code CLI** as its AI engine — Anthropic's agentic coding tool running as a local subprocess. No API keys needed; just install and authenticate `claude` once.
 
-All HTTP providers include an agentic tool-execution loop (bash, read, write, edit) and MCP client support.
+- Auto-resume on max_turns
+- MCP server injection for skill activation
+- Sonnet for fast tasks, Opus for complex work
+
+> **Future providers**: The codebase includes support for Anthropic API, OpenAI, Ollama, OpenRouter, and Gemini. These are not active by default and are reserved for future use.
 
 ## Commands
 
@@ -250,7 +247,7 @@ port = 3000
 ## Requirements
 
 - Rust nightly (for WhatsApp dependency)
-- `claude` CLI installed and authenticated (for default provider)
+- `claude` CLI installed and authenticated
 - Telegram bot token (from [@BotFather](https://t.me/BotFather))
 
 ## Development
