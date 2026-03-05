@@ -243,12 +243,12 @@ pub async fn run_setup() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    init_style::omega_intro(LOGO, "omega setup")?;
-
     loop {
+        init_style::omega_intro(LOGO, "omega setup")?;
+
         let hint = console::Style::new()
             .bold()
-            .apply_to("Space to select, Enter to pick one");
+            .apply_to("Space to select, Enter to confirm");
         init_style::omega_info(&hint.to_string())?;
 
         let selected: Vec<&str> = cliclack::multiselect("Select components to reconfigure")
@@ -262,8 +262,15 @@ pub async fn run_setup() -> anyhow::Result<()> {
                 "System Service",
                 "Install or reinstall the service",
             )
+            .item("exit", "Exit", "Return to terminal")
             .required(false)
             .interact()?;
+
+        // Exit if "exit" selected or nothing selected and user picks "done".
+        if selected.contains(&"exit") {
+            init_style::omega_outro("Done")?;
+            return Ok(());
+        }
 
         let selected: Vec<&str> = if selected.is_empty() {
             let choice: &str = cliclack::select("Pick one component to reconfigure")
@@ -277,7 +284,7 @@ pub async fn run_setup() -> anyhow::Result<()> {
                     "System Service",
                     "Install or reinstall the service",
                 )
-                .item("done", "Done", "Exit setup")
+                .item("done", "Exit", "Return to terminal")
                 .interact()?;
             if choice == "done" {
                 init_style::omega_outro("Done")?;
