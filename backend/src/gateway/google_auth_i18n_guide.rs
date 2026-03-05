@@ -34,11 +34,11 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              {cred_url}\n\
              - Tipo: Web application\n\
              - URI de redireccion: https://omgagi.ai/oauth/callback/\n\
-             - Crea y copia el Client ID y el Client Secret\n\n\
+             - *Descarga el JSON*\n\n\
              *4. Publicar la app*\n\
              {consent_url}\n\
              - Ve a \"Audience\" y haz clic en \"Publish App\"\n\n\
-             Pega el contenido completo del archivo JSON descargado cuando estes listo."
+             *Pega el contenido completo del archivo JSON descargado cuando estes listo.*"
         ),
         "Portuguese" => format!(
             "Projeto recebido: *{project_id}*\n\n\
@@ -58,11 +58,11 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              {cred_url}\n\
              - Tipo: Web application\n\
              - URI de redirecionamento: https://omgagi.ai/oauth/callback/\n\
-             - Crie e copie o Client ID e o Client Secret\n\n\
+             - *Baixe o JSON*\n\n\
              *4. Publicar o app*\n\
              {consent_url}\n\
              - Va a \"Audience\" e clique em \"Publish App\"\n\n\
-             Cole o conteudo completo do arquivo JSON baixado quando estiver pronto."
+             *Cole o conteudo completo do arquivo JSON baixado quando estiver pronto.*"
         ),
         "French" => format!(
             "Projet recu : *{project_id}*\n\n\
@@ -82,11 +82,11 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              {cred_url}\n\
              - Type : Web application\n\
              - URI de redirection : https://omgagi.ai/oauth/callback/\n\
-             - Creez et copiez le Client ID et le Client Secret\n\n\
+             - *Telechargez le JSON*\n\n\
              *4. Publier l'app*\n\
              {consent_url}\n\
              - Allez a \"Audience\" et cliquez sur \"Publish App\"\n\n\
-             Collez le contenu complet du fichier JSON telecharge quand vous etes pret."
+             *Collez le contenu complet du fichier JSON telecharge quand vous etes pret.*"
         ),
         "German" => format!(
             "Projekt erhalten: *{project_id}*\n\n\
@@ -106,11 +106,11 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              {cred_url}\n\
              - Typ: Web application\n\
              - Weiterleitungs-URI: https://omgagi.ai/oauth/callback/\n\
-             - Erstelle und kopiere die Client ID und das Client Secret\n\n\
+             - *Lade die JSON-Datei herunter*\n\n\
              *4. App veroffentlichen*\n\
              {consent_url}\n\
              - Gehe zu \"Audience\" und klicke auf \"Publish App\"\n\n\
-             Fuge den vollstandigen Inhalt der heruntergeladenen JSON-Datei ein, wenn du bereit bist."
+             *Fuge den vollstandigen Inhalt der heruntergeladenen JSON-Datei ein, wenn du bereit bist.*"
         ),
         "Italian" => format!(
             "Progetto ricevuto: *{project_id}*\n\n\
@@ -130,11 +130,11 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              {cred_url}\n\
              - Tipo: Web application\n\
              - URI di reindirizzamento: https://omgagi.ai/oauth/callback/\n\
-             - Crea e copia il Client ID e il Client Secret\n\n\
+             - *Scarica il JSON*\n\n\
              *4. Pubblicare l'app*\n\
              {consent_url}\n\
              - Vai a \"Audience\" e clicca su \"Publish App\"\n\n\
-             Incolla il contenuto completo del file JSON scaricato quando sei pronto."
+             *Incolla il contenuto completo del file JSON scaricato quando sei pronto.*"
         ),
         "Dutch" => format!(
             "Project ontvangen: *{project_id}*\n\n\
@@ -154,11 +154,11 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              {cred_url}\n\
              - Type: Web application\n\
              - Omleidings-URI: https://omgagi.ai/oauth/callback/\n\
-             - Maak en kopieer het Client ID en het Client Secret\n\n\
+             - *Download de JSON*\n\n\
              *4. App publiceren*\n\
              {consent_url}\n\
              - Ga naar \"Audience\" en klik op \"Publish App\"\n\n\
-             Plak de volledige inhoud van het gedownloade JSON-bestand wanneer je klaar bent."
+             *Plak de volledige inhoud van het gedownloade JSON-bestand wanneer je klaar bent.*"
         ),
         "Russian" => format!(
             "Проект получен: *{project_id}*\n\n\
@@ -178,11 +178,11 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              {cred_url}\n\
              - Тип: Web application\n\
              - URI перенаправления: https://omgagi.ai/oauth/callback/\n\
-             - Создайте и скопируйте Client ID и Client Secret\n\n\
+             - *Скачайте JSON*\n\n\
              *4. Опубликовать приложение*\n\
              {consent_url}\n\
              - Перейдите в \"Audience\" и нажмите \"Publish App\"\n\n\
-             Вставьте полное содержимое скачанного JSON-файла, когда будете готовы."
+             *Вставьте полное содержимое скачанного JSON-файла, когда будете готовы.*"
         ),
         _ => format!(
             "Project received: *{project_id}*\n\n\
@@ -202,11 +202,11 @@ pub(super) fn google_step_setup_guide_message(lang: &str, project_id: &str) -> S
              {cred_url}\n\
              - Type: Web application\n\
              - Redirect URI: https://omgagi.ai/oauth/callback/\n\
-             - Create and copy the Client ID and Client Secret\n\n\
+             - *Download the JSON*\n\n\
              *4. Publish the app*\n\
              {consent_url}\n\
              - Go to \"Audience\" and click \"Publish App\"\n\n\
-             Paste the full content of the downloaded JSON file when ready."
+             *Paste the full content of the downloaded JSON file when ready.*"
         ),
     }
 }
