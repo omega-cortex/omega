@@ -129,14 +129,14 @@ pub(super) fn google_step_auth_code_message(lang: &str, auth_url: &str) -> Strin
 /// Completion: Google connected with email.
 pub(super) fn google_step_complete_message(lang: &str, email: &str) -> String {
     match lang {
-        "Spanish" => format!("Google conectado correctamente — {email}"),
-        "Portuguese" => format!("Google conectado com sucesso — {email}"),
-        "French" => format!("Google connecte avec succes — {email}"),
-        "German" => format!("Google erfolgreich verbunden — {email}"),
-        "Italian" => format!("Google connesso con successo — {email}"),
-        "Dutch" => format!("Google succesvol verbonden — {email}"),
-        "Russian" => format!("Google успешно подключен — {email}"),
-        _ => format!("Google connected successfully — {email}"),
+        "Spanish" => format!("\u{1f389} Google conectado correctamente — {email}"),
+        "Portuguese" => format!("\u{1f389} Google conectado com sucesso — {email}"),
+        "French" => format!("\u{1f389} Google connecte avec succes — {email}"),
+        "German" => format!("\u{1f389} Google erfolgreich verbunden — {email}"),
+        "Italian" => format!("\u{1f389} Google connesso con successo — {email}"),
+        "Dutch" => format!("\u{1f389} Google succesvol verbonden — {email}"),
+        "Russian" => format!("\u{1f389} Google успешно подключен — {email}"),
+        _ => format!("\u{1f389} Google connected successfully — {email}"),
     }
 }
 
