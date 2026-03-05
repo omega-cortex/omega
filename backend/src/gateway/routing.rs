@@ -42,11 +42,12 @@ impl Gateway {
             .ok()
             .flatten()
             .unwrap_or_else(|| "English".to_string());
-        let (nudge_msg, still_msg) = status_messages(&user_lang);
+        let nudge_msg = random_nudge_message(&user_lang);
 
         // Spawn delayed status updater: first nudge after 15s, then every 120s.
         let status_channel = self.channels.get(&incoming.channel).cloned();
         let status_target = incoming.reply_target.clone();
+        let status_lang = user_lang.clone();
         let status_handle = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(15)).await;
             if let (Some(ref ch), Some(ref target)) = (&status_channel, &status_target) {
@@ -61,6 +62,7 @@ impl Gateway {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(120)).await;
                 if let (Some(ref ch), Some(ref target)) = (&status_channel, &status_target) {
+                    let still_msg = random_still_message(&status_lang);
                     let msg = OutgoingMessage {
                         text: still_msg.to_string(),
                         metadata: MessageMetadata::default(),

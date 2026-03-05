@@ -16,7 +16,7 @@ fn test_friendly_provider_error_generic() {
 }
 
 #[test]
-fn test_status_messages_all_languages() {
+fn test_random_nudge_all_languages() {
     let languages = [
         "English",
         "Spanish",
@@ -28,24 +28,75 @@ fn test_status_messages_all_languages() {
         "Russian",
     ];
     for lang in &languages {
-        let (nudge, still) = status_messages(lang);
+        let nudge = random_nudge_message(lang);
         assert!(!nudge.is_empty(), "nudge for {lang} should not be empty");
-        assert!(!still.is_empty(), "still for {lang} should not be empty");
+        let pool = nudge_pool(lang);
+        assert!(
+            pool.contains(&nudge),
+            "nudge for {lang} should come from its pool"
+        );
     }
 }
 
 #[test]
-fn test_status_messages_unknown_falls_back_to_english() {
-    let (nudge, still) = status_messages("Klingon");
-    assert!(nudge.contains("think about this"));
-    assert!(still.contains("Still on it"));
+fn test_random_still_all_languages() {
+    let languages = [
+        "English",
+        "Spanish",
+        "Portuguese",
+        "French",
+        "German",
+        "Italian",
+        "Dutch",
+        "Russian",
+    ];
+    for lang in &languages {
+        let still = random_still_message(lang);
+        assert!(!still.is_empty(), "still for {lang} should not be empty");
+        let pool = still_pool(lang);
+        assert!(
+            pool.contains(&still),
+            "still for {lang} should come from its pool"
+        );
+    }
 }
 
 #[test]
-fn test_status_messages_spanish() {
-    let (nudge, still) = status_messages("Spanish");
-    assert!(nudge.contains("pensar"));
-    assert!(still.contains("ello"));
+fn test_nudge_unknown_language_falls_back_to_english() {
+    let nudge = random_nudge_message("Klingon");
+    let pool = nudge_pool("English");
+    assert!(pool.contains(&nudge));
+}
+
+#[test]
+fn test_still_unknown_language_falls_back_to_english() {
+    let still = random_still_message("Klingon");
+    let pool = still_pool("English");
+    assert!(pool.contains(&still));
+}
+
+#[test]
+fn test_pools_have_minimum_variety() {
+    let languages = [
+        "English",
+        "Spanish",
+        "Portuguese",
+        "French",
+        "German",
+        "Italian",
+        "Dutch",
+        "Russian",
+    ];
+    for lang in &languages {
+        assert!(
+            nudge_pool(lang).len() >= 5,
+            "nudge pool for {lang} should have >= 5 entries"
+        );
+        assert!(
+            still_pool(lang).len() >= 3,
+            "still pool for {lang} should have >= 3 entries"
+        );
+    }
 }
 
 // --- Workspace images ---

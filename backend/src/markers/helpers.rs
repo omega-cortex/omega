@@ -2,25 +2,272 @@
 //! active hours, plan parsing, and inbox operations.
 
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 // ---------------------------------------------------------------------------
-// Status messages
+// Status messages — random funny pools per language
 // ---------------------------------------------------------------------------
 
-/// Return localized status messages for the delayed provider nudge.
-/// Returns `(first_nudge, still_working)`.
-pub fn status_messages(lang: &str) -> (&'static str, &'static str) {
+/// Pick a pseudo-random index from subsecond nanos (good enough for fun phrases).
+fn random_index(len: usize) -> usize {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as usize)
+        .unwrap_or(0)
+        % len
+}
+
+/// Return a random localized "first nudge" message (sent after 15 s of silence).
+pub fn random_nudge_message(lang: &str) -> &'static str {
+    let pool = match lang {
+        "Spanish" => NUDGE_ES,
+        "Portuguese" => NUDGE_PT,
+        "French" => NUDGE_FR,
+        "German" => NUDGE_DE,
+        "Italian" => NUDGE_IT,
+        "Dutch" => NUDGE_NL,
+        "Russian" => NUDGE_RU,
+        _ => NUDGE_EN,
+    };
+    pool[random_index(pool.len())]
+}
+
+/// Return a random localized "still working" message (sent every 120 s).
+pub fn random_still_message(lang: &str) -> &'static str {
+    let pool = match lang {
+        "Spanish" => STILL_ES,
+        "Portuguese" => STILL_PT,
+        "French" => STILL_FR,
+        "German" => STILL_DE,
+        "Italian" => STILL_IT,
+        "Dutch" => STILL_NL,
+        "Russian" => STILL_RU,
+        _ => STILL_EN,
+    };
+    pool[random_index(pool.len())]
+}
+
+/// All nudge message pools (for test validation).
+#[cfg(test)]
+pub fn nudge_pool(lang: &str) -> &'static [&'static str] {
     match lang {
-        "Spanish" => ("Déjame pensar en esto... 🧠", "Sigo en ello ⏳"),
-        "Portuguese" => ("Deixa eu pensar nisso... 🧠", "Ainda estou nessa ⏳"),
-        "French" => ("Laisse-moi réfléchir... 🧠", "J'y suis encore ⏳"),
-        "German" => ("Lass mich kurz nachdenken... 🧠", "Bin noch dran ⏳"),
-        "Italian" => ("Fammi pensare... 🧠", "Ci sto ancora lavorando ⏳"),
-        "Dutch" => ("Even nadenken... 🧠", "Nog mee bezig ⏳"),
-        "Russian" => ("Дай подумать... 🧠", "Ещё работаю ⏳"),
-        _ => ("Let me think about this... 🧠", "Still on it ⏳"),
+        "Spanish" => NUDGE_ES,
+        "Portuguese" => NUDGE_PT,
+        "French" => NUDGE_FR,
+        "German" => NUDGE_DE,
+        "Italian" => NUDGE_IT,
+        "Dutch" => NUDGE_NL,
+        "Russian" => NUDGE_RU,
+        _ => NUDGE_EN,
     }
 }
+
+/// All still-working message pools (for test validation).
+#[cfg(test)]
+pub fn still_pool(lang: &str) -> &'static [&'static str] {
+    match lang {
+        "Spanish" => STILL_ES,
+        "Portuguese" => STILL_PT,
+        "French" => STILL_FR,
+        "German" => STILL_DE,
+        "Italian" => STILL_IT,
+        "Dutch" => STILL_NL,
+        "Russian" => STILL_RU,
+        _ => STILL_EN,
+    }
+}
+
+// -- English ----------------------------------------------------------------
+
+const NUDGE_EN: &[&str] = &[
+    "Hmm, let me put my thinking cap on... 🎩",
+    "Consulting the ancient scrolls... 📜",
+    "My hamster wheel is spinning... 🐹",
+    "Brewing something good... ☕",
+    "Diving deep into the rabbit hole... 🕳️",
+    "Hold tight, genius loading... 💡",
+    "Summoning wisdom from the cloud... ☁️",
+    "Crunching this like popcorn... 🍿",
+    "Warming up the flux capacitor... ⚡",
+    "Plot twist incoming... 🎬",
+];
+
+const STILL_EN: &[&str] = &[
+    "Still cooking... almost crispy 🍳",
+    "Rome wasn't built in a message 🏛️",
+    "Good things take time... allegedly 🍀",
+    "Still here, still fabulous 💅",
+    "My other brain is a supercomputer 🖥️",
+    "Worth the wait, I promise 🎁",
+];
+
+// -- Spanish ----------------------------------------------------------------
+
+const NUDGE_ES: &[&str] = &[
+    "Poniéndome el gorro de pensar... 🎩",
+    "Consultando los pergaminos antiguos... 📜",
+    "Mi hámster mental está corriendo... 🐹",
+    "Preparando algo bueno... ☕",
+    "Cayendo por la madriguera del conejo... 🕳️",
+    "Calma, cargando genialidad... 💡",
+    "Invocando sabiduría de la nube... ☁️",
+    "Triturando esto como palomitas... 🍿",
+    "Calentando el condensador de fluzo... ⚡",
+    "Se viene plot twist... 🎬",
+];
+
+const STILL_ES: &[&str] = &[
+    "Aún cocinando... casi crujiente 🍳",
+    "Roma no se construyó en un mensaje 🏛️",
+    "Lo bueno se hace esperar... dicen 🍀",
+    "Sigo aquí, sigo fabuloso 💅",
+    "Mi otro cerebro es un superordenador 🖥️",
+    "Vale la espera, lo prometo 🎁",
+];
+
+// -- Portuguese -------------------------------------------------------------
+
+const NUDGE_PT: &[&str] = &[
+    "Colocando meu chapéu de pensar... 🎩",
+    "Consultando os pergaminhos antigos... 📜",
+    "Meu hamster mental tá correndo... 🐹",
+    "Preparando algo bom... ☕",
+    "Mergulhando na toca do coelho... 🕳️",
+    "Calma, carregando genialidade... 💡",
+    "Invocando sabedoria da nuvem... ☁️",
+    "Mastigando isso como pipoca... 🍿",
+    "Aquecendo o capacitor de fluxo... ⚡",
+    "Vem plot twist por aí... 🎬",
+];
+
+const STILL_PT: &[&str] = &[
+    "Ainda cozinhando... quase crocante 🍳",
+    "Roma não foi construída numa mensagem 🏛️",
+    "Coisas boas levam tempo... dizem 🍀",
+    "Ainda aqui, ainda fabuloso 💅",
+    "Meu outro cérebro é um supercomputador 🖥️",
+    "Vale a espera, prometo 🎁",
+];
+
+// -- French -----------------------------------------------------------------
+
+const NUDGE_FR: &[&str] = &[
+    "Je mets mon chapeau de réflexion... 🎩",
+    "Consultation des parchemins anciens... 📜",
+    "Mon hamster cérébral court à fond... 🐹",
+    "Je prépare un truc bien... ☕",
+    "Plongée dans le terrier du lapin... 🕳️",
+    "Du calme, génie en chargement... 💡",
+    "J'invoque la sagesse du cloud... ☁️",
+    "Je croque ça comme du popcorn... 🍿",
+    "Préchauffage du convecteur temporel... ⚡",
+    "Rebondissement en approche... 🎬",
+];
+
+const STILL_FR: &[&str] = &[
+    "Ça mijote encore... presque croustillant 🍳",
+    "Rome ne s'est pas faite en un message 🏛️",
+    "Les bonnes choses prennent du temps... paraît-il 🍀",
+    "Toujours là, toujours fabuleux 💅",
+    "Mon autre cerveau est un supercalculateur 🖥️",
+    "Ça vaut l'attente, promis 🎁",
+];
+
+// -- German -----------------------------------------------------------------
+
+const NUDGE_DE: &[&str] = &[
+    "Setze meine Denkmütze auf... 🎩",
+    "Konsultiere die alten Schriftrollen... 📜",
+    "Mein Denkhamster rennt auf Hochtouren... 🐹",
+    "Braue etwas Gutes zusammen... ☕",
+    "Tauche tief in den Kaninchenbau... 🕳️",
+    "Ruhe bitte, Genie lädt... 💡",
+    "Beschwöre Weisheit aus der Cloud... ☁️",
+    "Knacke das wie Popcorn... 🍿",
+    "Heize den Fluxkompensator vor... ⚡",
+    "Plot-Twist im Anmarsch... 🎬",
+];
+
+const STILL_DE: &[&str] = &[
+    "Köchelt noch... fast knusprig 🍳",
+    "Rom wurde nicht in einer Nachricht erbaut 🏛️",
+    "Gut Ding will Weile haben... angeblich 🍀",
+    "Immer noch hier, immer noch fabelhaft 💅",
+    "Mein zweites Gehirn ist ein Supercomputer 🖥️",
+    "Das Warten lohnt sich, versprochen 🎁",
+];
+
+// -- Italian ----------------------------------------------------------------
+
+const NUDGE_IT: &[&str] = &[
+    "Mi metto il cappello da pensatore... 🎩",
+    "Consulto le pergamene antiche... 📜",
+    "Il mio criceto mentale corre a tutta... 🐹",
+    "Sto preparando qualcosa di buono... ☕",
+    "Mi tuffo nella tana del coniglio... 🕳️",
+    "Calma, genio in caricamento... 💡",
+    "Evoco saggezza dal cloud... ☁️",
+    "Sgranocchio questo come popcorn... 🍿",
+    "Riscaldo il flusso canalizzatore... ⚡",
+    "Colpo di scena in arrivo... 🎬",
+];
+
+const STILL_IT: &[&str] = &[
+    "Sta ancora cuocendo... quasi croccante 🍳",
+    "Roma non fu costruita in un messaggio 🏛️",
+    "Le cose belle richiedono tempo... dicono 🍀",
+    "Ancora qui, ancora favoloso 💅",
+    "Il mio altro cervello è un supercomputer 🖥️",
+    "Vale l'attesa, promesso 🎁",
+];
+
+// -- Dutch ------------------------------------------------------------------
+
+const NUDGE_NL: &[&str] = &[
+    "Even mijn denkhoed opzetten... 🎩",
+    "De oude geschriften raadplegen... 📜",
+    "Mijn denkhamster draait overuren... 🐹",
+    "Iets goeds aan het brouwen... ☕",
+    "Duik in het konijnenhol... 🕳️",
+    "Rustig, genie aan het laden... 💡",
+    "Wijsheid oproepen uit de cloud... ☁️",
+    "Dit kraken als popcorn... 🍿",
+    "De fluxcondensator opwarmen... ⚡",
+    "Plot twist in aantocht... 🎬",
+];
+
+const STILL_NL: &[&str] = &[
+    "Nog aan het koken... bijna knapperig 🍳",
+    "Rome werd niet in één bericht gebouwd 🏛️",
+    "Goeie dingen kosten tijd... schijnt 🍀",
+    "Nog hier, nog steeds fantastisch 💅",
+    "Mijn andere brein is een supercomputer 🖥️",
+    "Het wachten waard, beloofd 🎁",
+];
+
+// -- Russian ----------------------------------------------------------------
+
+const NUDGE_RU: &[&str] = &[
+    "Надеваю шапку мыслителя... 🎩",
+    "Сверяюсь с древними свитками... 📜",
+    "Мой мысленный хомяк бежит изо всех сил... 🐹",
+    "Готовлю что-то хорошее... ☕",
+    "Ныряю в кроличью нору... 🕳️",
+    "Спокойно, гениальность загружается... 💡",
+    "Призываю мудрость из облака... ☁️",
+    "Щёлкаю это как попкорн... 🍿",
+    "Прогреваю потоковый конденсатор... ⚡",
+    "Сюжетный поворот на подходе... 🎬",
+];
+
+const STILL_RU: &[&str] = &[
+    "Всё ещё готовлю... почти хрустит 🍳",
+    "Рим не в одном сообщении построили 🏛️",
+    "Хорошее требует времени... говорят 🍀",
+    "Всё ещё тут, всё ещё великолепен 💅",
+    "Мой второй мозг — суперкомпьютер 🖥️",
+    "Ожидание того стоит, обещаю 🎁",
+];
 
 /// Map raw provider errors to user-friendly messages.
 pub fn friendly_provider_error(raw: &str) -> String {
