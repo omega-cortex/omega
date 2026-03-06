@@ -383,7 +383,10 @@ mod tests {
     fn test_direct_channel_notice_all_languages() {
         for lang in ALL_LANGUAGES {
             let msg = google_direct_channel_notice(lang);
-            assert!(!msg.is_empty(), "direct_channel_notice({lang}) must not be empty");
+            assert!(
+                !msg.is_empty(),
+                "direct_channel_notice({lang}) must not be empty"
+            );
             assert!(
                 msg.contains("OMEGA"),
                 "direct_channel_notice({lang}) must mention OMEGA"

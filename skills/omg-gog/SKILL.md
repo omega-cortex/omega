@@ -1,3 +1,9 @@
+---
+name = "omg-gog"
+description = "Google Workspace CLI — Gmail, Calendar, Drive, Docs, Sheets, Slides, Forms, Chat, Tasks, Contacts and more."
+requires = ["omg-gog"]
+---
+
 # omega-google (omg-gog) — Functionalities Skill
 
 Reference skill for the `omega-google` CLI tool (`omg-gog`). For detailed per-service functionalities, see [SKILL-INDEX.md](SKILL-INDEX.md).
