@@ -409,29 +409,18 @@ pub(crate) fn run_google_wizard() -> anyhow::Result<Option<String>> {
             ("Apps Script", "script.googleapis.com"),
         ];
 
-        let hint = console::Style::new()
-            .bold()
-            .apply_to("Space to select, Enter to pick one");
-        init_style::omega_info(&hint.to_string())?;
-
-        let mut ms = cliclack::multiselect("Step 2 — Select Google APIs to enable");
+        let mut ms = cliclack::multiselect(
+            "Step 2 — Select Google APIs to enable\n  Space = toggle, Enter = confirm (defaults: Gmail, Calendar, Drive, Contacts)",
+        );
         for (i, (name, api)) in apis.iter().enumerate() {
             ms = ms.item(i, *name, *api);
         }
         let selected: Vec<usize> = ms.required(false).interact()?;
 
         let chosen: Vec<usize> = if selected.is_empty() {
-            let mut sel = cliclack::select("Pick one API to enable (or skip)");
-            for (i, (name, api)) in apis.iter().enumerate() {
-                sel = sel.item(i, *name, *api);
-            }
-            sel = sel.item(usize::MAX, "Skip", "Continue without enabling APIs");
-            let choice: usize = sel.interact()?;
-            if choice == usize::MAX {
-                Vec::new()
-            } else {
-                vec![choice]
-            }
+            let defaults = vec![0, 1, 2, 10]; // Gmail, Calendar, Drive, Contacts
+            init_style::omega_info("Using recommended defaults: Gmail, Calendar, Drive, Contacts")?;
+            defaults
         } else {
             selected
         };

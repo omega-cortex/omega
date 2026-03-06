@@ -122,32 +122,20 @@ pub async fn run() -> anyhow::Result<()> {
     // 7. WhatsApp setup.
     let whatsapp_enabled = init_wizard::run_whatsapp_setup().await?;
 
-    // 8. Optional tools.
+    // 8. Optional tools — Google Workspace.
     let omg_gog_installed = crate::init_google::is_omg_gog_installed();
     let google_hint = if omg_gog_installed {
-        "Ask OMEGA to manage Gmail, Calendar, Drive, Docs... (installed)"
+        " (omg-gog installed)"
     } else {
-        "Ask OMEGA to manage Gmail, Calendar, Drive, Docs..."
+        ""
     };
+    init_style::omega_info(&format!("Gmail, Calendar, Drive, Docs...{google_hint}"))?;
 
-    let hint = console::Style::new()
-        .bold()
-        .apply_to("Space to select, Enter to confirm");
-    init_style::omega_info(&hint.to_string())?;
-
-    let selected_tools: Vec<&str> = cliclack::multiselect("Optional tools — select to set up")
-        .item("skip", "Skip", "Continue without setting up optional tools")
-        .item("google", "Google Workspace", google_hint)
-        .required(true)
+    let setup_google: bool = cliclack::confirm("Set up Google Workspace?")
+        .initial_value(false)
         .interact()?;
 
-    let selected_tools: Vec<&str> = if selected_tools.contains(&"skip") {
-        vec![]
-    } else {
-        selected_tools
-    };
-
-    let google_email = if selected_tools.contains(&"google") {
+    let google_email = if setup_google {
         let ready = if omg_gog_installed {
             true
         } else {
@@ -162,7 +150,63 @@ pub async fn run() -> anyhow::Result<()> {
         None
     };
 
-    // 9. Generate config.toml at ~/.omega/config.toml.
+    // 9. Review configuration before writing.
+    let mut summary_lines = Vec::new();
+    summary_lines.push(format!(
+        "  Claude Auth: {}",
+        if oauth_token.is_some() {
+            "configured"
+        } else {
+            "skipped"
+        }
+    ));
+    summary_lines.push(format!(
+        "  Telegram: {}",
+        if bot_token.is_empty() {
+            "skipped"
+        } else {
+            "configured"
+        }
+    ));
+    if let Some(id) = user_id {
+        summary_lines.push(format!("  Allowed user: {id}"));
+    }
+    summary_lines.push(format!(
+        "  Voice transcription: {}",
+        if whisper_api_key.is_some() {
+            "configured"
+        } else {
+            "skipped"
+        }
+    ));
+    summary_lines.push(format!(
+        "  WhatsApp: {}",
+        if whatsapp_enabled {
+            "paired"
+        } else {
+            "skipped"
+        }
+    ));
+    summary_lines.push(format!(
+        "  Google Workspace: {}",
+        match &google_email {
+            Some(e) => format!("connected ({e})"),
+            None => "skipped".to_string(),
+        }
+    ));
+
+    init_style::omega_note("Configuration summary", &summary_lines.join("\n"))?;
+
+    let proceed: bool = cliclack::confirm("Write configuration to ~/.omega/config.toml?")
+        .initial_value(true)
+        .interact()?;
+
+    if !proceed {
+        init_style::omega_outro_cancel("Setup cancelled — no files written")?;
+        return Ok(());
+    }
+
+    // 10. Generate config.toml at ~/.omega/config.toml.
     let config_path_expanded = shellexpand("~/.omega/config.toml");
     let config_path = config_path_expanded.as_str();
     if Path::new(config_path).exists() {
@@ -283,11 +327,6 @@ pub async fn run_setup() -> anyhow::Result<()> {
             Path::new(&shellexpand("~/.config/systemd/user/omega.service")).exists()
         };
 
-        let hint = console::Style::new()
-            .bold()
-            .apply_to("Space to select, Enter to confirm");
-        init_style::omega_info(&hint.to_string())?;
-
         let lbl_claude = check(has_claude, "Claude Auth");
         let lbl_telegram = check(has_telegram, "Telegram");
         let lbl_whisper = check(has_whisper, "Voice Transcription");
@@ -295,17 +334,19 @@ pub async fn run_setup() -> anyhow::Result<()> {
         let lbl_google = check(has_google, "Google Workspace");
         let lbl_service = check(has_service, "System Service");
 
-        let selected: Vec<&str> = cliclack::multiselect("Select components to reconfigure")
-            .item("claude", &lbl_claude, "OAuth token for Claude Code")
-            .item("telegram", &lbl_telegram, "Bot token and allowed users")
-            .item("whisper", &lbl_whisper, "OpenAI Whisper API key")
-            .item("whatsapp", &lbl_whatsapp, "Pair via QR code")
-            .item("google", &lbl_google, "Gmail, Calendar, Drive...")
-            .item("service", &lbl_service, "Install or reinstall the service")
-            .item("exit", "Exit", "Return to terminal")
-            .interact()?;
+        let selected: Vec<&str> = cliclack::multiselect(
+            "Select components to reconfigure\n  Space = toggle, Enter = confirm, Enter with none = exit",
+        )
+        .item("claude", &lbl_claude, "OAuth token for Claude Code")
+        .item("telegram", &lbl_telegram, "Bot token and allowed users")
+        .item("whisper", &lbl_whisper, "OpenAI Whisper API key")
+        .item("whatsapp", &lbl_whatsapp, "Pair via QR code")
+        .item("google", &lbl_google, "Gmail, Calendar, Drive...")
+        .item("service", &lbl_service, "Install or reinstall the service")
+        .required(false)
+        .interact()?;
 
-        if selected.contains(&"exit") {
+        if selected.is_empty() {
             init_style::omega_outro("Done")?;
             return Ok(());
         }
@@ -406,6 +447,15 @@ pub async fn run_setup() -> anyhow::Result<()> {
                     init_style::omega_warning(&format!("Service install failed: {e}"))?;
                 }
             }
+        }
+
+        // ── Continue or exit ─────────────────────────────────────────────
+        let continue_setup: bool = cliclack::confirm("Reconfigure more components?")
+            .initial_value(false)
+            .interact()?;
+        if !continue_setup {
+            init_style::omega_outro("Done")?;
+            return Ok(());
         }
     }
 }
