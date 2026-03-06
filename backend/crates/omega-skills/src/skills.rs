@@ -238,7 +238,13 @@ pub fn build_skill_prompt(skills: &[Skill]) -> String {
         "\n\nYou have the following skills available. \
          Before using any skill, you MUST read its file for full instructions. \
          If a tool is not installed, the skill file contains installation \
-         instructions — install it first, then use it.\n\nSkills:\n",
+         instructions — install it first, then use it.\n\n\
+         IMPORTANT — Semantic skill matching: Match user INTENT to skills, not just \
+         exact keywords. Use reasoning to map synonyms, related concepts, and \
+         abbreviations to the right skill. Examples: \"excel\" or \"spreadsheet\" → \
+         Sheets skill, \"zoom call\" or \"meeting\" → Calendar skill, \"send a file\" → \
+         Drive skill, \"blockchain\" → miner skill. When in doubt, read the skill file \
+         to confirm.\n\nSkills:\n",
     );
 
     for s in skills {
@@ -338,12 +344,39 @@ fn parse_yaml_frontmatter(block: &str) -> Option<SkillFrontmatter> {
     })
 }
 
+/// Collect all MCP servers from available skills, ignoring triggers.
+///
+/// Used by providers where MCP activation is cheap (e.g. Claude Code CLI,
+/// which only writes a config file). Lets the AI decide which tools to use
+/// based on semantic understanding rather than keyword matching.
+pub fn collect_all_mcp_servers(skills: &[Skill]) -> Vec<McpServer> {
+    let mut seen = std::collections::HashSet::new();
+    let mut servers = Vec::new();
+
+    for skill in skills {
+        if !skill.available || skill.mcp_servers.is_empty() {
+            continue;
+        }
+        for srv in &skill.mcp_servers {
+            if seen.insert(srv.name.clone()) {
+                servers.push(srv.clone());
+            }
+        }
+    }
+
+    servers
+}
+
 /// Match user message against skill triggers and return activated MCP servers.
 ///
 /// Each skill's `trigger` is a pipe-separated list of keywords. If any keyword
 /// is found (case-insensitive substring match) in the message, that skill's
 /// MCP servers are included. Unavailable skills are skipped. Results are
 /// deduplicated by server name.
+///
+/// Used by HTTP providers where each MCP connection has a real per-message
+/// cost (subprocess spawn + JSON-RPC handshake). For providers where MCP
+/// activation is cheap, prefer [`collect_all_mcp_servers`].
 pub fn match_skill_triggers(skills: &[Skill], message: &str) -> Vec<McpServer> {
     let lower = message.to_lowercase();
     let mut seen = std::collections::HashSet::new();
@@ -767,6 +800,30 @@ description = \"No trigger or MCP.\"
         let skills = vec![make_skill("pw", true, None, vec![make_mcp("playwright")])];
         let servers = match_skill_triggers(&skills, "browse google.com");
         assert!(servers.is_empty());
+    }
+
+    #[test]
+    fn test_collect_all_mcp_servers_ignores_triggers() {
+        let skills = vec![
+            make_skill("pw", true, Some("browse"), vec![make_mcp("playwright")]),
+            make_skill("gog", true, None, vec![make_mcp("google")]),
+            make_skill("cli", true, None, Vec::new()), // no MCP — should be skipped
+            make_skill("off", false, None, vec![make_mcp("offline")]), // unavailable
+        ];
+        let servers = collect_all_mcp_servers(&skills);
+        assert_eq!(servers.len(), 2);
+        assert_eq!(servers[0].name, "playwright");
+        assert_eq!(servers[1].name, "google");
+    }
+
+    #[test]
+    fn test_collect_all_mcp_servers_deduplicates() {
+        let skills = vec![
+            make_skill("a", true, None, vec![make_mcp("shared")]),
+            make_skill("b", true, None, vec![make_mcp("shared")]),
+        ];
+        let servers = collect_all_mcp_servers(&skills);
+        assert_eq!(servers.len(), 1);
     }
 
     #[test]

@@ -12,6 +12,6 @@ mod skills;
 // Re-export public API — all consumers use `omega_skills::*` paths.
 pub use projects::{ensure_projects_dir, get_project_instructions, load_projects, Project};
 pub use skills::{
-    build_skill_prompt, install_bundled_skills, load_skills, match_skill_triggers,
-    migrate_flat_skills, Skill,
+    build_skill_prompt, collect_all_mcp_servers, install_bundled_skills, load_skills,
+    match_skill_triggers, migrate_flat_skills, Skill,
 };

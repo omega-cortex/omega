@@ -218,6 +218,7 @@ impl Gateway {
                             interval.clone(),
                             String::new(),
                             config_path.clone(),
+                            provider_name.clone(),
                         )
                         .await;
                         send_heartbeat_result(
@@ -252,6 +253,7 @@ impl Gateway {
                                 interval.clone(),
                                 String::new(),
                                 config_path.clone(),
+                                provider_name.clone(),
                             )));
                         }
 
@@ -321,6 +323,7 @@ impl Gateway {
                     interval.clone(),
                     project_name.clone(),
                     config_path.clone(),
+                    provider_name.clone(),
                 )
                 .await;
                 send_heartbeat_result(
@@ -403,6 +406,7 @@ async fn execute_heartbeat_group(
     interval: Arc<AtomicU64>,
     project: String,
     config_path: String,
+    provider_name: String,
 ) -> Option<(String, i64)> {
     // Enrichment (facts, lessons, outcomes) goes BEFORE the checklist so learned
     // behavioral rules frame the AI's approach before it encounters detailed instructions.
@@ -413,7 +417,13 @@ async fn execute_heartbeat_group(
     let mut ctx = Context::new(&prompt);
     ctx.system_prompt = system_prompt;
     ctx.model = Some(model_complex);
-    ctx.mcp_servers = omega_skills::match_skill_triggers(&skills, &group_items);
+    // Claude Code CLI: always activate all MCP servers (cheap config write).
+    // HTTP providers: keyword-based trigger matching (real per-message cost).
+    ctx.mcp_servers = if provider_name == "claude-code" {
+        omega_skills::collect_all_mcp_servers(&skills)
+    } else {
+        omega_skills::match_skill_triggers(&skills, &group_items)
+    };
 
     let started = Instant::now();
     let resp = match provider.complete(&ctx).await {

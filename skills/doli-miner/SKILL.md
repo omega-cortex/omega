@@ -1,7 +1,6 @@
 ---
 name = "doli-miner"
 description = "DOLI blockchain producer node management — wallet, mining, rewards, node health, service setup."
-trigger = "doli|miner|producer|bond|wallet|rewards|epoch|node|block|mining"
 ---
 
 # DOLI Miner

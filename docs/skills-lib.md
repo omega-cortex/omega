@@ -112,17 +112,29 @@ All MCP command names are validated before acceptance. Only these characters are
 
 This prevents command injection via malicious skill files. Rejected commands are logged with a warning and the MCP server entry is silently dropped.
 
-## MCP Trigger Matching
+## MCP Server Activation
 
-The public function `match_skill_triggers(skills, message) -> Vec<McpServer>` scans all loaded skills for trigger keyword matches against the incoming message:
+Two-tier strategy based on provider cost model:
+
+### Claude Code CLI (default provider)
+
+`collect_all_mcp_servers(skills) -> Vec<McpServer>` returns all MCP servers from available skills, ignoring triggers entirely. This is cheap — just a config file write. The AI decides which tools to use via semantic intent matching in the system prompt.
+
+### HTTP providers (OpenAI, Anthropic, etc.)
+
+`match_skill_triggers(skills, message) -> Vec<McpServer>` uses keyword-based matching:
 
 1. For each skill with a `trigger` field, splits the value on `|` to get individual keywords.
 2. Performs case-insensitive substring matching against the message text.
 3. Skips skills that are not available (i.e., their required CLI tools are missing).
 4. Collects all `mcp_servers` from matched skills.
-5. Deduplicates by server name -- if two skills declare the same MCP server, it appears only once.
+5. Deduplicates by server name.
 
-The returned `Vec<McpServer>` is set on the `Context` before it is passed to the provider.
+This selective approach avoids the per-message cost of subprocess spawns for each MCP server connection.
+
+### Non-MCP skills
+
+Most skills (omg-gog, ibkr-trader, doli-miner, etc.) have no MCP servers. They are activated purely at the prompt level — the system prompt includes a semantic matching instruction that tells the AI to map user intent to skills based on descriptions, not keywords. "check my excel" maps to Sheets (omg-gog), "meeting tomorrow" maps to Calendar, etc.
 
 ## Bot Command
 

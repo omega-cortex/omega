@@ -389,8 +389,14 @@ impl Gateway {
             }
         };
 
-        // --- 4b. MATCH SKILL TRIGGERS FOR MCP SERVERS ---
-        let mcp_servers = omega_skills::match_skill_triggers(&self.skills, &clean_incoming.text);
+        // --- 4b. ACTIVATE MCP SERVERS ---
+        // Claude Code CLI: always activate all MCP servers (cheap — just a config write).
+        // HTTP providers: use keyword-based trigger matching (real per-message cost).
+        let mcp_servers = if self.provider.name() == "claude-code" {
+            omega_skills::collect_all_mcp_servers(&self.skills)
+        } else {
+            omega_skills::match_skill_triggers(&self.skills, &clean_incoming.text)
+        };
         let mut context = context;
         context.mcp_servers = mcp_servers;
 

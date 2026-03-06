@@ -1,7 +1,6 @@
 ---
 name: "ibkr-trader"
 description: "Autonomous trading via IBKR — multi-asset (stocks, forex, crypto), bracket orders, scanner, positions, P&L monitoring."
-trigger: "quant|trading|signal|ibkr|market|regime|kelly|position|interactive brokers|stock|portfolio|analyze|forex|crypto|scanner|bracket|pnl|close"
 ---
 
 # IBKR Trader — Autonomous Trading

@@ -169,9 +169,13 @@ pub(super) async fn execute_action_task(
     ctx.system_prompt = system;
     ctx.model = Some(model_complex.to_string());
 
-    // Match skill triggers on description to inject MCP servers.
-    let matched_servers = omega_skills::match_skill_triggers(skills, description);
-    ctx.mcp_servers = matched_servers;
+    // Claude Code CLI: always activate all MCP servers (cheap config write).
+    // HTTP providers: keyword-based trigger matching (real per-message cost).
+    ctx.mcp_servers = if provider_name == "claude-code" {
+        omega_skills::collect_all_mcp_servers(skills)
+    } else {
+        omega_skills::match_skill_triggers(skills, description)
+    };
 
     match provider.complete(&ctx).await {
         Ok(resp) => {

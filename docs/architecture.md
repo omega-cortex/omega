@@ -150,9 +150,14 @@ The core sections (Identity + Soul + System) are sent **once** on the first mess
 
 **Token savings:** ~55-70% on first messages (conditional sections skipped), ~90-99% on continuations (entire prompt replaced).
 
-### 3.9 Skill Trigger Matching
+### 3.9 Skill & MCP Activation
 
-Scan the message for trigger keywords defined in `~/.omega/skills/*/SKILL.md`. If matched, attach the skill's MCP server config to the context — the provider will activate it.
+Two-tier activation strategy:
+
+- **Claude Code CLI (default):** All available MCP servers are always activated (cheap — just a config file write). The AI uses semantic intent matching via the system prompt to decide which skills to use. No keyword matching needed.
+- **HTTP providers:** `match_skill_triggers()` uses keyword-based matching against the `trigger` field in SKILL.md frontmatter. Only matched skills' MCP servers are activated (each costs a subprocess spawn + JSON-RPC handshake).
+
+Non-MCP skills (majority) always rely on prompt-level semantic matching — the AI reads skill descriptions and uses reasoning to map user intent to the right skill.
 
 ### 3.10 Session Check (Claude Code CLI only)
 
@@ -223,7 +228,7 @@ All Claude Code work happens in `~/.omega/workspace/`. This is where it reads/wr
 
 ### MCP Server Activation
 
-If skills matched triggers in Phase 3.9, the provider writes a temporary `~/.omega/workspace/.claude/settings.local.json` with MCP server configs. After the call completes, this file is deleted.
+For Claude Code CLI, all available MCP servers are written to `~/.omega/workspace/.claude/settings.local.json` before each call. For HTTP providers, only trigger-matched servers are connected. The settings file is deleted after the call completes.
 
 ### Execution
 
