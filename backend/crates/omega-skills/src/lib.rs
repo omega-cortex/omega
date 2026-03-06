@@ -4,6 +4,7 @@
 //! and `~/.omega/projects/*/ROLE.md` for definitions and exposes them to the
 //! system prompt so the AI knows what tools and contexts are available.
 
+mod bundled;
 mod parse;
 mod projects;
 mod skills;

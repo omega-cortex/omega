@@ -7,35 +7,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::{info, warn};
 
-/// Bundled core skills — embedded at compile time from `skills/` in the repo root.
-///
-/// Each entry is `(directory_name, content)`. Deployed to `{data_dir}/skills/{name}/SKILL.md`.
-const BUNDLED_SKILLS: &[(&str, &str)] = &[
-    (
-        "claude-code",
-        include_str!("../../../../skills/claude-code/SKILL.md"),
-    ),
-    (
-        "omg-gog",
-        include_str!("../../../../skills/omg-gog/SKILL.md"),
-    ),
-    (
-        "playwright-mcp",
-        include_str!("../../../../skills/playwright-mcp/SKILL.md"),
-    ),
-    (
-        "skill-creator",
-        include_str!("../../../../skills/skill-creator/SKILL.md"),
-    ),
-    (
-        "ibkr-trader",
-        include_str!("../../../../skills/ibkr-trader/SKILL.md"),
-    ),
-];
+use crate::bundled::BUNDLED_SKILLS;
 
-/// Deploy bundled skills to `{data_dir}/skills/{name}/SKILL.md`, creating
+/// Deploy bundled skills to `{data_dir}/skills/{name}/`, creating
 /// subdirectories as needed.
 ///
+/// Deploys all bundled files (SKILL.md, indexes, functionalities, scripts, etc.).
 /// Never overwrites existing files so user edits are preserved.
 pub fn install_bundled_skills(data_dir: &str) {
     let dir = data_path(data_dir, "skills");
@@ -43,18 +20,27 @@ pub fn install_bundled_skills(data_dir: &str) {
         warn!("skills: failed to create {}: {e}", dir.display());
         return;
     }
-    for (name, content) in BUNDLED_SKILLS {
+    for (name, files) in BUNDLED_SKILLS {
         let skill_dir = dir.join(name);
         if let Err(e) = std::fs::create_dir_all(&skill_dir) {
             warn!("skills: failed to create {}: {e}", skill_dir.display());
             continue;
         }
-        let dest = skill_dir.join("SKILL.md");
-        if !dest.exists() {
-            if let Err(e) = std::fs::write(&dest, content) {
+        for file in *files {
+            let dest = skill_dir.join(file.rel_path);
+            if dest.exists() {
+                continue;
+            }
+            if let Some(parent) = dest.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    warn!("skills: failed to create {}: {e}", parent.display());
+                    continue;
+                }
+            }
+            if let Err(e) = std::fs::write(&dest, file.content) {
                 warn!("skills: failed to write {}: {e}", dest.display());
             } else {
-                info!("skills: installed bundled skill {name}");
+                info!("skills: installed {name}/{}", file.rel_path);
             }
         }
     }
@@ -608,9 +594,19 @@ description = \"No deps.\"
         let _ = std::fs::remove_dir_all(&tmp);
         install_bundled_skills(tmp.to_str().unwrap());
         let dest = tmp.join("skills/omg-gog/SKILL.md");
-        assert!(dest.exists(), "bundled skill should be deployed");
+        assert!(dest.exists(), "bundled SKILL.md should be deployed");
         let content = std::fs::read_to_string(&dest).unwrap();
         assert!(content.contains("omg-gog"));
+
+        // Verify subdirectory files are deployed.
+        let index = tmp.join("skills/omg-gog/SKILL-INDEX.md");
+        assert!(index.exists(), "bundled SKILL-INDEX.md should be deployed");
+        let func = tmp.join("skills/omg-gog/functionalities/gmail-functionalities.md");
+        assert!(
+            func.exists(),
+            "bundled functionalities/ files should be deployed"
+        );
+
         // Run again — should not overwrite.
         std::fs::write(&dest, "custom").unwrap();
         install_bundled_skills(tmp.to_str().unwrap());
