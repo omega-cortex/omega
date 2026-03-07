@@ -206,6 +206,9 @@ impl Gateway {
                 heartbeat_enabled: self.heartbeat_config.enabled,
                 heartbeat_interval_mins: self.heartbeat_interval.load(Ordering::Relaxed),
                 active_project: active_project.as_deref(),
+                base_prompt_chars: self.prompts.identity.len()
+                    + self.prompts.soul.len()
+                    + self.prompts.system.len(),
             };
             let response = commands::handle(cmd, &ctx).await;
 

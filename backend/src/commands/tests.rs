@@ -657,7 +657,7 @@ fn test_parse_tokenfoo_does_not_match() {
 #[tokio::test]
 async fn test_token_no_active_conversation() {
     let store = test_store().await;
-    let result = status::handle_token(&store, "telegram", "user1", None, "English").await;
+    let result = status::handle_token(&store, "telegram", "user1", None, 10000, "English").await;
     assert!(
         result.contains("No active conversation"),
         "should show no-conversation message: {result}"
@@ -705,7 +705,7 @@ async fn test_token_with_active_conversation() {
         .await
         .unwrap();
 
-    let result = status::handle_token(&store, "telegram", "user1", None, "English").await;
+    let result = status::handle_token(&store, "telegram", "user1", None, 10000, "English").await;
     assert!(
         result.contains("Context Usage"),
         "should have header: {result}"
@@ -719,8 +719,8 @@ async fn test_token_with_active_conversation() {
         "should show message count 2: {result}"
     );
     assert!(
-        result.contains("Estimated tokens:"),
-        "should show tokens label: {result}"
+        result.contains("Estimated total:"),
+        "should show total label: {result}"
     );
     assert!(result.contains("~"), "should have ~ prefix: {result}");
 }
@@ -732,7 +732,7 @@ async fn test_token_with_active_conversation() {
 #[tokio::test]
 async fn test_token_localized_spanish() {
     let store = test_store().await;
-    let result = status::handle_token(&store, "telegram", "user1", None, "Spanish").await;
+    let result = status::handle_token(&store, "telegram", "user1", None, 10000, "Spanish").await;
     assert!(
         result.contains("No hay conversación activa"),
         "should show Spanish no-conversation: {result}"

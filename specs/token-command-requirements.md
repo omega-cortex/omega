@@ -21,7 +21,7 @@ As an Omega user, I want to see how many context tokens have accumulated in my c
 **Description:** Implement `handle_token()` in `commands/status.rs` that queries the memory store for current conversation token usage and returns a formatted response.
 
 **Acceptance criteria:**
-- Given the user sends `/token`, when the handler runs, then it returns a localized message showing: message count, estimated token count (prefixed with `~`)
+- Given the user sends `/token`, when the handler runs, then it returns a localized message showing: message count, system prompt tokens, conversation tokens, and estimated total (prefixed with `~`)
 - Given no active conversation exists, when the handler runs, then it returns a "no active conversation" message
 
 ### REQ-TOKEN-003 (Must): Memory query — read-only conversation lookup
@@ -47,12 +47,14 @@ As an Omega user, I want to see how many context tokens have accumulated in my c
 **Labels needed:**
 - `token_header` — "Context usage" header
 - `token_messages` — "Messages:" label
-- `token_estimated` — "Estimated tokens:" label
+- `token_prompt` — "System prompt:" label
+- `token_conversation` — "Conversation:" label
+- `token_estimated` — "Estimated total:" label
 - `token_no_conversation` — "No active conversation" message
 - `help_token` — Help text for `/help` output
 
 **Acceptance criteria:**
-- All 5 labels are translated in: English, Spanish, Portuguese, French, German, Italian, Dutch, Russian
+- All 7 labels are translated in: English, Spanish, Portuguese, French, German, Italian, Dutch, Russian
 
 ### REQ-TOKEN-006 (Must): Help text update
 
@@ -76,21 +78,22 @@ As an Omega user, I want to see how many context tokens have accumulated in my c
 
 ### REQ-TOKEN-008 (Must): CommandContext passthrough
 
-**Description:** The handler needs `channel` and `sender_id` (already in `CommandContext`) plus `active_project` to find the right conversation. `active_project` is already available in the pipeline.
+**Description:** The handler needs `channel`, `sender_id`, `active_project`, and `base_prompt_chars` (identity + soul + system prompt character count). All are passed through `CommandContext`.
 
 **Acceptance criteria:**
 - The `/token` handler receives all data needed to query the correct conversation (channel, sender_id, active_project)
+- `base_prompt_chars` is available so the handler can estimate system prompt token overhead
 
 ## Impact Analysis
 
 | Component | Impact | Risk |
 |-----------|--------|------|
 | `commands/mod.rs` | Add enum variant + parse arm + handle arm | Low |
-| `commands/status.rs` | Add handler function (~20 lines) | Low |
+| `commands/status.rs` | Add handler function (~25 lines) | Low |
 | `omega-memory/store/conversations.rs` | Add 2 read-only query methods (~30 lines) | Low |
-| `i18n/labels.rs` | Add 4 label translations | Low |
+| `i18n/labels.rs` | Add 6 label translations | Low |
 | `i18n/commands.rs` | Add 1 help text translation | Low |
-| `pipeline.rs` | No changes needed (standard command dispatch) | None |
+| `pipeline.rs` | Pass `base_prompt_chars` to `CommandContext` | Low |
 
 ## Traceability Matrix
 
