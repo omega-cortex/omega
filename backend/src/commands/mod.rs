@@ -24,6 +24,8 @@ pub struct CommandContext<'a> {
     pub heartbeat_enabled: bool,
     pub heartbeat_interval_mins: u64,
     pub active_project: Option<&'a str>,
+    /// Base system prompt size in characters (identity + soul + system).
+    pub base_prompt_chars: usize,
 }
 
 /// Known bot commands.
@@ -148,6 +150,7 @@ pub async fn handle(cmd: Command, ctx: &CommandContext<'_>) -> String {
                 ctx.channel,
                 ctx.sender_id,
                 ctx.active_project,
+                ctx.base_prompt_chars,
                 &lang,
             )
             .await

@@ -35,13 +35,15 @@ Database: 1.4 MB
 
 ### `/token` — Context Token Usage
 
-**What It Does:** Shows the estimated context token usage in your current active conversation, including message count and approximate token count.
+**What It Does:** Shows the estimated context token usage in your current active conversation, including a breakdown of system prompt tokens, conversation tokens, and an estimated total.
 
 **Response Example:**
 ```
 Context Usage
 Messages: 12
-Estimated tokens: ~3,450
+System prompt: ~2500
+Conversation: ~950
+Estimated total: ~3450
 ```
 
 **Response Example (No Active Conversation):**
@@ -51,7 +53,9 @@ No active conversation.
 
 **Understanding the Numbers:**
 - **Messages:** Total messages (user + assistant) in the current conversation
-- **Estimated tokens:** Approximate token count based on message content length (characters / 4)
+- **System prompt:** Approximate tokens from the base system prompt (identity + soul + system instructions, estimated as characters / 4)
+- **Conversation:** Approximate tokens from stored message content (characters / 4)
+- **Estimated total:** Sum of system prompt + conversation tokens
 
 **Use Cases:**
 - Check how large your current conversation context has grown

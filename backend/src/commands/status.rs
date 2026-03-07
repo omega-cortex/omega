@@ -75,6 +75,7 @@ pub(super) async fn handle_token(
     channel: &str,
     sender_id: &str,
     active_project: Option<&str>,
+    base_prompt_chars: usize,
     lang: &str,
 ) -> String {
     let project_key = active_project.unwrap_or("");
@@ -83,11 +84,15 @@ pub(super) async fn handle_token(
         .await
     {
         Ok(Some(conv_id)) => match store.get_conversation_token_estimate(&conv_id).await {
-            Ok((msg_count, estimated_tokens)) => {
+            Ok((msg_count, message_tokens)) => {
+                let prompt_tokens = (base_prompt_chars / 4) as i64;
+                let total_tokens = prompt_tokens + message_tokens;
                 format!(
-                    "{}\n{} {msg_count}\n{} ~{estimated_tokens}",
+                    "{}\n{} {msg_count}\n{} ~{prompt_tokens}\n{} ~{message_tokens}\n{} ~{total_tokens}",
                     i18n::t("token_header", lang),
                     i18n::t("token_messages", lang),
+                    i18n::t("token_prompt", lang),
+                    i18n::t("token_conversation", lang),
                     i18n::t("token_estimated", lang),
                 )
             }
