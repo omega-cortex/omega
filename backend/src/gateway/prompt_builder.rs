@@ -18,7 +18,6 @@ impl Gateway {
         projects: &[omega_skills::Project],
         needs_scheduling: bool,
         needs_projects: bool,
-        needs_builds: bool,
         needs_meta: bool,
     ) -> String {
         let mut prompt = format!(
@@ -72,10 +71,8 @@ impl Gateway {
             prompt.push_str("\n\n");
             prompt.push_str(&self.prompts.projects_rules);
         }
-        if needs_builds {
-            prompt.push_str("\n\n");
-            prompt.push_str(&self.prompts.builds);
-        }
+        prompt.push_str("\n\n");
+        prompt.push_str(&self.prompts.builds);
         if needs_meta {
             prompt.push_str("\n\n");
             prompt.push_str(&self.prompts.meta);

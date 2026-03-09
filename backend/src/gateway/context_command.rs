@@ -41,7 +41,6 @@ impl Gateway {
         // Determine which sections would activate.
         let needs_scheduling = arg == "scheduling" || kw_match(&arg, SCHEDULING_KW);
         let needs_projects = arg == "projects" || kw_match(&arg, PROJECTS_KW);
-        let needs_builds = arg == "builds" || kw_match(&arg, BUILDS_KW);
         let needs_meta = arg == "meta" || kw_match(&arg, META_KW);
 
         // Build the prompt exactly as the pipeline would.
@@ -52,7 +51,6 @@ impl Gateway {
             projects,
             needs_scheduling,
             needs_projects,
-            needs_builds,
             needs_meta,
         );
 
@@ -91,9 +89,8 @@ impl Gateway {
             self.prompts.projects_rules.len()
         ));
 
-        let build_status = if needs_builds { &on } else { &off };
         sections.push(format!(
-            "[{build_status}] Builds ({} chars)",
+            "[{on}] Builds ({} chars)",
             self.prompts.builds.len()
         ));
 

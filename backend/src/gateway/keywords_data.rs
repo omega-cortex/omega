@@ -168,115 +168,6 @@ pub(super) const OUTCOMES_KW: &[&str] = &[
     "resultaat",
 ];
 
-/// Keywords that trigger the builds context section.
-pub(super) const BUILDS_KW: &[&str] = &[
-    "build me",
-    "build a ",
-    "build an ",
-    "scaffold",
-    "code me",
-    "code a ",
-    "code an ",
-    "develop a",
-    "develop an",
-    "make me a",
-    "write me a",
-    "new tool",
-    "new app",
-    "new service",
-    "new api",
-    "new library",
-    "new cli",
-    // Common English typos (mobile keyboard, missing/swapped letters)
-    "buil me",
-    "buil a ",
-    "buil an ",
-    "buidl",
-    "bulid",
-    "biuld",
-    "buld ",
-    "scafold",
-    "scaffol ",
-    "devlop",
-    "develp",
-    "develo a",
-    "mak me a",
-    "writ me a",
-    "wrte me a",
-    // Spanish
-    "constrúyeme",
-    "construye un",
-    "hazme un",
-    "hazme una",
-    "desarroll",
-    "codifica",
-    // Spanish typos
-    "contruyeme",
-    "construyem",
-    "hasme un",
-    // Portuguese
-    "construa um",
-    "crie um",
-    "desenvolva",
-    // Portuguese typos
-    "contrua um",
-    "desevolva",
-    // French
-    "construis",
-    "développe",
-    "code-moi",
-    "crée un",
-    "crée une",
-    "nouvel outil",
-    "nouvelle app",
-    // French typos
-    "developpe",
-    "cree un",
-    "cree une",
-    // German
-    "baue mir",
-    "erstelle",
-    "entwickle",
-    "programmier",
-    "neues tool",
-    "neue app",
-    // German typos
-    "erstele",
-    "enwickle",
-    // Italian
-    "costruisci",
-    "sviluppa",
-    "programma un",
-    "crea un",
-    "crea una",
-    "nuovo strumento",
-    "nuova app",
-    // Italian typos
-    "costruici",
-    "svilupa",
-    // Dutch
-    "bouw me",
-    "maak me",
-    "ontwikkel",
-    "codeer",
-    "nieuwe tool",
-    "nieuwe app",
-    // Dutch typos
-    "ontwikel",
-    "bouw mij",
-    // Russian
-    "построй",
-    "создай",
-    "разработай",
-    "напиши мне",
-    "новый инструмент",
-    "новое приложение",
-    // Russian typos
-    "пострй",
-    "сздай",
-    "разрабтай",
-];
-
 /// Simple confirmation words for build requests (lowercased).
 /// Safe because they are only checked during the 2-minute TTL window after
 /// OMEGA explicitly asked for confirmation — outside that window, "yes" is just "yes".
@@ -451,9 +342,6 @@ pub(super) const HELP_KW: &[&str] = &[
     "что ты можешь",
     "твои команды",
 ];
-
-/// Maximum seconds a discovery session stays valid.
-pub(super) const DISCOVERY_TTL_SECS: i64 = 1800; // 30 minutes
 
 /// Maximum seconds a setup session stays valid.
 pub(super) const SETUP_TTL_SECS: i64 = 1800; // 30 minutes

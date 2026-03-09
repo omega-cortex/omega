@@ -300,14 +300,6 @@ impl Gateway {
             return;
         }
 
-        // --- 4a-DISCOVERY. PENDING DISCOVERY SESSION CHECK ---
-        if self
-            .handle_pending_discovery(&incoming, &clean_incoming.text, &mut typing_handle)
-            .await
-        {
-            return;
-        }
-
         // --- 4a. PENDING BUILD CONFIRMATION CHECK ---
         if self
             .handle_pending_build_confirmation(&incoming, &clean_incoming.text, &mut typing_handle)
@@ -321,7 +313,6 @@ impl Gateway {
         let needs_recall = kw_match(&msg_lower, RECALL_KW);
         let needs_tasks = needs_scheduling || kw_match(&msg_lower, TASKS_KW);
         let needs_projects = kw_match(&msg_lower, PROJECTS_KW);
-        let needs_builds = kw_match(&msg_lower, BUILDS_KW);
         let needs_meta = kw_match(&msg_lower, META_KW);
         let needs_profile = kw_match(&msg_lower, PROFILE_KW)
             || needs_scheduling // timezone/location needed
@@ -331,25 +322,17 @@ impl Gateway {
         let needs_outcomes = kw_match(&msg_lower, OUTCOMES_KW);
 
         info!(
-            "[{}] prompt needs: scheduling={} recall={} tasks={} projects={} builds={} meta={} profile={} summaries={} outcomes={}",
+            "[{}] prompt needs: scheduling={} recall={} tasks={} projects={} meta={} profile={} summaries={} outcomes={}",
             incoming.channel,
             needs_scheduling,
             needs_recall,
             needs_tasks,
             needs_projects,
-            needs_builds,
             needs_meta,
             needs_profile,
             needs_summaries,
             needs_outcomes,
         );
-
-        // --- 4b. BUILD REQUESTS — run discovery before confirmation ---
-        if needs_builds {
-            self.handle_build_keyword_discovery(&incoming, &mut typing_handle)
-                .await;
-            return;
-        }
 
         let system_prompt = self.build_system_prompt(
             &incoming,
@@ -358,7 +341,6 @@ impl Gateway {
             projects,
             needs_scheduling,
             needs_projects,
-            needs_builds,
             needs_meta,
         );
 
@@ -435,10 +417,8 @@ impl Gateway {
                     minimal.push_str("\n\n");
                     minimal.push_str(&self.prompts.projects_rules);
                 }
-                if needs_builds {
-                    minimal.push_str("\n\n");
-                    minimal.push_str(&self.prompts.builds);
-                }
+                minimal.push_str("\n\n");
+                minimal.push_str(&self.prompts.builds);
                 if needs_meta {
                     minimal.push_str("\n\n");
                     minimal.push_str(&self.prompts.meta);

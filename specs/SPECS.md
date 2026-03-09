@@ -109,11 +109,12 @@ Omega is a personal AI agent infrastructure written in Rust. This `specs/` direc
 - [improvements/builds-routing-improvement.md](improvements/builds-routing-improvement.md) — [SUPERSEDED] Multi-phase builds pipeline replacing single-shot build execution
 - [improvements/build-agent-pipeline-improvement.md](improvements/build-agent-pipeline-improvement.md) — Replace 5-phase hardcoded prompts with 7-phase agent pipeline using `--agent` flag and embedded agent definitions
 - [improvements/build-pipeline-safety-controls.md](improvements/build-pipeline-safety-controls.md) — QA retry loop (3 iter), review loop (2 iter, fatal), inter-step validation, chain state recovery, agent prompt improvements
-- [improvements/build-discovery-phase-improvement.md](improvements/build-discovery-phase-improvement.md) — Interactive discovery session before build pipeline (multi-round clarification, cancel support)
+- [improvements/build-discovery-phase-improvement.md](improvements/build-discovery-phase-improvement.md) — ~~SUPERSEDED by build-keyword-to-marker-improvement~~ Interactive discovery session before build pipeline (multi-round clarification, cancel support)
 - [improvements/topology-extraction-requirements.md](improvements/topology-extraction-requirements.md) — Phase 1: Extract hardcoded 7-phase build pipeline into config-driven TOPOLOGY.toml + external agent .md files
 - [improvements/topology-extraction-architecture.md](improvements/topology-extraction-architecture.md) — Architecture design for topology extraction: builds_topology.rs schema/loader, orchestrator refactoring, agent lifecycle, validation, failure modes, security model
 - [improvements/project-personality-improvement.md](improvements/project-personality-improvement.md) — Project-specific OMEGA persona greeting on activation (i18n template, 8 languages, auto-derived persona name from directory)
-- [improvements/build-autonomy-improvement.md](improvements/build-autonomy-improvement.md) — Activate BUILD_PROPOSAL marker in system prompt for autonomous build-intent detection (prompt-only change, no Rust code)
+- [improvements/build-autonomy-improvement.md](improvements/build-autonomy-improvement.md) — ~~SUPERSEDED by build-keyword-to-marker-improvement~~ Activate BUILD_PROPOSAL marker in system prompt for autonomous build-intent detection (prompt-only change, no Rust code)
+- [improvements/build-keyword-to-marker-improvement.md](improvements/build-keyword-to-marker-improvement.md) — Replace hardcoded build keyword matching (107 entries, 8 languages) with marker-based intent detection via BUILD_PROPOSAL; remove discovery agent, always inject compact builds prompt
 
 ### Bugfixes
 - [bugfixes/p0-audit-2026-02-23-analysis.md](bugfixes/p0-audit-2026-02-23-analysis.md) — P0 audit findings (UTF-8 panics, HTTP timeouts, etc.)

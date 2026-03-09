@@ -17,15 +17,15 @@
 | File | Responsibility |
 |------|----------------|
 | `mod.rs` | Struct Gateway, `new()`, `run()`, `dispatch_message()`, `shutdown()`, `send_text()`, tests |
-| `pipeline.rs` | `handle_message()`, resolves `active_project`, routes builds, `/setup` intercept, `/google` intercept, `pending_google` session check, discovery session, delegates to `handle_direct_response()` |
-| `pipeline_builds.rs` | Build-related pipeline stages: discovery continuation, build confirmation, build keyword handling |
+| `pipeline.rs` | `handle_message()`, resolves `active_project`, `/setup` intercept, `/google` intercept, `pending_google` session check, delegates to `handle_direct_response()` |
+| `pipeline_builds.rs` | Build confirmation handling: `handle_pending_build_confirmation()` — checks pending_build_request fact, TTL, confirm/cancel |
 | `prompt_builder.rs` | `build_system_prompt()` -- full prompt construction with conditional section injection |
 | `routing.rs` | `classify_and_route()` (dead code), `execute_steps()` (dead code), `handle_direct_response()`, passes `active_project` to `process_markers()` |
 | `process_markers.rs` | `process_markers(incoming, text, active_project)`, `process_purge_facts()`, `process_improvement_markers()`, `send_task_confirmation()` |
 | `shared_markers.rs` | `process_task_and_learning_markers()` -- shared CANCEL_TASK, UPDATE_TASK, REWARD, LESSON processing (deduplicated across pipeline, action, heartbeat) |
 | `auth.rs` | `check_auth()`, `handle_whatsapp_qr()` (with on-demand dormant channel activation) |
-| `keywords.rs` | `kw_match()`, `is_valid_fact()`, setup i18n messages (8 languages), tests |
-| `keywords_data.rs` | Static keyword data arrays (`MAX_ACTION_RETRIES`, `SCHEDULING_KW`, `RECALL_KW`, `TASKS_KW`, `PROJECTS_KW`, `PROFILE_KW`, `OUTCOMES_KW`, `BUILDS_KW`, `META_KW`, `SYSTEM_FACT_KEYS`). Extracted for 500-line limit |
+| `keywords.rs` | `kw_match()`, `is_build_confirmed()`, `is_build_cancelled()`, `build_cancelled_message()`, `is_valid_fact()`, setup i18n messages (8 languages), tests |
+| `keywords_data.rs` | Static keyword data arrays (`MAX_ACTION_RETRIES`, `SCHEDULING_KW`, `RECALL_KW`, `TASKS_KW`, `PROJECTS_KW`, `PROFILE_KW`, `OUTCOMES_KW`, `META_KW`, `BUILD_CONFIRM_KW`, `BUILD_CANCEL_KW`, `BUILD_CONFIRM_TTL_SECS`). Extracted for 500-line limit |
 | `scheduler.rs` | Slim orchestrator: `scheduler_loop()` polls due tasks, delegates action execution to `scheduler_action.rs` |
 | `scheduler_action.rs` | Action task execution: `execute_action_task()`, system prompt enrichment, `ACTION_OUTCOME` parsing, marker processing, retry/failure |
 | `heartbeat.rs` | `heartbeat_loop()` (global + per-project), `classify_heartbeat_groups()`, `execute_heartbeat_group()` |
@@ -54,12 +54,12 @@ Gateway is the central event loop orchestrator that connects messaging channels,
 The gateway manages the asynchronous event loop that processes incoming messages through a deterministic pipeline:
 
 ```
-Message → Auth → Sanitize → Command Check (/setup intercept) → Typing → pending_setup check → Keyword Detection (kw_match) →
-Conditional Prompt Compose (Identity+Soul+System always, scheduling/projects/builds/meta if keywords match) →
+Message → Auth → Sanitize → Command Check (/setup intercept) → Typing → pending_setup check → pending_build_request check →
+Keyword Detection (kw_match) → Conditional Prompt Compose (Identity+Soul+System+Builds always, scheduling/projects/meta if keywords match) →
 Context (build_context with ContextNeeds gating recall/tasks DB queries) → MCP Trigger Match →
-Session Check (strip heavy prompt if continuation) →
-  if BUILDS_KW: → Confirmation gate → 7-phase agent pipeline (analyst→architect→test-writer→developer→QA→reviewer→delivery) → Audit → Send
-  else:         → DIRECT → Provider → Session Capture → Memory Store → Audit → Send
+Session Check (strip heavy prompt if continuation) → DIRECT → Provider → Marker Processing (BUILD_PROPOSAL → pending_build_request) →
+Session Capture → Memory Store → Audit → Send
+  [If pending_build_request confirmed: → 7-phase agent pipeline → Audit → Send]
 ```
 
 The gateway runs continuously, listening for messages from registered channels via an mpsc channel, and spawns a background task for periodic conversation summarization.
@@ -124,7 +124,6 @@ The gateway reduces system prompt token overhead by ~55% for typical messages. I
 | `RECALL_KW` | Semantic recall DB query (FTS5 related past messages) | "remember", "last time", "you said", "we discussed", multilingual variants |
 | `TASKS_KW` | Pending tasks DB query | "task", "reminder", "pending", "scheduled", "my tasks", multilingual variants |
 | `PROJECTS_KW` | Projects management rules injection (`prompts.projects_rules`) | "project", "activate", "deactivate", multilingual variants |
-| `BUILDS_KW` | Routes to multi-phase build pipeline + injects `prompts.builds` | "build me", "scaffold", "code me", "develop a", "new tool", "new app", multilingual variants |
 | `PROFILE_KW` | User profile (facts) injection into prompt | "who am i", "my name", "about me", "my profile", "what do you know", multilingual variants |
 | `OUTCOMES_KW` | Recent reward outcomes injection | "how did i", "how am i doing", "reward", "outcome", "feedback", "performance", multilingual variants |
 | `META_KW` | Meta rules injection (`prompts.meta`) — skill improvement, bug reporting, WhatsApp, personality, purge | "skill", "improve", "bug", "whatsapp", "qr", "personality", "forget", "purge" |
