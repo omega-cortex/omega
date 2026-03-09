@@ -26,8 +26,8 @@ understands user intent in any language — no keyword list can compete with tha
 
 ### Modified
 - `prompt_builder.rs`: `prompts.builds` always injected (was conditional on keyword match)
-- `config/prompts.rs`: Updated hardcoded builds default to clarification-first instruction
-- `SYSTEM_PROMPT.md`: Replaced `## Builds` section (was 35 lines of pipeline details → 3 lines of AI guidance)
+- `config/prompts.rs`: Updated hardcoded builds default — emit BUILD_PROPOSAL immediately, no pre-clarification
+- `SYSTEM_PROMPT.md`: Replaced `## Builds` section — emit BUILD_PROPOSAL immediately, pipeline handles clarification
 - `context_command.rs`: Builds section always shows as ON
 - `pipeline.rs`: Removed `needs_builds` from logging and function calls
 
@@ -43,7 +43,7 @@ understands user intent in any language — no keyword list can compete with tha
 ```
 User: "Quiero que hagas una GUI de task.py"
   → Normal conversation pipeline (no keyword interception)
-  → AI understands intent, asks clarifying questions if vague
+  → AI understands intent, emits BUILD_PROPOSAL immediately
   → AI emits: BUILD_PROPOSAL: GUI application for task.py
   → Gateway processes marker → stores pending_build_request fact
   → Next message: user says "sí"

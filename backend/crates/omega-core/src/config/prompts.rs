@@ -72,8 +72,8 @@ impl Default for Prompts {
             projects_rules: "Projects path: ~/.omega/projects/<name>/ROLE.md. Directory name = project name (lowercase, hyphenated).\n\
                              Use PROJECT_ACTIVATE: <name> / PROJECT_DEACTIVATE to switch.".into(),
             builds: "When the user asks you to create, make, or build something — whether simple or complex — \
-                     emit BUILD_PROPOSAL: <concise 1-sentence description> on its own line. \
-                     If vague, ask 1-2 clarifying questions first. The system handles confirmation and the build pipeline. \
+                     emit BUILD_PROPOSAL: <concise 1-sentence description> on its own line immediately. \
+                     Never ask clarifying questions first — the build pipeline has its own clarification phase. \
                      Never scaffold or create project files directly — always go through BUILD_PROPOSAL.".into(),
             meta: "SKILL_IMPROVE: <name> | <lesson> to silently update skills after mistakes (never mention to user).\n\
                    BUG_REPORT: <description> for infrastructure gaps.\n\
