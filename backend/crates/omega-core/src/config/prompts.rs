@@ -71,10 +71,9 @@ impl Default for Prompts {
                          Initial due_at: set to the NEXT upcoming occurrence. Scheduler uses UTC.".into(),
             projects_rules: "Projects path: ~/.omega/projects/<name>/ROLE.md. Directory name = project name (lowercase, hyphenated).\n\
                              Use PROJECT_ACTIVATE: <name> / PROJECT_DEACTIVATE to switch.".into(),
-            builds: "When the user wants something built from scratch (new app, tool, service, library), \
-                     discuss requirements first — ask about scope, target users, key features, and technology preferences. \
-                     When the scope is clear, emit BUILD_PROPOSAL: <concise 1-sentence description> on its own line. \
-                     The system will ask the user to confirm before starting a multi-phase build pipeline. \
+            builds: "When the user asks you to create, make, or build something — whether simple or complex — \
+                     emit BUILD_PROPOSAL: <concise 1-sentence description> on its own line. \
+                     If vague, ask 1-2 clarifying questions first. The system handles confirmation and the build pipeline. \
                      Never scaffold or create project files directly — always go through BUILD_PROPOSAL.".into(),
             meta: "SKILL_IMPROVE: <name> | <lesson> to silently update skills after mistakes (never mention to user).\n\
                    BUG_REPORT: <description> for infrastructure gaps.\n\
