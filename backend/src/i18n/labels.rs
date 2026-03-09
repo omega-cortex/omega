@@ -257,6 +257,51 @@ pub(super) fn lookup(key: &str, lang: &str) -> Option<&'static str> {
             _ => "No active conversation.",
         },
 
+        // --- Context command ---
+        "context_header" => match lang {
+            "Spanish" => "Contexto del Sistema",
+            "Portuguese" => "Contexto do Sistema",
+            "French" => "Contexte Syst\u{00e8}me",
+            "German" => "Systemkontext",
+            "Italian" => "Contesto di Sistema",
+            "Dutch" => "Systeemcontext",
+            "Russian" => "\u{0421}\u{0438}\u{0441}\u{0442}\u{0435}\u{043c}\u{043d}\u{044b}\u{0439} \u{043a}\u{043e}\u{043d}\u{0442}\u{0435}\u{043a}\u{0441}\u{0442}",
+            _ => "System Context",
+        },
+        "context_on" => match lang {
+            "Spanish" | "Portuguese" | "French" | "Italian" => "on",
+            "German" => "an",
+            "Dutch" => "aan",
+            "Russian" => "\u{0432}\u{043a}\u{043b}",
+            _ => "on",
+        },
+        "context_off" => match lang {
+            "German" => "aus",
+            "Dutch" => "uit",
+            "Russian" => "\u{0432}\u{044b}\u{043a}\u{043b}",
+            _ => "off",
+        },
+        "context_total" => match lang {
+            "Spanish" => "Total estimado:",
+            "Portuguese" => "Total estimado:",
+            "French" => "Total estim\u{00e9}:",
+            "German" => "Gesch\u{00e4}tzter Gesamtwert:",
+            "Italian" => "Totale stimato:",
+            "Dutch" => "Geschat totaal:",
+            "Russian" => "\u{041e}\u{0446}\u{0435}\u{043d}\u{043a}\u{0430} \u{0438}\u{0442}\u{043e}\u{0433}\u{043e}:",
+            _ => "Estimated total:",
+        },
+        "context_tip" => match lang {
+            "Spanish" => "Las secciones se activan seg\u{00fa}n palabras clave.\nUsa /context full para ver el prompt completo.",
+            "Portuguese" => "As se\u{00e7}\u{00f5}es s\u{00e3}o ativadas por palavras-chave.\nUse /context full para ver o prompt completo.",
+            "French" => "Les sections s'activent par mots-cl\u{00e9}s.\nUtilisez /context full pour voir le prompt complet.",
+            "German" => "Sektionen werden per Schl\u{00fc}sselw\u{00f6}rter aktiviert.\nNutze /context full f\u{00fc}r den vollst\u{00e4}ndigen Prompt.",
+            "Italian" => "Le sezioni si attivano per parole chiave.\nUsa /context full per vedere il prompt completo.",
+            "Dutch" => "Secties worden geactiveerd door sleutelwoorden.\nGebruik /context full voor de volledige prompt.",
+            "Russian" => "\u{0420}\u{0430}\u{0437}\u{0434}\u{0435}\u{043b}\u{044b} \u{0430}\u{043a}\u{0442}\u{0438}\u{0432}\u{0438}\u{0440}\u{0443}\u{044e}\u{0442}\u{0441}\u{044f} \u{043f}\u{043e} \u{043a}\u{043b}\u{044e}\u{0447}\u{0435}\u{0432}\u{044b}\u{043c} \u{0441}\u{043b}\u{043e}\u{0432}\u{0430}\u{043c}.\n\u{0418}\u{0441}\u{043f}\u{043e}\u{043b}\u{044c}\u{0437}\u{0443}\u{0439}\u{0442}\u{0435} /context full \u{0434}\u{043b}\u{044f} \u{043f}\u{043e}\u{043b}\u{043d}\u{043e}\u{0433}\u{043e} \u{043f}\u{0440}\u{043e}\u{043c}\u{043f}\u{0442}\u{0430}.",
+            _ => "Sections activate based on message keywords.\nUse /context full to see the raw prompt.",
+        },
+
         // --- Empty states ---
         "no_pending_tasks" => match lang {
             "Spanish" => "Sin tareas pendientes.",

@@ -139,10 +139,12 @@ pub(super) fn handle_help(lang: &str) -> String {
          {}\n\
          {}\n\
          {}\n\
+         {}\n\
          {}",
         i18n::t("commands_header", lang),
         i18n::t("help_status", lang),
         i18n::t("help_token", lang),
+        i18n::t("help_context", lang),
         i18n::t("help_memory", lang),
         i18n::t("help_history", lang),
         i18n::t("help_facts", lang),

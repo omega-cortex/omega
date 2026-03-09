@@ -64,6 +64,40 @@ No active conversation.
 
 ---
 
+### `/context` — System Prompt Sections
+
+**What It Does:** Shows a breakdown of the system prompt sections that would be injected for the current channel, including which conditional sections are active and their sizes.
+
+**Response Example:**
+```
+System Context
+
+  [on] Identity (342 chars)
+  [on] Soul (891 chars)
+  [on] System (412 chars)
+  [off] Scheduling (1204 chars)
+  [off] Project rules (856 chars)
+  [off] Builds (2100 chars)
+  [off] Meta (340 chars)
+
+Estimated total: ~1029 (~4119 chars)
+
+Sections activate based on message keywords.
+Use /context full to see the raw prompt.
+```
+
+**Subcommands:**
+- `/context` — Show section summary with sizes and token estimate
+- `/context full` — Output the raw system prompt text (split across messages if needed)
+- `/context scheduling` — Simulate with the scheduling section activated
+
+**Use Cases:**
+- Debug what the AI "sees" before your message
+- Understand why OMEGA behaves differently with certain keywords
+- Verify that project ROLE.md is being injected correctly
+
+---
+
 ### `/memory` — Your Memory Stats
 
 **What It Does:** Displays statistics about your personal memory stored in Omega, including the number of conversations, messages exchanged, and facts known about you.

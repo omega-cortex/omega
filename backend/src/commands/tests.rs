@@ -751,3 +751,34 @@ fn test_help_includes_token() {
         "help must list /token command: {result}"
     );
 }
+
+// ===================================================================
+// /context command — parse tests
+// ===================================================================
+
+#[test]
+fn test_parse_context_command() {
+    assert!(matches!(Command::parse("/context"), Some(Command::Context)));
+}
+
+#[test]
+fn test_parse_context_with_botname_suffix() {
+    assert!(matches!(
+        Command::parse("/context@omega_bot"),
+        Some(Command::Context)
+    ));
+}
+
+#[test]
+fn test_parse_contextfoo_does_not_match() {
+    assert!(Command::parse("/contextfoo").is_none());
+}
+
+#[test]
+fn test_help_includes_context() {
+    let result = status::handle_help("English");
+    assert!(
+        result.contains("/context"),
+        "help must list /context command: {result}"
+    );
+}

@@ -194,6 +194,13 @@ impl Gateway {
                 return;
             }
 
+            // --- /context intercept ---
+            if matches!(cmd, commands::Command::Context) {
+                self.handle_context_command(&incoming, active_project.as_deref())
+                    .await;
+                return;
+            }
+
             let ctx = commands::CommandContext {
                 store: &self.memory,
                 channel: &incoming.channel,

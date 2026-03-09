@@ -47,6 +47,7 @@ pub enum Command {
     Heartbeat,
     Learning,
     Token,
+    Context,
     Setup,
     Google,
     Help,
@@ -77,6 +78,7 @@ impl Command {
             "/heartbeat" => Some(Self::Heartbeat),
             "/learning" => Some(Self::Learning),
             "/token" => Some(Self::Token),
+            "/context" => Some(Self::Context),
             "/setup" => Some(Self::Setup),
             "/google" => Some(Self::Google),
             "/help" => Some(Self::Help),
@@ -156,6 +158,8 @@ pub async fn handle(cmd: Command, ctx: &CommandContext<'_>) -> String {
             .await
         }
         Command::Learning => learning::handle_learning(ctx.store, ctx.sender_id, &lang).await,
+        // Context is intercepted early in pipeline.rs -- this arm is a fallback.
+        Command::Context => status::handle_help(&lang),
         // Setup is intercepted early in pipeline.rs -- this arm is a fallback.
         Command::Setup => status::handle_help(&lang),
         // Google is intercepted early in pipeline.rs -- this arm is a fallback.

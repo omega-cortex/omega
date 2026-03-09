@@ -10,6 +10,7 @@ mod builds_i18n;
 mod builds_loop;
 mod builds_parse;
 mod builds_topology;
+mod context_command;
 mod google_auth;
 mod google_auth_i18n;
 mod google_auth_i18n_guide;

@@ -193,6 +193,16 @@ pub(super) fn lookup(key: &str, lang: &str) -> Option<&'static str> {
             "Russian" => "/google   \u{2014} \u{041d}\u{0430}\u{0441}\u{0442}\u{0440}\u{043e}\u{0438}\u{0442}\u{044c} \u{0443}\u{0447}\u{0451}\u{0442}\u{043d}\u{044b}\u{0435} \u{0434}\u{0430}\u{043d}\u{043d}\u{044b}\u{0435} Google",
             _ => "/google   \u{2014} Configure Google account credentials",
         },
+        "help_context" => match lang {
+            "Spanish" => "/context  \u{2014} Ver secciones del prompt del sistema",
+            "Portuguese" => "/context  \u{2014} Ver se\u{00e7}\u{00f5}es do prompt do sistema",
+            "French" => "/context  \u{2014} Voir les sections du prompt syst\u{00e8}me",
+            "German" => "/context  \u{2014} System-Prompt-Sektionen anzeigen",
+            "Italian" => "/context  \u{2014} Vedi sezioni del prompt di sistema",
+            "Dutch" => "/context  \u{2014} Systeempromptsecties bekijken",
+            "Russian" => "/context  \u{2014} \u{041f}\u{043e}\u{043a}\u{0430}\u{0437}\u{0430}\u{0442}\u{044c} \u{0441}\u{0435}\u{043a}\u{0446}\u{0438}\u{0438} \u{0441}\u{0438}\u{0441}\u{0442}\u{0435}\u{043c}\u{043d}\u{043e}\u{0433}\u{043e} \u{043f}\u{0440}\u{043e}\u{043c}\u{043f}\u{0442}\u{0430}",
+            _ => "/context  \u{2014} Show system prompt sections and token estimate",
+        },
         "help_setup" => match lang {
             "Spanish" => "/setup    \u{2014} Configurar OMEGA \u{03a9} como experto en tu dominio",
             "Portuguese" => "/setup    \u{2014} Configurar OMEGA \u{03a9} como especialista no seu dom\u{00ed}nio",

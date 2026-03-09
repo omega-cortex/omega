@@ -31,6 +31,7 @@ pub enum Command {
     Heartbeat,
     Learning,
     Token,
+    Context,
     Setup,
     Google,
     Skills,
@@ -43,6 +44,7 @@ pub enum Command {
 |---------|---------|
 | `Status` | System uptime, active provider, and database size |
 | `Token` | Estimated context token usage in the current conversation |
+| `Context` | Show system prompt sections breakdown and token estimate |
 | `Memory` | User-specific stats: conversations, messages, facts count |
 | `History` | Last 5 conversation summaries with timestamps |
 | `Facts` | List of known facts about the user |
