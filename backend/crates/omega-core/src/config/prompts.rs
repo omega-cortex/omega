@@ -6,23 +6,19 @@ use super::shellexpand;
 
 /// Externalized prompts and welcome messages, loaded from `~/.omega/` at startup.
 ///
+/// System prompt sections are stored as an ordered `Vec` parsed from `## Header`
+/// entries in `SYSTEM_PROMPT.md`. Any new section added to the markdown file is
+/// automatically included in the system prompt — no code changes needed.
+///
+/// Utility prompts (summarize, facts, heartbeat) are stored as named fields
+/// because they are used in separate code paths, not in the system prompt.
+///
 /// If files are missing, hardcoded defaults are used (backward compatible).
 #[derive(Debug, Clone)]
 pub struct Prompts {
-    /// Identity prompt — who Omega is.
-    pub identity: String,
-    /// Soul prompt — values and personality.
-    pub soul: String,
-    /// System prompt — core behavioral rules (always injected).
-    pub system: String,
-    /// Scheduling rules — conditionally injected when message mentions scheduling.
-    pub scheduling: String,
-    /// Project management rules — conditionally injected when projects are relevant.
-    pub projects_rules: String,
-    /// Build rules — conditionally injected when user asks to build something.
-    pub builds: String,
-    /// Meta rules (skill improvement, bug reporting, WhatsApp, heartbeat) — conditionally injected.
-    pub meta: String,
+    /// Ordered system prompt sections from SYSTEM_PROMPT.md (`## Header` → body).
+    /// Injected into every conversation's system prompt in order.
+    pub sections: Vec<(String, String)>,
     /// Conversation summarization instruction.
     pub summarize: String,
     /// Facts extraction instruction.
@@ -33,6 +29,17 @@ pub struct Prompts {
     pub heartbeat_checklist: String,
     /// Welcome messages keyed by language name.
     pub welcome: HashMap<String, String>,
+}
+
+impl Prompts {
+    /// Get a section's body by name (case-sensitive). Returns empty string if not found.
+    pub fn section(&self, name: &str) -> &str {
+        self.sections
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, body)| body.as_str())
+            .unwrap_or("")
+    }
 }
 
 impl Default for Prompts {
@@ -48,38 +55,40 @@ impl Default for Prompts {
         welcome.insert("Russian".into(), "\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}, \u{044f} *OMEGA \u{03a9}*, \u{0432}\u{0430}\u{0448} \u{043f}\u{0435}\u{0440}\u{0441}\u{043e}\u{043d}\u{0430}\u{043b}\u{044c}\u{043d}\u{044b}\u{0439} \u{0430}\u{0433}\u{0435}\u{043d}\u{0442} \u{0438}\u{0441}\u{043a}\u{0443}\u{0441}\u{0441}\u{0442}\u{0432}\u{0435}\u{043d}\u{043d}\u{043e}\u{0433}\u{043e} \u{0438}\u{043d}\u{0442}\u{0435}\u{043b}\u{043b}\u{0435}\u{043a}\u{0442}\u{0430}. \u{042f} \u{0440}\u{0430}\u{0431}\u{043e}\u{0442}\u{0430}\u{044e} \u{043d}\u{0430} \u{0432}\u{0430}\u{0448}\u{0435}\u{0439} \u{0441}\u{043e}\u{0431}\u{0441}\u{0442}\u{0432}\u{0435}\u{043d}\u{043d}\u{043e}\u{0439} \u{0438}\u{043d}\u{0444}\u{0440}\u{0430}\u{0441}\u{0442}\u{0440}\u{0443}\u{043a}\u{0442}\u{0443}\u{0440}\u{0435}, \u{043f}\u{043e}\u{0441}\u{0442}\u{0440}\u{043e}\u{0435}\u{043d} \u{043d}\u{0430} Rust \u{1f4aa}, \u{043f}\u{043e}\u{0434}\u{043a}\u{043b}\u{044e}\u{0447}\u{0451}\u{043d} \u{043a} Telegram, WhatsApp \u{0438} \u{0441} Claude \u{0432} \u{043a}\u{0430}\u{0447}\u{0435}\u{0441}\u{0442}\u{0432}\u{0435} \u{1f9e0}.\n\n\u{0414}\u{043b}\u{044f} \u{043c}\u{0435}\u{043d}\u{044f} \u{0447}\u{0435}\u{0441}\u{0442}\u{044c} \u{0431}\u{044b}\u{0442}\u{044c} \u{0443} \u{0432}\u{0430}\u{0441} \u{043d}\u{0430} \u{0441}\u{043b}\u{0443}\u{0436}\u{0431}\u{0435}.".into());
 
         Self {
-            identity: "You are OMEGA \u{03a9}, a personal AI agent running on the owner's infrastructure.\n\
-                       You are NOT a chatbot, not an assistant, not a tutor. You are an autonomous executor — an extension of your owner's intent and capabilities.\n\
-                       You belong to one person. Their priorities are yours. Their time is sacred.".into(),
-            soul: "- You are precise, warm, and quietly confident. Every word you say should earn its place.\n\
-                   - Be the agent you'd actually want in your life — competent, trustworthy, not a corporate drone.\n\
-                   - Have opinions. You can disagree, express preferences, or flag when something seems like a bad idea.\n\
-                   - Be resourceful before asking. Use context, memory, and available information first. Only ask when truly stuck.\n\
-                   - Act autonomously for internal actions (reading, thinking, organizing, scheduling). Confirm before external actions (sending messages to others, public posts, outward-facing changes).\n\
-                   - Celebrate progress — acknowledge wins, no matter how small.\n\
-                   - Speak the same language the user uses. Reference past conversations naturally when relevant.\n\
-                   - Never apologize unnecessarily.\n\
-                   - Don't introduce yourself on every message. Only on the very first interaction — after that, just answer what they ask.\n\
-                   - If the user profile includes a `personality` preference, honor it — it overrides your default tone.\n\
-                   - You have access to someone's personal life. That's trust. Private things stay private. Period.".into(),
-            system: "- When reporting the result of an action, give ONLY the outcome in plain language. Never include technical artifacts.\n\
-                     - In group chats: respond when mentioned, when adding genuine value, or when correcting misinformation. Stay silent for casual banter, redundant answers, or when you'd interrupt the flow.\n\
-                     - Verify before you claim. CHECK FIRST using the tools you have before stating something is broken or missing.\n\
-                     - Reward awareness: after meaningful exchanges, emit REWARD: <+1/0/-1>|<domain>|<lesson>. When you see a pattern across 3+ occasions, emit LESSON: <domain>|<rule>. Use your accumulated outcomes and lessons to improve.".into(),
-            scheduling: "You have a built-in scheduler — an internal task queue polled every 60 seconds.\n\
-                         Use SCHEDULE for reminders (user needs to act), SCHEDULE_ACTION for actions (you need to act).\n\
-                         Initial due_at: set to the NEXT upcoming occurrence. Scheduler uses UTC.".into(),
-            projects_rules: "Projects path: ~/.omega/projects/<name>/ROLE.md. Directory name = project name (lowercase, hyphenated).\n\
-                             Use PROJECT_ACTIVATE: <name> / PROJECT_DEACTIVATE to switch.".into(),
-            builds: "When the user wants something built from scratch (new app, tool, service, library), \
-                     discuss requirements first — ask about scope, target users, key features, and technology preferences. \
-                     When the scope is clear, emit BUILD_PROPOSAL: <concise 1-sentence description> on its own line. \
-                     The system will ask the user to confirm before starting a multi-phase build pipeline. \
-                     Never scaffold or create project files directly — always go through BUILD_PROPOSAL.".into(),
-            meta: "SKILL_IMPROVE: <name> | <lesson> to silently update skills after mistakes (never mention to user).\n\
-                   BUG_REPORT: <description> for infrastructure gaps.\n\
-                   WHATSAPP_QR to trigger WhatsApp setup (no commentary — system handles it).\n\
-                   GOOGLE_SETUP to trigger Google account setup (no commentary — system handles it).".into(),
+            sections: vec![
+                ("Identity".into(), "You are OMEGA \u{03a9}, a personal AI agent running on the owner's infrastructure.\n\
+                    You are NOT a chatbot, not an assistant, not a tutor. You are an autonomous executor — an extension of your owner's intent and capabilities.\n\
+                    You belong to one person. Their priorities are yours. Their time is sacred.".into()),
+                ("Soul".into(), "- You are precise, warm, and quietly confident. Every word you say should earn its place.\n\
+                    - Be the agent you'd actually want in your life — competent, trustworthy, not a corporate drone.\n\
+                    - Have opinions. You can disagree, express preferences, or flag when something seems like a bad idea.\n\
+                    - Be resourceful before asking. Use context, memory, and available information first. Only ask when truly stuck.\n\
+                    - Act autonomously for internal actions (reading, thinking, organizing, scheduling). Confirm before external actions (sending messages to others, public posts, outward-facing changes).\n\
+                    - Celebrate progress — acknowledge wins, no matter how small.\n\
+                    - Speak the same language the user uses. Reference past conversations naturally when relevant.\n\
+                    - Never apologize unnecessarily.\n\
+                    - Don't introduce yourself on every message. Only on the very first interaction — after that, just answer what they ask.\n\
+                    - If the user profile includes a `personality` preference, honor it — it overrides your default tone.\n\
+                    - You have access to someone's personal life. That's trust. Private things stay private. Period.".into()),
+                ("System".into(), "- When reporting the result of an action, give ONLY the outcome in plain language. Never include technical artifacts.\n\
+                    - In group chats: respond when mentioned, when adding genuine value, or when correcting misinformation. Stay silent for casual banter, redundant answers, or when you'd interrupt the flow.\n\
+                    - Verify before you claim. CHECK FIRST using the tools you have before stating something is broken or missing.\n\
+                    - Reward awareness: after meaningful exchanges, emit REWARD: <+1/0/-1>|<domain>|<lesson>. When you see a pattern across 3+ occasions, emit LESSON: <domain>|<rule>. Use your accumulated outcomes and lessons to improve.".into()),
+                ("Scheduling".into(), "You have a built-in scheduler — an internal task queue polled every 60 seconds.\n\
+                    Use SCHEDULE for reminders (user needs to act), SCHEDULE_ACTION for actions (you need to act).\n\
+                    Initial due_at: set to the NEXT upcoming occurrence. Scheduler uses UTC.".into()),
+                ("Projects".into(), "Projects path: ~/.omega/projects/<name>/ROLE.md. Directory name = project name (lowercase, hyphenated).\n\
+                    Use PROJECT_ACTIVATE: <name> / PROJECT_DEACTIVATE to switch.".into()),
+                ("Builds".into(), "When the user wants something built from scratch (new app, tool, service, library), \
+                    discuss requirements first — ask about scope, target users, key features, and technology preferences. \
+                    When the scope is clear, emit BUILD_PROPOSAL: <concise 1-sentence description> on its own line. \
+                    The system will ask the user to confirm before starting a multi-phase build pipeline. \
+                    Never scaffold or create project files directly — always go through BUILD_PROPOSAL.".into()),
+                ("Meta".into(), "SKILL_IMPROVE: <name> | <lesson> to silently update skills after mistakes (never mention to user).\n\
+                    BUG_REPORT: <description> for infrastructure gaps.\n\
+                    WHATSAPP_QR to trigger WhatsApp setup (no commentary — system handles it).\n\
+                    GOOGLE_SETUP to trigger Google account setup (no commentary — system handles it).".into()),
+            ],
             summarize: "Summarize this conversation in 1-2 sentences. Be factual and concise. \
                         Do not add commentary.".into(),
             facts: "Extract ONLY personal facts about the user — things that describe WHO they are, not what was discussed.\n\
@@ -164,6 +173,10 @@ pub fn install_bundled_prompts(data_dir: &str) {
 impl Prompts {
     /// Load prompts from `{data_dir}/prompts/SYSTEM_PROMPT.md` and `{data_dir}/prompts/WELCOME.toml`.
     ///
+    /// All `## Section` headers are parsed. Sections named in [`UTILITY_SECTIONS`]
+    /// are stored as named fields; everything else goes into `sections` (ordered)
+    /// and is automatically included in the system prompt.
+    ///
     /// Missing files or sections fall back to defaults.
     pub fn load(data_dir: &str) -> Self {
         let mut prompts = Self::default();
@@ -172,40 +185,21 @@ impl Prompts {
         // Load SYSTEM_PROMPT.md
         let prompt_path = format!("{dir}/prompts/SYSTEM_PROMPT.md");
         if let Ok(content) = std::fs::read_to_string(&prompt_path) {
-            let sections = parse_markdown_sections(&content);
-            if let Some(v) = sections.get("Identity") {
-                prompts.identity = v.clone();
+            let all = parse_markdown_sections(&content);
+
+            // Separate utility sections from system prompt sections.
+            let mut system_sections = Vec::new();
+            for (name, body) in all {
+                match name.as_str() {
+                    "Summarize" => prompts.summarize = body,
+                    "Facts" => prompts.facts = body,
+                    "Heartbeat" => prompts.heartbeat = body,
+                    "Heartbeat Checklist" => prompts.heartbeat_checklist = body,
+                    _ => system_sections.push((name, body)),
+                }
             }
-            if let Some(v) = sections.get("Soul") {
-                prompts.soul = v.clone();
-            }
-            if let Some(v) = sections.get("System") {
-                prompts.system = v.clone();
-            }
-            if let Some(v) = sections.get("Scheduling") {
-                prompts.scheduling = v.clone();
-            }
-            if let Some(v) = sections.get("Projects") {
-                prompts.projects_rules = v.clone();
-            }
-            if let Some(v) = sections.get("Builds") {
-                prompts.builds = v.clone();
-            }
-            if let Some(v) = sections.get("Meta") {
-                prompts.meta = v.clone();
-            }
-            if let Some(v) = sections.get("Summarize") {
-                prompts.summarize = v.clone();
-            }
-            if let Some(v) = sections.get("Facts") {
-                prompts.facts = v.clone();
-            }
-            if let Some(v) = sections.get("Heartbeat") {
-                prompts.heartbeat = v.clone();
-            }
-            if let Some(v) = sections.get("Heartbeat Checklist") {
-                prompts.heartbeat_checklist = v.clone();
-            }
+            prompts.sections = system_sections;
+
             tracing::info!("loaded prompts from {prompt_path}");
         }
 
@@ -227,9 +221,9 @@ impl Prompts {
     }
 }
 
-/// Parse a markdown file with `## Section` headers into a map of section name -> body.
-fn parse_markdown_sections(content: &str) -> HashMap<String, String> {
-    let mut sections = HashMap::new();
+/// Parse a markdown file with `## Section` headers into an ordered list of (name, body) pairs.
+fn parse_markdown_sections(content: &str) -> Vec<(String, String)> {
+    let mut sections = Vec::new();
     let mut current_key: Option<String> = None;
     let mut current_body = String::new();
 
@@ -239,7 +233,7 @@ fn parse_markdown_sections(content: &str) -> HashMap<String, String> {
             if let Some(key) = current_key.take() {
                 let trimmed = current_body.trim().to_string();
                 if !trimmed.is_empty() {
-                    sections.insert(key, trimmed);
+                    sections.push((key, trimmed));
                 }
             }
             current_key = Some(header.trim().to_string());
@@ -254,7 +248,7 @@ fn parse_markdown_sections(content: &str) -> HashMap<String, String> {
     if let Some(key) = current_key {
         let trimmed = current_body.trim().to_string();
         if !trimmed.is_empty() {
-            sections.insert(key, trimmed);
+            sections.push((key, trimmed));
         }
     }
 

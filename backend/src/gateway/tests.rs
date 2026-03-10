@@ -80,21 +80,12 @@ fn test_bundled_facts_prompt_guided_schema() {
 
 /// Build a test prompt the same way the pipeline does (all sections always injected).
 fn assemble_test_prompt(prompts: &Prompts) -> String {
-    let mut prompt = format!(
-        "{}\n\n{}\n\n{}",
-        prompts.identity, prompts.soul, prompts.system
-    );
-
-    prompt.push_str("\n\n");
-    prompt.push_str(&prompts.scheduling);
-    prompt.push_str("\n\n");
-    prompt.push_str(&prompts.projects_rules);
-    prompt.push_str("\n\n");
-    prompt.push_str(&prompts.builds);
-    prompt.push_str("\n\n");
-    prompt.push_str(&prompts.meta);
-
-    prompt
+    prompts
+        .sections
+        .iter()
+        .map(|(_, body)| body.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 #[test]
@@ -160,14 +151,13 @@ fn test_prompt_full_size_includes_all_conditional_sections() {
     let prompts = Prompts::default();
     let prompt = assemble_test_prompt(&prompts);
 
-    // The prompt should include all conditional sections' content
-    let conditional_size =
-        prompts.scheduling.len() + prompts.projects_rules.len() + prompts.meta.len();
+    // The prompt should include all sections' content.
+    let total_section_size: usize = prompts.sections.iter().map(|(_, b)| b.len()).sum();
     assert!(
-        prompt.len() > conditional_size,
-        "prompt ({}) must include all conditional sections ({})",
+        prompt.len() >= total_section_size,
+        "prompt ({}) must include all sections ({})",
         prompt.len(),
-        conditional_size
+        total_section_size
     );
 }
 

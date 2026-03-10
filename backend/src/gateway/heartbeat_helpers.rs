@@ -64,7 +64,7 @@ pub async fn build_enrichment(memory: &Store, project: Option<&str>) -> String {
     enrichment
 }
 
-/// Build the heartbeat system prompt (Identity + Soul + System + time).
+/// Build the heartbeat system prompt (all sections + time).
 ///
 /// When `project` is Some and has ROLE.md, appends project instructions.
 pub fn build_system_prompt(
@@ -72,10 +72,12 @@ pub fn build_system_prompt(
     project: Option<&str>,
     data_dir: Option<&str>,
 ) -> String {
-    let mut system = format!(
-        "{}\n\n{}\n\n{}",
-        prompts.identity, prompts.soul, prompts.system
-    );
+    let mut system = prompts
+        .sections
+        .iter()
+        .map(|(_, body)| body.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
     system.push_str(&format!(
         "\n\nCurrent time: {}",
         chrono::Local::now().format("%Y-%m-%d %H:%M %Z")

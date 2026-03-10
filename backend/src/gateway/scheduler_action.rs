@@ -49,10 +49,12 @@ pub(super) async fn execute_action_task(
     info!("scheduler: executing action task {id}: {description}");
     let started = Instant::now();
 
-    let mut system = format!(
-        "{}\n\n{}\n\n{}",
-        prompts.identity, prompts.soul, prompts.system
-    );
+    let mut system = prompts
+        .sections
+        .iter()
+        .map(|(_, body)| body.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
 
     // Current time — so the AI always knows when it is.
     system.push_str(&format!(

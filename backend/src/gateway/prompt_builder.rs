@@ -20,10 +20,14 @@ impl Gateway {
         active_project: Option<&str>,
         projects: &[omega_skills::Project],
     ) -> String {
-        let mut prompt = format!(
-            "{}\n\n{}\n\n{}",
-            self.prompts.identity, self.prompts.soul, self.prompts.system
-        );
+        // Concatenate all sections from SYSTEM_PROMPT.md in order.
+        let mut prompt = self
+            .prompts
+            .sections
+            .iter()
+            .map(|(_, body)| body.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
 
         prompt.push_str(&format!(
             "\n\nYou are running on provider '{}', model '{}'.",
@@ -62,15 +66,6 @@ impl Gateway {
                 "\n\nNo projects yet. When the user works in a recurring domain (trading, real estate, fitness...), suggest creating a project (~/.omega/projects/<name>/ROLE.md). User commands: /projects, /project <name>, /project off."
             );
         }
-
-        prompt.push_str("\n\n");
-        prompt.push_str(&self.prompts.scheduling);
-        prompt.push_str("\n\n");
-        prompt.push_str(&self.prompts.projects_rules);
-        prompt.push_str("\n\n");
-        prompt.push_str(&self.prompts.builds);
-        prompt.push_str("\n\n");
-        prompt.push_str(&self.prompts.meta);
 
         // Active project ROLE.md — always injected when a project is active
         if let Some(project_name) = active_project {

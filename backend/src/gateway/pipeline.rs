@@ -216,9 +216,7 @@ impl Gateway {
                 heartbeat_enabled: self.heartbeat_config.enabled,
                 heartbeat_interval_mins: self.heartbeat_interval.load(Ordering::Relaxed),
                 active_project: active_project.as_deref(),
-                base_prompt_chars: self.prompts.identity.len()
-                    + self.prompts.soul.len()
-                    + self.prompts.system.len(),
+                base_prompt_chars: self.prompts.sections.iter().map(|(_, b)| b.len()).sum(),
             };
             let response = commands::handle(cmd, &ctx).await;
 
@@ -377,14 +375,10 @@ impl Gateway {
                     "Current time: {}",
                     chrono::Local::now().format("%Y-%m-%d %H:%M %Z")
                 );
-                minimal.push_str("\n\n");
-                minimal.push_str(&self.prompts.scheduling);
-                minimal.push_str("\n\n");
-                minimal.push_str(&self.prompts.projects_rules);
-                minimal.push_str("\n\n");
-                minimal.push_str(&self.prompts.builds);
-                minimal.push_str("\n\n");
-                minimal.push_str(&self.prompts.meta);
+                for (_, body) in &self.prompts.sections {
+                    minimal.push_str("\n\n");
+                    minimal.push_str(body);
+                }
 
                 // Project awareness (lightweight — name only, not ROLE.md).
                 // ROLE.md was injected in the first message of this session and

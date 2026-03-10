@@ -52,32 +52,11 @@ impl Gateway {
         // Build structured summary — all sections are always ON.
         let mut sections = Vec::new();
 
-        let identity_chars = self.prompts.identity.len();
-        let soul_chars = self.prompts.soul.len();
-        let system_chars = self.prompts.system.len();
-
         let on = i18n::t("context_on", &lang);
 
-        sections.push(format!("[{on}] Identity ({identity_chars} chars)"));
-        sections.push(format!("[{on}] Soul ({soul_chars} chars)"));
-        sections.push(format!("[{on}] System ({system_chars} chars)"));
-
-        sections.push(format!(
-            "[{on}] Scheduling ({} chars)",
-            self.prompts.scheduling.len()
-        ));
-
-        sections.push(format!(
-            "[{on}] Project rules ({} chars)",
-            self.prompts.projects_rules.len()
-        ));
-
-        sections.push(format!(
-            "[{on}] Builds ({} chars)",
-            self.prompts.builds.len()
-        ));
-
-        sections.push(format!("[{on}] Meta ({} chars)", self.prompts.meta.len()));
+        for (name, body) in &self.prompts.sections {
+            sections.push(format!("[{on}] {name} ({} chars)", body.len()));
+        }
 
         if let Some(project_name) = active_project {
             if let Some(proj) = projects.iter().find(|p| p.name == project_name) {

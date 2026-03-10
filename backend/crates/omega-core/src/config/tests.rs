@@ -90,12 +90,12 @@ fn test_parse_identity_soul_system_sections() {
     std::fs::write(tmp.join("prompts/SYSTEM_PROMPT.md"), content).unwrap();
 
     let loaded = Prompts::load(tmp.to_str().unwrap());
-    assert_eq!(loaded.identity, "I am OMEGA.");
-    assert_eq!(loaded.soul, "Be helpful.");
-    assert_eq!(loaded.system, "Rules here.");
+    assert_eq!(loaded.section("Identity"), "I am OMEGA.");
+    assert_eq!(loaded.section("Soul"), "Be helpful.");
+    assert_eq!(loaded.section("System"), "Rules here.");
     // Verify defaults are still reasonable
     assert!(
-        prompts.identity.contains("OMEGA"),
+        prompts.section("Identity").contains("OMEGA"),
         "default identity should mention OMEGA"
     );
 
@@ -116,15 +116,13 @@ fn test_backward_compat_system_only() {
     .unwrap();
 
     let prompts = Prompts::load(tmp.to_str().unwrap());
-    assert_eq!(prompts.system, "Custom rules only.");
-    // Identity and soul should be defaults (not empty).
-    assert!(
-        prompts.identity.contains("OMEGA"),
-        "identity should keep default"
-    );
-    assert!(
-        prompts.soul.contains("quietly confident"),
-        "soul should keep default"
+    assert_eq!(prompts.section("System"), "Custom rules only.");
+    // When only System is in the file, Identity and Soul are absent (no defaults merged).
+    // The file is the single source of truth — only what's in the file is loaded.
+    assert_eq!(
+        prompts.sections.len(),
+        1,
+        "only System section should be loaded"
     );
 
     let _ = std::fs::remove_dir_all(&tmp);
@@ -134,15 +132,17 @@ fn test_backward_compat_system_only() {
 fn test_prompts_default_has_identity_soul() {
     let prompts = Prompts::default();
     assert!(
-        prompts.identity.contains("OMEGA"),
+        prompts.section("Identity").contains("OMEGA"),
         "default identity should mention OMEGA"
     );
     assert!(
-        prompts.soul.contains("quietly confident"),
+        prompts.section("Soul").contains("quietly confident"),
         "default soul should contain personality"
     );
     assert!(
-        prompts.system.contains("outcome in plain language"),
+        prompts
+            .section("System")
+            .contains("outcome in plain language"),
         "default system should contain rules"
     );
 }

@@ -240,7 +240,9 @@ async fn cmd_start(config_path: &str) -> anyhow::Result<()> {
     let skills = omega_skills::load_skills(&cfg.omega.data_dir);
     let skill_block = omega_skills::build_skill_prompt(&skills);
     if !skill_block.is_empty() {
-        prompts.system.push_str(&skill_block);
+        if let Some((_, body)) = prompts.sections.iter_mut().find(|(n, _)| n == "System") {
+            body.push_str(&skill_block);
+        }
     }
 
     // Ensure projects dir exists (projects are hot-reloaded per message).
